@@ -269,79 +269,67 @@ def draw_figure2():
 # FIGURE 3: Inference Time Breakdown (Stacked Bar Chart)
 # =====================================================================
 def draw_figure3():
-    fig, ax = plt.subplots(1, 1, figsize=(10, 4))
+    fig, axes = plt.subplots(2, 1, figsize=(10, 6), gridspec_kw={'height_ratios': [1, 1]})
 
-    # Data
-    categories = ['Write activations\n(bus → DRAM)', 'Read AND results\n(DRAM → bus)',
-                  'In-DRAM AND\n(charge-sharing)', 'Refresh + FPGA\noverhead']
-    times_ms = [242, 242, 33, 26]
-    percentages = [44, 44, 6, 6]
-    colors = [MED_ORANGE, MED_BLUE, MED_GREEN, GRAY]
-    light_colors = [LIGHT_ORANGE, LIGHT_BLUE, LIGHT_GREEN, LIGHT_GRAY]
+    def draw_bar(ax, categories, times_ms, colors, title, insight):
+        total = sum(times_ms)
+        percentages = [t/total*100 for t in times_ms]
 
-    total = sum(times_ms)  # 543
+        left = 0
+        for i, (t, pct, color) in enumerate(zip(times_ms, percentages, colors)):
+            if t > 0:
+                bar = ax.barh(0, t, left=left, height=0.6, color=color, edgecolor='white', linewidth=2)
+                cx = left + t/2
+                if t > total * 0.08:
+                    ax.text(cx, 0, f'{t:.0f} ms\n({pct:.0f}%)', ha='center', va='center',
+                            fontsize=9, fontweight='bold', color='white')
+                left += t
 
-    # Draw stacked horizontal bar
-    left = 0
-    bars = []
-    for i, (t, pct, color, lc) in enumerate(zip(times_ms, percentages, colors, light_colors)):
-        bar = ax.barh(0, t, left=left, height=0.6, color=color, edgecolor='white', linewidth=2)
-        bars.append(bar)
+        # Category labels below
+        left = 0
+        for i, (t, cat) in enumerate(zip(times_ms, categories)):
+            if t > 0:
+                cx = left + t/2
+                ax.text(cx, -0.55, cat, ha='center', va='top', fontsize=7, color=DARK_GRAY)
+            left += t
 
-        # Label inside bar
-        cx = left + t/2
-        if t > 40:
-            ax.text(cx, 0, f'{t} ms\n({pct}%)', ha='center', va='center',
-                    fontsize=10, fontweight='bold', color='white')
-        else:
-            ax.text(cx, 0, f'{t}\n({pct}%)', ha='center', va='center',
-                    fontsize=8, fontweight='bold', color='white')
-        left += t
+        toks = 1000.0 / total if total > 0 else 0
+        ax.text(total + 5, 0, f'Total: {total:.0f} ms\n= {toks:.1f} tok/s', ha='left', va='center',
+                fontsize=9, fontweight='bold', color=DARK_GRAY)
 
-    # Category labels below
-    left = 0
-    for i, (t, cat) in enumerate(zip(times_ms, categories)):
-        cx = left + t/2
-        ax.text(cx, -0.55, cat, ha='center', va='top', fontsize=8, color=DARK_GRAY)
-        left += t
+        ax.text(total/2, -1.2, insight, ha='center', va='top', fontsize=7.5,
+                color=DARK_GRAY, style='italic',
+                bbox=dict(boxstyle='round,pad=0.3', facecolor=LIGHT_GRAY, edgecolor=GRAY, linewidth=0.8))
 
-    # Bus transfer bracket (88%)
-    ax.annotate('', xy=(0, 0.5), xytext=(484, 0.5),
-                arrowprops=dict(arrowstyle='|-|', color=MED_RED, lw=1.5,
-                                mutation_scale=8))
-    ax.text(242, 0.7, 'Bus transfers: 88% of total inference time',
-            ha='center', va='bottom', fontsize=10, fontweight='bold', color=MED_RED)
+        ax.set_xlim(-10, total + 150)
+        ax.set_ylim(-1.8, 0.8)
+        ax.set_yticks([])
+        ax.set_xlabel('Time (ms)', fontsize=9, color=DARK_GRAY)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.spines['left'].set_visible(False)
+        ax.set_title(title, fontsize=10, fontweight='bold', color=DARK_GRAY, pad=8)
 
-    # Compute bracket (6%)
-    ax.annotate('', xy=(484, 0.45), xytext=(517, 0.45),
-                arrowprops=dict(arrowstyle='|-|', color=DARK_GREEN, lw=1.0,
-                                mutation_scale=6))
-    ax.text(500, 0.6, 'Compute:\n6%', ha='center', va='bottom',
-            fontsize=7, fontweight='bold', color=DARK_GREEN)
+    # Panel A: No pipelining (DRAM-bound) — 1 DIMM, ternary
+    cats_a = ['Bus write\n(activation)', 'MAJ3 AND\n(DRAM-internal)', 'RowCopy\n(weight reload)', 'FPGA']
+    times_a = [0.1, 206, 411, 6.5]  # From simulator: ternary, 1 DIMM, no pipeline
+    colors_a = [MED_ORANGE, MED_GREEN, PURPLE, GRAY]
+    draw_bar(axes[0], cats_a, times_a, colors_a,
+             '(a) Without pipelining: DRAM-bound (ternary, 1 DIMM)',
+             'RowCopy (67%) dominates — weight must be reloaded after each MAJ3.\n'
+             'Bus is idle. DRAM internal ops are the bottleneck.')
 
-    # Total label
-    ax.text(total + 5, 0, f'Total: {total} ms/token\n= 1.8 tok/s', ha='left', va='center',
-            fontsize=10, fontweight='bold', color=DARK_GRAY)
+    # Panel B: With 4-bank pipelining (bus-bound) — 1 DIMM, ternary
+    cats_b = ['Bus write\n(activation)', 'Bus read\n(AND result)', 'FPGA']
+    times_b = [0.1, 289, 6.5]  # From simulator: ternary, 1 DIMM, 4-bank pipeline
+    colors_b = [MED_ORANGE, MED_BLUE, GRAY]
+    draw_bar(axes[1], cats_b, times_b, colors_b,
+             '(b) With 4-bank pipelining: bus-bound (ternary, 1 DIMM)',
+             'RowCopy + MAJ3 run in parallel with bus transfers → hidden.\n'
+             'Bus read (98%) is the sole bottleneck. In-DRAM popcount eliminates it.')
 
-    # Insight box at bottom
-    ax.text(total/2, -1.3,
-            'The DRAM is idle 88% of the time, waiting on the narrow 64-bit DDR4 bus.\n'
-            'In-DRAM popcount would eliminate the "Read" bar (44%), yielding 2.1x speedup.',
-            ha='center', va='top', fontsize=8.5, color=DARK_GRAY, style='italic',
-            bbox=dict(boxstyle='round,pad=0.4', facecolor=LIGHT_GRAY, edgecolor=GRAY,
-                      linewidth=0.8))
-
-    ax.set_xlim(-10, total + 120)
-    ax.set_ylim(-2.0, 1.2)
-    ax.set_yticks([])
-    ax.set_xlabel('Time (ms)', fontsize=10, color=DARK_GRAY)
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.spines['left'].set_visible(False)
-
-    ax.set_title('Figure 3: Per-Token Inference Time Breakdown (1 DIMM, DDR4-2400, 8-bit activations)',
-                 fontsize=11, fontweight='bold', color=DARK_GRAY, pad=15)
-
+    fig.suptitle('Figure 3: Per-Token Inference Time Breakdown (Corrected — MAJ3 + RowCopy Protocol)',
+                 fontsize=11, fontweight='bold', color=DARK_GRAY, y=1.02)
     fig.tight_layout()
     fig.savefig('C:/Users/Udja/Documents/Deni/PIM/figures/fig3_bottleneck.png',
                 dpi=300, bbox_inches='tight', facecolor='white')

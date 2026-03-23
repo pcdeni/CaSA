@@ -120,18 +120,32 @@ def compute_write_time(n_in: int, timing: DDR4Timing) -> float:
     return compute_bus_transfer_time(transfer_bytes, timing)
 
 
-def compute_and_time(timing: DDR4Timing) -> float:
+def compute_maj3_time(timing: DDR4Timing) -> float:
     """
-    AND phase (charge-sharing double-activation).
+    MAJ3 AND phase (charge-sharing triple-row activation).
 
-    The PIM protocol issues two ACT commands:
-      1. ACT on the activation row  (tRCD to sense)
-      2. ACT on the weight row      (tRCD to sense, then charge-sharing AND)
-    Plus tRAS to allow the row to fully sense.
+    CORRECTED (March 2026): AND(A,B) = MAJ3(A, B, 0).
+    Three rows activated simultaneously, then sense amp resolves majority.
 
-    Time = 2 * tRCD + tRAS
+    The protocol opens three wordlines (weight + activation + zero-reference)
+    before the sense amp fires. Time = 3 * tRCD + tRAS (conservative;
+    in practice WLs can be staggered within ~1-2ns).
     """
-    return 2.0 * timing.tRCD_ns + timing.tRAS_ns
+    return 3.0 * timing.tRCD_ns + timing.tRAS_ns
+
+
+def compute_rowcopy_time(timing: DDR4Timing) -> float:
+    """
+    RowCopy phase (SA-mediated 2-row activation).
+
+    CORRECTED (March 2026): 2-row activation produces COPY(A→B), not AND.
+    This is used to reload weights after MAJ3 destroys them, and to
+    reinitialize zero-reference rows from persistent zero rows.
+
+    Protocol: ACT source → SA latches → ACT destination → SA overwrites.
+    Time = 2 * tRCD + tRAS + tRP
+    """
+    return 2.0 * timing.tRCD_ns + timing.tRAS_ns + timing.tRP_ns
 
 
 def compute_read_time(n_in: int, timing: DDR4Timing) -> float:
@@ -159,14 +173,20 @@ def compute_refresh_overhead_fraction(timing: DDR4Timing) -> float:
 class LayerTiming:
     """Breakdown of time components for one transformer layer (nanoseconds)."""
     write_ns: float = 0.0
-    and_ns: float = 0.0
+    maj3_ns: float = 0.0       # MAJ3 AND compute (was 'and_ns')
+    rowcopy_ns: float = 0.0    # RowCopy for weight reload + zero-ref init
     read_ns: float = 0.0
     fpga_ns: float = 0.0
     transfer_ns: float = 0.0   # Inter-DIMM activation transfer
 
     @property
+    def and_ns(self) -> float:
+        """Alias for backward compatibility."""
+        return self.maj3_ns
+
+    @property
     def total_ns(self) -> float:
-        return self.write_ns + self.and_ns + self.read_ns + self.fpga_ns + self.transfer_ns
+        return self.write_ns + self.maj3_ns + self.rowcopy_ns + self.read_ns + self.fpga_ns + self.transfer_ns
 
 
 def simulate_one_matvec(
@@ -203,56 +223,103 @@ def simulate_one_matvec(
     """
     num_passes = act_bits * 2   # B bit-planes * 2 halves (pos/neg weights)
 
-    # --- Per-pass timing ---
+    # --- Per-pass timing (CORRECTED: MAJ3 + RowCopy protocol) ---
+    #
+    # Per pass (one bit-plane, one weight half):
+    #   1. BUS WRITE: activation bit-plane to scratch row     [once per pass]
+    #   2. For each weight row:
+    #      a. DRAM RowCopy: zeros from persistent row to ref  [~65ns in-DRAM]
+    #      b. DRAM MAJ3: weight + activation + ref            [~65ns in-DRAM]
+    #      c. BUS READ: result row (or popcount if in-DRAM)   [per weight row]
+    #      d. DRAM RowCopy: backup → weight row (restore)     [~65ns in-DRAM]
+    #
     write_per_pass = compute_write_time(n_in, timing)
-    and_per_pass = compute_and_time(timing)
+    maj3_per_row = compute_maj3_time(timing)
+    rowcopy_per_row = compute_rowcopy_time(timing)
 
     if in_dram_popcount:
-        # Read phase eliminated: popcount happens in the sense amplifiers
-        read_per_pass = 0.0
+        read_per_row = 0.0
     else:
-        read_per_pass = compute_read_time(n_in, timing)
+        read_per_row = compute_read_time(n_in, timing)
 
-    # --- Per weight-row timing (one pass processes all N_out rows) ---
-    # Actually: for each pass, we iterate over all N_out weight rows.
-    # The WRITE of the activation bit-plane happens once per pass (shared).
-    # The AND + READ happen once per weight row per pass.
+    # RowCopy overhead per weight row:
+    # 1x RowCopy to init zero-ref + 1x RowCopy to restore weight = 2 RowCopies
+    rowcopy_per_weight_row = 2.0 * rowcopy_per_row
 
-    # Corrected model:
+    # Corrected model (MAJ3 + RowCopy):
     # Per pass:
-    #   1x WRITE (activation bit-plane)
-    #   N_out x (AND + READ) for each weight row
+    #   1x WRITE (activation bit-plane via bus)
+    #   N_out x (RowCopy_zeros + MAJ3 + READ + RowCopy_weight) per weight row
     # Total passes = 2 * B
 
     write_total = num_passes * write_per_pass
-    and_total = num_passes * n_out * and_per_pass
-    read_total = num_passes * n_out * read_per_pass
+    maj3_total = num_passes * n_out * maj3_per_row
+    rowcopy_total = num_passes * n_out * rowcopy_per_weight_row
+    read_total = num_passes * n_out * read_per_row
 
-    # Apply overlap: write and read can overlap if using different banks
-    bus_time = write_total + read_total
-    overlap_savings = bus_time * overlap_factor
-    write_total_adj = write_total * (1.0 - overlap_factor)
-    read_total_adj = read_total * (1.0 - overlap_factor)
-    # The AND time is compute-bound in DRAM, not overlappable with bus
-    # But the savings come from bus contention reduction
-    # We distribute the savings proportionally
-    if bus_time > 0:
-        write_total_eff = write_total - overlap_savings * (write_total / bus_time)
-        read_total_eff = read_total - overlap_savings * (read_total / bus_time)
+    # --- Pipelining model ---
+    #
+    # Key insight: RowCopy and MAJ3 are DRAM-internal — they DON'T use the bus.
+    # Bus transfers (write, read) and DRAM ops (MAJ3, RowCopy) can run in
+    # parallel across different banks.
+    #
+    # Per weight row, the pipeline is:
+    #   BUS:  [----read result----]  (uses bus, 96ns)
+    #   DRAM: [RowCopy0][MAJ3][RowCopy_wt]  (no bus, 228ns total in one bank)
+    #
+    # With multi-bank pipelining (16 banks), DRAM ops are distributed:
+    #   Effective DRAM time per row = dram_per_row / num_pipeline_banks
+    #
+    # The bottleneck per weight row is:
+    #   max(bus_time_per_row, dram_time_per_row / pipeline_depth)
+    #
+    # overlap_factor maps to pipeline depth:
+    #   0.0 = no pipelining (1 bank, sequential)
+    #   0.5 = conservative (4 banks active)
+    #   0.75 = aggressive (8 banks active)
+
+    # Per weight row timing
+    bus_per_row = read_per_row  # only reads use the bus per weight row
+    dram_per_row = rowcopy_per_weight_row + maj3_per_row  # all DRAM-internal
+
+    # Pipeline depth from overlap_factor
+    if overlap_factor <= 0.0:
+        pipeline_banks = 1
+    elif overlap_factor <= 0.5:
+        pipeline_banks = 4
     else:
-        write_total_eff = 0.0
-        read_total_eff = 0.0
+        pipeline_banks = 8
+
+    # Effective time per weight row = max(bus, dram/pipeline)
+    dram_per_row_pipelined = dram_per_row / pipeline_banks
+    effective_per_row = max(bus_per_row, dram_per_row_pipelined)
+
+    # Total time for all weight rows across all passes
+    total_weight_row_time = num_passes * n_out * effective_per_row
+
+    # Bus writes (activation): once per pass, always sequential on bus
+    write_total_eff = num_passes * write_per_pass
+
+    # Decompose effective time into bus vs DRAM components for reporting
+    if bus_per_row >= dram_per_row_pipelined:
+        # Bus-bound: DRAM ops fully hidden
+        read_total_eff = num_passes * n_out * bus_per_row
+        maj3_total_eff = 0.0  # hidden behind bus
+        rowcopy_total_eff = 0.0  # hidden behind bus
+    else:
+        # DRAM-bound: some bus time hidden behind DRAM
+        read_total_eff = 0.0  # hidden behind DRAM
+        maj3_total_eff = num_passes * n_out * (maj3_per_row / pipeline_banks)
+        rowcopy_total_eff = num_passes * n_out * (rowcopy_per_weight_row / pipeline_banks)
 
     # FPGA post-processing: popcount + shift-accumulate + batch-norm + activation
-    # Estimate: ~10 ns per output element (pipelined, very fast relative to DRAM)
-    # This includes popcount of N_in-bit vectors, weighted accumulation across
-    # bit-planes, batch normalization, and SiLU/ReLU activation.
     fpga_cycles_per_output = 10.0  # ns, conservative for pipelined FPGA @ 200 MHz
     fpga_total = n_out * fpga_cycles_per_output
 
     return LayerTiming(
         write_ns=write_total_eff,
-        and_ns=and_total,
+        maj3_ns=maj3_total_eff,
+        rowcopy_ns=rowcopy_total_eff,
         read_ns=read_total_eff,
         fpga_ns=fpga_total,
         transfer_ns=0.0,
@@ -275,7 +342,8 @@ def simulate_one_layer(
             n_in, n_out, act_bits, timing, overlap_factor, in_dram_popcount
         )
         layer.write_ns += mv.write_ns
-        layer.and_ns += mv.and_ns
+        layer.maj3_ns += mv.maj3_ns
+        layer.rowcopy_ns += mv.rowcopy_ns
         layer.read_ns += mv.read_ns
         layer.fpga_ns += mv.fpga_ns
     return layer
@@ -329,17 +397,17 @@ def simulate_full_model(
     # --- Aggregate across all layers ---
     total = LayerTiming(
         write_ns=layer_timing.write_ns * model.num_layers,
-        and_ns=layer_timing.and_ns * model.num_layers,
+        maj3_ns=layer_timing.maj3_ns * model.num_layers,
+        rowcopy_ns=layer_timing.rowcopy_ns * model.num_layers,
         read_ns=layer_timing.read_ns * model.num_layers,
         fpga_ns=layer_timing.fpga_ns * model.num_layers,
     )
 
     # --- Multi-DIMM parallelism ---
-    # Layers are distributed across DIMMs. Each DIMM handles num_layers/num_dimms.
-    # The compute time is divided by num_dimms.
     if config.num_dimms > 1:
         total.write_ns /= config.num_dimms
-        total.and_ns /= config.num_dimms
+        total.maj3_ns /= config.num_dimms
+        total.rowcopy_ns /= config.num_dimms
         total.read_ns /= config.num_dimms
         total.fpga_ns /= config.num_dimms
 
@@ -368,13 +436,11 @@ def simulate_full_model(
 
     # --- Refresh overhead ---
     refresh_fraction = compute_refresh_overhead_fraction(timing)
-    # Stretch the DRAM-bound portions (write, AND, read) by the refresh penalty
-    dram_time = total.write_ns + total.and_ns + total.read_ns
-    refresh_penalty = dram_time * refresh_fraction
-    # Distribute proportionally
-    if dram_time > 0:
+    # Stretch all DRAM-bound portions by the refresh penalty
+    if total.total_ns > 0:
         total.write_ns *= (1.0 + refresh_fraction)
-        total.and_ns *= (1.0 + refresh_fraction)
+        total.maj3_ns *= (1.0 + refresh_fraction)
+        total.rowcopy_ns *= (1.0 + refresh_fraction)
         total.read_ns *= (1.0 + refresh_fraction)
 
     # --- Final per-token time ---
@@ -545,12 +611,13 @@ def print_breakdown_table(results: List[SimResult]):
     hdr = (
         f"{'Configuration':<42s} "
         f"{'Write':>10s} "
-        f"{'AND':>10s} "
+        f"{'MAJ3':>10s} "
+        f"{'RowCopy':>10s} "
         f"{'Read':>10s} "
         f"{'FPGA':>10s} "
-        f"{'Transfer':>10s} "
+        f"{'Xfer':>10s} "
         f"{'TOTAL':>10s} "
-        f"{'AND %':>7s}"
+        f"{'Bus%':>6s}"
     )
     print(hdr)
     print_separator("-")
@@ -559,26 +626,28 @@ def print_breakdown_table(results: List[SimResult]):
         b = r.breakdown
         total = b.total_ns / 1e6  # convert ns to ms
         w = b.write_ns / 1e6
-        a = b.and_ns / 1e6
+        m = b.maj3_ns / 1e6
+        rc = b.rowcopy_ns / 1e6
         rd = b.read_ns / 1e6
         fp = b.fpga_ns / 1e6
         tr = b.transfer_ns / 1e6
-        and_pct = (b.and_ns / b.total_ns * 100) if b.total_ns > 0 else 0.0
+        bus_pct = ((b.write_ns + b.read_ns) / b.total_ns * 100) if b.total_ns > 0 else 0.0
 
         print(
             f"{r.config.name:<42s} "
             f"{w:>10.2f} "
-            f"{a:>10.2f} "
+            f"{m:>10.2f} "
+            f"{rc:>10.2f} "
             f"{rd:>10.2f} "
             f"{fp:>10.2f} "
             f"{tr:>10.2f} "
             f"{total:>10.2f} "
-            f"{and_pct:>6.1f}%"
+            f"{bus_pct:>5.1f}%"
         )
 
     print_separator()
-    print("Note: AND% shows the fraction of time spent on in-DRAM charge-sharing compute.")
-    print("      High AND% means the DRAM compute is the bottleneck (good -- bus is not).")
+    print("Note: Bus% = (Write+Read)/Total. Lower is better (less bus-bound).")
+    print("      MAJ3 = in-DRAM AND compute. RowCopy = weight reload + zero-ref init.")
     print()
 
 
@@ -775,7 +844,7 @@ def main():
     print(f"  Refresh overhead:         {compute_refresh_overhead_fraction(timing)*100:.2f}%")
     w = compute_write_time(2048, timing)
     print(f"  WRITE 2048-bit row:       {w:.2f} ns  ({math.ceil(2048/8/64)} burst(s))")
-    a = compute_and_time(timing)
+    a = compute_maj3_time(timing)
     print(f"  AND (double-ACT):         {a:.2f} ns")
     r = compute_read_time(2048, timing)
     print(f"  READ 2048-bit row:        {r:.2f} ns  ({math.ceil(2048/8/64)} burst(s))")

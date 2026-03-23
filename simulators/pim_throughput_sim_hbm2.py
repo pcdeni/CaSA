@@ -229,14 +229,24 @@ def compute_bus_transfer_ddr4(num_bytes: int, timing: DDR4Timing) -> float:
             + timing.tRP_ns)
 
 
-def compute_and_time_hbm2(timing: HBM2Timing) -> float:
-    """AND (charge-sharing) time per double-activation on HBM2."""
-    return 2.0 * timing.tRCD_ns + timing.tRAS_ns
+def compute_maj3_time_hbm2(timing: HBM2Timing) -> float:
+    """MAJ3 AND: 3 rows activated simultaneously. Time = 3*tRCD + tRAS"""
+    return 3.0 * timing.tRCD_ns + timing.tRAS_ns
 
 
-def compute_and_time_ddr4(timing: DDR4Timing) -> float:
-    """AND time per double-activation on DDR4."""
-    return 2.0 * timing.tRCD_ns + timing.tRAS_ns
+def compute_rowcopy_time_hbm2(timing: HBM2Timing) -> float:
+    """SA-mediated RowCopy: ACT source -> SA latches -> ACT dest. Time = 2*tRCD + tRAS + tRP"""
+    return 2.0 * timing.tRCD_ns + timing.tRAS_ns + timing.tRP_ns
+
+
+def compute_maj3_time_ddr4(timing: DDR4Timing) -> float:
+    """MAJ3 AND: 3 rows activated simultaneously. Time = 3*tRCD + tRAS"""
+    return 3.0 * timing.tRCD_ns + timing.tRAS_ns
+
+
+def compute_rowcopy_time_ddr4(timing: DDR4Timing) -> float:
+    """SA-mediated RowCopy: ACT source -> SA latches -> ACT dest. Time = 2*tRCD + tRAS + tRP"""
+    return 2.0 * timing.tRCD_ns + timing.tRAS_ns + timing.tRP_ns
 
 
 # ============================================================================
@@ -247,13 +257,19 @@ def compute_and_time_ddr4(timing: DDR4Timing) -> float:
 class MatvecTiming:
     """Timing breakdown for one matrix-vector multiply."""
     write_ns: float = 0.0
-    and_ns: float = 0.0
+    maj3_ns: float = 0.0       # MAJ3 AND compute
+    rowcopy_ns: float = 0.0    # RowCopy for weight reload + zero-ref init
     read_ns: float = 0.0
     fpga_ns: float = 0.0
 
     @property
+    def and_ns(self) -> float:
+        """Alias for backward compatibility."""
+        return self.maj3_ns
+
+    @property
     def total_ns(self):
-        return self.write_ns + self.and_ns + self.read_ns + self.fpga_ns
+        return self.write_ns + self.maj3_ns + self.rowcopy_ns + self.read_ns + self.fpga_ns
 
     @property
     def bus_ns(self):
@@ -271,10 +287,10 @@ def simulate_matvec_hbm2(
     """
     Simulate one matvec on a single HBM2 channel.
 
-    Uses the same logical model as DDR4/DDR5 sims:
+    CORRECTED (March 2026): MAJ3 + RowCopy protocol.
     - num_passes = act_bits * 2 (pos/neg weight halves)
-    - Per pass: 1 WRITE + n_out * (AND + READ)
-    - Overlap reduces bus contention
+    - Per pass: 1 WRITE + n_out * (RowCopy_zeros + MAJ3 + READ + RowCopy_weight)
+    - Pipelining hides DRAM ops behind bus ops across banks
     - In-DRAM popcount eliminates reads
     """
     num_passes = act_bits * 2
@@ -282,35 +298,55 @@ def simulate_matvec_hbm2(
     transfer_bytes = math.ceil(n_in / 8)
 
     write_per_pass = compute_bus_transfer_hbm2(transfer_bytes, timing)
-    and_per_op = compute_and_time_hbm2(timing)
+    maj3_per_row = compute_maj3_time_hbm2(timing)
+    rowcopy_per_row = compute_rowcopy_time_hbm2(timing)
 
     if in_dram_popcount:
-        read_per_op = 0.0
+        read_per_row = 0.0
     else:
-        read_per_op = compute_bus_transfer_hbm2(transfer_bytes, timing)
+        read_per_row = compute_bus_transfer_hbm2(transfer_bytes, timing)
 
-    # Totals
-    write_total = num_passes * write_per_pass
-    and_total = num_passes * n_out * and_per_op
-    read_total = num_passes * n_out * read_per_op
+    # RowCopy overhead per weight row:
+    # 1x RowCopy to init zero-ref + 1x RowCopy to restore weight = 2 RowCopies
+    rowcopy_per_weight_row = 2.0 * rowcopy_per_row
 
-    # Overlap savings on bus
-    bus_total = write_total + read_total
-    if bus_total > 0 and overlap_factor > 0:
-        savings = bus_total * overlap_factor
-        write_eff = write_total - savings * (write_total / bus_total)
-        read_eff = read_total - savings * (read_total / bus_total)
+    # Pipelining model
+    bus_per_row = read_per_row
+    dram_per_row = rowcopy_per_weight_row + maj3_per_row
+
+    if overlap_factor <= 0.0:
+        pipeline_banks = 1
+    elif overlap_factor <= 0.5:
+        pipeline_banks = 4
     else:
-        write_eff = write_total
-        read_eff = read_total
+        pipeline_banks = 8
+
+    dram_per_row_pipelined = dram_per_row / pipeline_banks
+    effective_per_row = max(bus_per_row, dram_per_row_pipelined)
+
+    # Bus writes (activation): once per pass
+    write_total_eff = num_passes * write_per_pass
+
+    # Decompose effective time into bus vs DRAM components for reporting
+    if bus_per_row >= dram_per_row_pipelined:
+        # Bus-bound: DRAM ops fully hidden
+        read_total_eff = num_passes * n_out * bus_per_row
+        maj3_total_eff = 0.0
+        rowcopy_total_eff = 0.0
+    else:
+        # DRAM-bound: bus time hidden behind DRAM
+        read_total_eff = 0.0
+        maj3_total_eff = num_passes * n_out * (maj3_per_row / pipeline_banks)
+        rowcopy_total_eff = num_passes * n_out * (rowcopy_per_weight_row / pipeline_banks)
 
     # FPGA post-processing
     fpga_total = n_out * 10.0  # 10 ns per output element
 
     return MatvecTiming(
-        write_ns=write_eff,
-        and_ns=and_total,
-        read_ns=read_eff,
+        write_ns=write_total_eff,
+        maj3_ns=maj3_total_eff,
+        rowcopy_ns=rowcopy_total_eff,
+        read_ns=read_total_eff,
         fpga_ns=fpga_total,
     )
 
@@ -323,33 +359,49 @@ def simulate_matvec_ddr4(
     overlap_factor: float = 0.0,
     in_dram_popcount: bool = False,
 ) -> MatvecTiming:
-    """Same model for DDR4 (for comparison)."""
+    """Same MAJ3+RowCopy model for DDR4 (for comparison)."""
     num_passes = act_bits * 2
     transfer_bytes = math.ceil(n_in / 8)
 
     write_per_pass = compute_bus_transfer_ddr4(transfer_bytes, timing)
-    and_per_op = compute_and_time_ddr4(timing)
-    read_per_op = 0.0 if in_dram_popcount else compute_bus_transfer_ddr4(transfer_bytes, timing)
+    maj3_per_row = compute_maj3_time_ddr4(timing)
+    rowcopy_per_row = compute_rowcopy_time_ddr4(timing)
+    read_per_row = 0.0 if in_dram_popcount else compute_bus_transfer_ddr4(transfer_bytes, timing)
 
-    write_total = num_passes * write_per_pass
-    and_total = num_passes * n_out * and_per_op
-    read_total = num_passes * n_out * read_per_op
+    rowcopy_per_weight_row = 2.0 * rowcopy_per_row
 
-    bus_total = write_total + read_total
-    if bus_total > 0 and overlap_factor > 0:
-        savings = bus_total * overlap_factor
-        write_eff = write_total - savings * (write_total / bus_total)
-        read_eff = read_total - savings * (read_total / bus_total)
+    # Pipelining model
+    bus_per_row = read_per_row
+    dram_per_row = rowcopy_per_weight_row + maj3_per_row
+
+    if overlap_factor <= 0.0:
+        pipeline_banks = 1
+    elif overlap_factor <= 0.5:
+        pipeline_banks = 4
     else:
-        write_eff = write_total
-        read_eff = read_total
+        pipeline_banks = 8
+
+    dram_per_row_pipelined = dram_per_row / pipeline_banks
+    effective_per_row = max(bus_per_row, dram_per_row_pipelined)
+
+    write_total_eff = num_passes * write_per_pass
+
+    if bus_per_row >= dram_per_row_pipelined:
+        read_total_eff = num_passes * n_out * bus_per_row
+        maj3_total_eff = 0.0
+        rowcopy_total_eff = 0.0
+    else:
+        read_total_eff = 0.0
+        maj3_total_eff = num_passes * n_out * (maj3_per_row / pipeline_banks)
+        rowcopy_total_eff = num_passes * n_out * (rowcopy_per_weight_row / pipeline_banks)
 
     fpga_total = n_out * 10.0
 
     return MatvecTiming(
-        write_ns=write_eff,
-        and_ns=and_total,
-        read_ns=read_eff,
+        write_ns=write_total_eff,
+        maj3_ns=maj3_total_eff,
+        rowcopy_ns=rowcopy_total_eff,
+        read_ns=read_total_eff,
         fpga_ns=fpga_total,
     )
 
@@ -377,10 +429,16 @@ class SimResult:
     throughput_toks: float
     vs_cpu_factor: float
     breakdown_write_ms: float
-    breakdown_and_ms: float
+    breakdown_maj3_ms: float
+    breakdown_rowcopy_ms: float
     breakdown_read_ms: float
     breakdown_fpga_ms: float
     breakdown_transfer_ms: float
+
+    @property
+    def breakdown_and_ms(self) -> float:
+        """Alias for backward compatibility."""
+        return self.breakdown_maj3_ms
 
 
 def simulate_full_model(
@@ -394,7 +452,8 @@ def simulate_full_model(
 
     # Accumulate per-layer timing
     total_write = 0.0
-    total_and = 0.0
+    total_maj3 = 0.0
+    total_rowcopy = 0.0
     total_read = 0.0
     total_fpga = 0.0
 
@@ -409,20 +468,23 @@ def simulate_full_model(
                 config.overlap_factor, config.in_dram_popcount)
 
         total_write += mv.write_ns
-        total_and += mv.and_ns
+        total_maj3 += mv.maj3_ns
+        total_rowcopy += mv.rowcopy_ns
         total_read += mv.read_ns
         total_fpga += mv.fpga_ns
 
     # Scale across all layers
     total_write *= model.num_layers
-    total_and *= model.num_layers
+    total_maj3 *= model.num_layers
+    total_rowcopy *= model.num_layers
     total_read *= model.num_layers
     total_fpga *= model.num_layers
 
     # Multi-channel/DIMM parallelism
     if config.num_channels > 1:
         total_write /= config.num_channels
-        total_and /= config.num_channels
+        total_maj3 /= config.num_channels
+        total_rowcopy /= config.num_channels
         total_read /= config.num_channels
         total_fpga /= config.num_channels
 
@@ -437,7 +499,8 @@ def simulate_full_model(
         refresh_frac = ddr4.tRFC_ns / ddr4.tREFI_ns  # 4.49%
 
     total_write *= (1.0 + refresh_frac)
-    total_and *= (1.0 + refresh_frac)
+    total_maj3 *= (1.0 + refresh_frac)
+    total_rowcopy *= (1.0 + refresh_frac)
     total_read *= (1.0 + refresh_frac)
 
     # Inter-channel transfer overhead (HBM2)
@@ -453,7 +516,7 @@ def simulate_full_model(
         transfer_ns = num_hops * transfer_per_hop
 
     # Total
-    total_ns = total_write + total_and + total_read + total_fpga + transfer_ns
+    total_ns = total_write + total_maj3 + total_rowcopy + total_read + total_fpga + transfer_ns
     per_token_ms = total_ns / 1e6
     throughput = 1000.0 / per_token_ms if per_token_ms > 0 else float('inf')
     vs_cpu = throughput / cpu_toks
@@ -464,7 +527,8 @@ def simulate_full_model(
         throughput_toks=throughput,
         vs_cpu_factor=vs_cpu,
         breakdown_write_ms=total_write / 1e6,
-        breakdown_and_ms=total_and / 1e6,
+        breakdown_maj3_ms=total_maj3 / 1e6,
+        breakdown_rowcopy_ms=total_rowcopy / 1e6,
         breakdown_read_ms=total_read / 1e6,
         breakdown_fpga_ms=total_fpga / 1e6,
         breakdown_transfer_ms=transfer_ns / 1e6,
@@ -573,8 +637,10 @@ def print_sanity_checks(hbm2: HBM2Timing, ddr4: DDR4Timing):
     hbm2_bus = compute_bus_transfer_hbm2(transfer_bytes, hbm2)
     ddr4_bus = compute_bus_transfer_ddr4(transfer_bytes, ddr4)
 
-    hbm2_and = compute_and_time_hbm2(hbm2)
-    ddr4_and = compute_and_time_ddr4(ddr4)
+    hbm2_maj3 = compute_maj3_time_hbm2(hbm2)
+    ddr4_maj3 = compute_maj3_time_ddr4(ddr4)
+    hbm2_rc = compute_rowcopy_time_hbm2(hbm2)
+    ddr4_rc = compute_rowcopy_time_ddr4(ddr4)
 
     print(f"  Transfer {transfer_bytes} bytes (d_model={n_in} activation):")
     print(f"    DDR4:  {ddr4_bus:.1f} ns  ({math.ceil(transfer_bytes/ddr4.cache_line_bytes)} bursts @ {ddr4.cache_line_bytes}B)")
@@ -595,31 +661,39 @@ def print_sanity_checks(hbm2: HBM2Timing, ddr4: DDR4Timing):
     print(f"    Ratio: HBM2/DDR4 = {hbm2_bus_ff/ddr4_bus_ff:.2f}x")
     print()
 
-    print(f"  AND (charge-sharing doubleACT):")
-    print(f"    DDR4:  {ddr4_and:.1f} ns  (2*{ddr4.tRCD_ns} + {ddr4.tRAS_ns})")
-    print(f"    HBM2:  {hbm2_and:.1f} ns  (2*{hbm2.tRCD_ns} + {hbm2.tRAS_ns})")
-    print(f"    Ratio: HBM2/DDR4 = {hbm2_and/ddr4_and:.2f}x ({(1-hbm2_and/ddr4_and)*100:.0f}% faster)")
+    print(f"  MAJ3 AND (triple-activation):")
+    print(f"    DDR4:  {ddr4_maj3:.1f} ns  (3*{ddr4.tRCD_ns} + {ddr4.tRAS_ns})")
+    print(f"    HBM2:  {hbm2_maj3:.1f} ns  (3*{hbm2.tRCD_ns} + {hbm2.tRAS_ns})")
+    print(f"    Ratio: HBM2/DDR4 = {hbm2_maj3/ddr4_maj3:.2f}x ({(1-hbm2_maj3/ddr4_maj3)*100:.0f}% faster)")
     print()
 
-    # Per-neuron time (AND + read)
-    ddr4_per_neuron = ddr4_and + ddr4_bus
-    hbm2_per_neuron = hbm2_and + hbm2_bus
-    print(f"  Per-neuron total (AND + read, d_model=2560):")
-    print(f"    DDR4:  {ddr4_per_neuron:.1f} ns")
-    print(f"    HBM2:  {hbm2_per_neuron:.1f} ns")
+    print(f"  RowCopy (SA-mediated 2-row activation):")
+    print(f"    DDR4:  {ddr4_rc:.1f} ns  (2*{ddr4.tRCD_ns} + {ddr4.tRAS_ns} + {ddr4.tRP_ns})")
+    print(f"    HBM2:  {hbm2_rc:.1f} ns  (2*{hbm2.tRCD_ns} + {hbm2.tRAS_ns} + {hbm2.tRP_ns})")
+    print(f"    Ratio: HBM2/DDR4 = {hbm2_rc/ddr4_rc:.2f}x")
+    print()
+
+    # Per-neuron DRAM time (MAJ3 + 2*RowCopy + read)
+    ddr4_dram_per = ddr4_maj3 + 2*ddr4_rc
+    hbm2_dram_per = hbm2_maj3 + 2*hbm2_rc
+    ddr4_per_neuron = ddr4_dram_per + ddr4_bus
+    hbm2_per_neuron = hbm2_dram_per + hbm2_bus
+    print(f"  Per-neuron total (MAJ3 + 2*RowCopy + read, d_model=2560):")
+    print(f"    DDR4:  {ddr4_per_neuron:.1f} ns  (DRAM={ddr4_dram_per:.1f} + bus={ddr4_bus:.1f})")
+    print(f"    HBM2:  {hbm2_per_neuron:.1f} ns  (DRAM={hbm2_dram_per:.1f} + bus={hbm2_bus:.1f})")
     print(f"    Ratio: HBM2/DDR4 = {hbm2_per_neuron/ddr4_per_neuron:.2f}x")
     print(f"    -> HBM2 single channel is SLOWER per operation")
     print(f"    -> But 8 channels compensate: effective = {hbm2_per_neuron/8/ddr4_per_neuron:.2f}x DDR4")
     print()
 
-    # With popcount (no read)
-    ddr4_pop = ddr4_and
-    hbm2_pop = hbm2_and
-    print(f"  Per-neuron with popcount (AND only):")
+    # With popcount (no read, only DRAM ops)
+    ddr4_pop = ddr4_dram_per
+    hbm2_pop = hbm2_dram_per
+    print(f"  Per-neuron with popcount (MAJ3 + 2*RowCopy, no bus read):")
     print(f"    DDR4:  {ddr4_pop:.1f} ns")
     print(f"    HBM2:  {hbm2_pop:.1f} ns")
     print(f"    Ratio: HBM2/DDR4 = {hbm2_pop/ddr4_pop:.2f}x ({(1-hbm2_pop/ddr4_pop)*100:.0f}% faster)")
-    print(f"    -> With popcount, HBM2 AND is genuinely faster (no bus penalty)")
+    print(f"    -> With popcount, HBM2 DRAM ops are faster (no bus penalty)")
     print()
 
 
@@ -680,12 +754,12 @@ def print_breakdown_table(results: List[SimResult]):
     hdr = (
         f"{'Configuration':<40s} "
         f"{'Write':>8s} "
-        f"{'AND':>8s} "
+        f"{'MAJ3':>8s} "
+        f"{'RowCpy':>8s} "
         f"{'Read':>8s} "
         f"{'FPGA':>8s} "
         f"{'Xfer':>8s} "
         f"{'TOTAL':>8s} "
-        f"{'AND%':>6s} "
         f"{'Bus%':>6s}"
     )
     print(hdr)
@@ -694,28 +768,28 @@ def print_breakdown_table(results: List[SimResult]):
     for r in results:
         total = r.per_token_ms
         w = r.breakdown_write_ms
-        a = r.breakdown_and_ms
+        m = r.breakdown_maj3_ms
+        rc = r.breakdown_rowcopy_ms
         rd = r.breakdown_read_ms
         fp = r.breakdown_fpga_ms
         tr = r.breakdown_transfer_ms
-        and_pct = (a / total * 100) if total > 0 else 0
         bus_pct = ((w + rd) / total * 100) if total > 0 else 0
 
         print(
             f"{r.config.name:<40s} "
             f"{w:>8.2f} "
-            f"{a:>8.2f} "
+            f"{m:>8.2f} "
+            f"{rc:>8.2f} "
             f"{rd:>8.2f} "
             f"{fp:>8.2f} "
             f"{tr:>8.4f} "
             f"{total:>8.2f} "
-            f"{and_pct:>5.1f}% "
             f"{bus_pct:>5.1f}%"
         )
 
     print_separator()
-    print("  AND% = fraction of time in DRAM compute (higher = compute-bound, good)")
-    print("  Bus% = fraction of time on bus transfers (lower = better)")
+    print("  Bus% = (Write+Read)/Total. Lower is better (less bus-bound).")
+    print("  MAJ3 = in-DRAM AND compute. RowCpy = weight reload + zero-ref init.")
     print()
 
 
@@ -850,7 +924,7 @@ def print_obstacles(hbm2: HBM2Timing):
     print("  1. HARD IP CONTROLLER (HIGH)")
     print("     FPGA boards with HBM2 (Alveo U50/U280) use hardened IP memory")
     print("     controllers that expose only AXI4 interfaces, NOT raw DRAM commands.")
-    print("     Cannot issue doubleACT timing violations through standard AXI4.")
+    print("     Cannot issue MAJ3 tripleACT timing violations through standard AXI4.")
     print("     DRAM Bender (CMU-SAFARI) has demonstrated HBM2 testing on Alveo U50")
     print("     with custom PHY bypass, but the mechanism is not fully documented.")
     print()

@@ -128,9 +128,19 @@ class MemTiming:
         return max(1, (self.row_size_bytes * 8) // 2560)
 
     @property
+    def maj3_time_ns(self) -> float:
+        """MAJ3 tripleACT time (3 rows simultaneous)."""
+        return 3 * self.tRCD_ns + self.tRAS_ns
+
+    @property
+    def rowcopy_time_ns(self) -> float:
+        """SA-mediated RowCopy time (ACT source -> SA latches -> ACT dest)."""
+        return 2 * self.tRCD_ns + self.tRAS_ns + self.effective_tRP
+
+    @property
     def and_time_ns(self) -> float:
-        """Charge-sharing doubleACT time."""
-        return 2 * self.tRCD_ns + self.tRAS_ns
+        """Backward compat alias. Full per-weight-row DRAM time (MAJ3 + 2×RowCopy)."""
+        return self.maj3_time_ns + 2 * self.rowcopy_time_ns
 
     def bus_transfer_ns(self, num_bytes: int) -> float:
         """Time to transfer num_bytes over one channel (conservative model)."""
@@ -358,13 +368,24 @@ def simulate_one_token(
     total_and *= ref_factor
     total_read *= ref_factor
 
-    # Bus overlap
-    bus_total = total_write + total_read
-    if bus_total > 0 and overlap_factor > 0:
-        savings = bus_total * overlap_factor
-        w_frac = total_write / bus_total
-        total_write -= savings * w_frac
-        total_read -= savings * (1 - w_frac)
+    # Pipelining model: DRAM ops (MAJ3 + RowCopy) don't use the bus.
+    # With multi-bank pipelining, DRAM and bus ops overlap.
+    # Effective time per weight group = max(bus_time, dram_time/pipeline_banks)
+    if overlap_factor > 0:
+        pipeline_banks = 4 if overlap_factor <= 0.5 else 8
+        # Per-group: bus = read, DRAM = and_time (which includes MAJ3 + 2*RowCopy)
+        # DRAM is distributed across pipeline_banks
+        # If bus > dram/banks: bus-bound (DRAM hidden)
+        # If bus < dram/banks: DRAM-bound (bus hidden)
+        dram_per_bank = total_and / pipeline_banks if pipeline_banks > 1 else total_and
+        if total_read >= dram_per_bank:
+            # Bus-bound: DRAM ops fully hidden
+            total_and = 0.0  # hidden
+        else:
+            # DRAM-bound: bus ops partially hidden
+            total_and = dram_per_bank
+            total_read = 0.0  # hidden
+            total_write = 0.0  # hidden
 
     total_ns = total_write + total_and + total_read + total_fpga
     per_token_ms = total_ns / 1e6
@@ -433,7 +454,7 @@ def main():
               f"{'MANDATORY' if t.odecc_mandatory else 'Optional':<12} "
               f"{'YES (+{:.0f}ns)'.format(t.prac_tRP_extra_ns) if t.prac_enabled else 'No'}")
 
-    print("\n* tRP = base + PRAC overhead. AND = 2*tRCD + tRAS.")
+    print("\n* tRP = base + PRAC overhead. MAJ3 = 3*tRCD + tRAS. RowCopy = 2*tRCD + tRAS + tRP.")
     print("  N/row = neurons packed per row for d_model=2560.")
 
     # =====================================================================

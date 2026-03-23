@@ -194,16 +194,14 @@ def compute_write_time_ddr5(n_in: int, timing: DDR5Timing) -> float:
     return compute_bus_transfer_time_ddr5(transfer_bytes, timing)
 
 
-def compute_and_time_ddr5(timing: DDR5Timing) -> float:
-    """
-    AND phase (charge-sharing double-activation).
+def compute_maj3_time_ddr5(timing: DDR5Timing) -> float:
+    """MAJ3 AND: 3 rows activated simultaneously. Time = 3*tRCD + tRAS"""
+    return 3.0 * timing.tRCD_ns + timing.tRAS_ns
 
-    Same protocol as DDR4: two ACT commands + tRAS.
-    DDR5 has faster tRAS (32 ns vs 35 ns).
 
-    Time = 2 * tRCD + tRAS
-    """
-    return 2.0 * timing.tRCD_ns + timing.tRAS_ns
+def compute_rowcopy_time_ddr5(timing: DDR5Timing) -> float:
+    """SA-mediated RowCopy: ACT source -> SA latches -> ACT dest. Time = 2*tRCD + tRAS + tRP"""
+    return 2.0 * timing.tRCD_ns + timing.tRAS_ns + timing.tRP_ns
 
 
 def compute_read_time_ddr5(n_in: int, timing: DDR5Timing) -> float:
@@ -253,8 +251,14 @@ def compute_write_time_ddr4(n_in: int, timing: DDR4Timing) -> float:
     return compute_bus_transfer_time_ddr4(transfer_bytes, timing)
 
 
-def compute_and_time_ddr4(timing: DDR4Timing) -> float:
-    return 2.0 * timing.tRCD_ns + timing.tRAS_ns
+def compute_maj3_time_ddr4(timing: DDR4Timing) -> float:
+    """MAJ3 AND: 3 rows activated simultaneously. Time = 3*tRCD + tRAS"""
+    return 3.0 * timing.tRCD_ns + timing.tRAS_ns
+
+
+def compute_rowcopy_time_ddr4(timing: DDR4Timing) -> float:
+    """SA-mediated RowCopy: ACT source -> SA latches -> ACT dest. Time = 2*tRCD + tRAS + tRP"""
+    return 2.0 * timing.tRCD_ns + timing.tRAS_ns + timing.tRP_ns
 
 
 def compute_read_time_ddr4(n_in: int, timing: DDR4Timing) -> float:
@@ -270,14 +274,20 @@ def compute_read_time_ddr4(n_in: int, timing: DDR4Timing) -> float:
 class LayerTiming:
     """Breakdown of time components for one transformer layer (nanoseconds)."""
     write_ns: float = 0.0
-    and_ns: float = 0.0
+    maj3_ns: float = 0.0       # MAJ3 AND compute
+    rowcopy_ns: float = 0.0    # RowCopy for weight reload + zero-ref init
     read_ns: float = 0.0
     fpga_ns: float = 0.0
     transfer_ns: float = 0.0   # Inter-DIMM activation transfer
 
     @property
+    def and_ns(self) -> float:
+        """Alias for backward compatibility."""
+        return self.maj3_ns
+
+    @property
     def total_ns(self) -> float:
-        return self.write_ns + self.and_ns + self.read_ns + self.fpga_ns + self.transfer_ns
+        return self.write_ns + self.maj3_ns + self.rowcopy_ns + self.read_ns + self.fpga_ns + self.transfer_ns
 
 
 def simulate_one_matvec_ddr5(
@@ -322,39 +332,84 @@ def simulate_one_matvec_ddr5(
     """
     num_passes = act_bits * 2   # B bit-planes x 2 halves (pos/neg weights)
 
-    # Per-pass timing (per sub-channel)
+    # --- Per-pass timing (CORRECTED: MAJ3 + RowCopy protocol) ---
+    #
+    # Per pass (one bit-plane, one weight half):
+    #   1. BUS WRITE: activation bit-plane to scratch row     [once per pass]
+    #   2. For each weight row:
+    #      a. DRAM RowCopy: zeros from persistent row to ref  [in-DRAM, no bus]
+    #      b. DRAM MAJ3: weight + activation + ref            [in-DRAM, no bus]
+    #      c. BUS READ: result row (or popcount if in-DRAM)   [per weight row]
+    #      d. DRAM RowCopy: backup -> weight row (restore)    [in-DRAM, no bus]
+
     write_per_pass = compute_write_time_ddr5(n_in, timing)
-    and_per_pass = compute_and_time_ddr5(timing)
+    maj3_per_row = compute_maj3_time_ddr5(timing)
+    rowcopy_per_row = compute_rowcopy_time_ddr5(timing)
 
     if in_dram_popcount:
-        read_per_pass = 0.0
+        read_per_row = 0.0
     else:
-        read_per_pass = compute_read_time_ddr5(n_in, timing)
+        read_per_row = compute_read_time_ddr5(n_in, timing)
 
     # DDR5 sub-channel parallelism:
     # Weight rows are distributed across 2 sub-channels.
     # Each sub-channel handles n_out / 2 weight rows.
-    # The activation WRITE goes to both sub-channels in parallel (same data).
-    # AND and READ operate independently per sub-channel.
     n_out_per_sc = math.ceil(n_out / timing.num_subchannel)
 
-    # Per pass:
-    #   1x WRITE (activation bit-plane) -- goes to both sub-channels simultaneously
-    #   n_out_per_sc x (AND + READ) per sub-channel -- both sub-channels in parallel
-    write_total = num_passes * write_per_pass
-    and_total = num_passes * n_out_per_sc * and_per_pass
-    read_total = num_passes * n_out_per_sc * read_per_pass
+    # RowCopy overhead per weight row:
+    # 1x RowCopy to init zero-ref + 1x RowCopy to restore weight = 2 RowCopies
+    rowcopy_per_weight_row = 2.0 * rowcopy_per_row
 
-    # Apply overlap: write and read can overlap if using different banks
-    # DDR5 has 32 banks per sub-channel, enabling better overlap than DDR4's 16
-    bus_time = write_total + read_total
-    if bus_time > 0:
-        overlap_savings = bus_time * overlap_factor
-        write_total_eff = write_total - overlap_savings * (write_total / bus_time)
-        read_total_eff = read_total - overlap_savings * (read_total / bus_time)
+    write_total = num_passes * write_per_pass
+    maj3_total = num_passes * n_out_per_sc * maj3_per_row
+    rowcopy_total = num_passes * n_out_per_sc * rowcopy_per_weight_row
+    read_total = num_passes * n_out_per_sc * read_per_row
+
+    # --- Pipelining model ---
+    #
+    # RowCopy and MAJ3 are DRAM-internal -- they DON'T use the bus.
+    # Bus transfers (write, read) and DRAM ops (MAJ3, RowCopy) can run in
+    # parallel across different banks.
+    #
+    # Per weight row, the pipeline is:
+    #   BUS:  [----read result----]
+    #   DRAM: [RowCopy0][MAJ3][RowCopy_wt]
+    #
+    # overlap_factor maps to pipeline depth:
+    #   0.0 = no pipelining (1 bank, sequential)
+    #   0.5 = conservative (4 banks active)
+    #   0.75 = aggressive (8 banks active)
+
+    bus_per_row = read_per_row  # only reads use the bus per weight row
+    dram_per_row = rowcopy_per_weight_row + maj3_per_row  # all DRAM-internal
+
+    if overlap_factor <= 0.0:
+        pipeline_banks = 1
+    elif overlap_factor <= 0.5:
+        pipeline_banks = 4
     else:
-        write_total_eff = 0.0
+        pipeline_banks = 8
+
+    dram_per_row_pipelined = dram_per_row / pipeline_banks
+    effective_per_row = max(bus_per_row, dram_per_row_pipelined)
+
+    # Total time for all weight rows across all passes
+    total_weight_row_time = num_passes * n_out_per_sc * effective_per_row
+
+    # Bus writes (activation): once per pass, always sequential on bus
+    write_total_eff = num_passes * write_per_pass
+
+    # Decompose effective time into bus vs DRAM components for reporting
+    if bus_per_row >= dram_per_row_pipelined:
+        # Bus-bound: DRAM ops fully hidden
+        read_total_eff = num_passes * n_out_per_sc * bus_per_row
+        maj3_total_eff = 0.0
+        rowcopy_total_eff = 0.0
+    else:
+        # DRAM-bound: bus time hidden behind DRAM
         read_total_eff = 0.0
+        maj3_total_eff = num_passes * n_out_per_sc * (maj3_per_row / pipeline_banks)
+        rowcopy_total_eff = num_passes * n_out_per_sc * (rowcopy_per_weight_row / pipeline_banks)
 
     # FPGA post-processing: popcount + shift-accumulate + batch-norm + activation
     # ~10 ns per output element (pipelined, very fast relative to DRAM)
@@ -363,7 +418,8 @@ def simulate_one_matvec_ddr5(
 
     return LayerTiming(
         write_ns=write_total_eff,
-        and_ns=and_total,
+        maj3_ns=maj3_total_eff,
+        rowcopy_ns=rowcopy_total_eff,
         read_ns=read_total_eff,
         fpga_ns=fpga_total,
         transfer_ns=0.0,
@@ -382,32 +438,53 @@ def simulate_one_matvec_ddr4(
     num_passes = act_bits * 2
 
     write_per_pass = compute_write_time_ddr4(n_in, timing)
-    and_per_pass = compute_and_time_ddr4(timing)
+    maj3_per_row = compute_maj3_time_ddr4(timing)
+    rowcopy_per_row = compute_rowcopy_time_ddr4(timing)
 
     if in_dram_popcount:
-        read_per_pass = 0.0
+        read_per_row = 0.0
     else:
-        read_per_pass = compute_read_time_ddr4(n_in, timing)
+        read_per_row = compute_read_time_ddr4(n_in, timing)
+
+    rowcopy_per_weight_row = 2.0 * rowcopy_per_row
 
     write_total = num_passes * write_per_pass
-    and_total = num_passes * n_out * and_per_pass
-    read_total = num_passes * n_out * read_per_pass
+    maj3_total = num_passes * n_out * maj3_per_row
+    rowcopy_total = num_passes * n_out * rowcopy_per_weight_row
+    read_total = num_passes * n_out * read_per_row
 
-    bus_time = write_total + read_total
-    if bus_time > 0:
-        overlap_savings = bus_time * overlap_factor
-        write_total_eff = write_total - overlap_savings * (write_total / bus_time)
-        read_total_eff = read_total - overlap_savings * (read_total / bus_time)
+    # Pipelining model (same as DDR5)
+    bus_per_row = read_per_row
+    dram_per_row = rowcopy_per_weight_row + maj3_per_row
+
+    if overlap_factor <= 0.0:
+        pipeline_banks = 1
+    elif overlap_factor <= 0.5:
+        pipeline_banks = 4
     else:
-        write_total_eff = 0.0
+        pipeline_banks = 8
+
+    dram_per_row_pipelined = dram_per_row / pipeline_banks
+    effective_per_row = max(bus_per_row, dram_per_row_pipelined)
+
+    write_total_eff = num_passes * write_per_pass
+
+    if bus_per_row >= dram_per_row_pipelined:
+        read_total_eff = num_passes * n_out * bus_per_row
+        maj3_total_eff = 0.0
+        rowcopy_total_eff = 0.0
+    else:
         read_total_eff = 0.0
+        maj3_total_eff = num_passes * n_out * (maj3_per_row / pipeline_banks)
+        rowcopy_total_eff = num_passes * n_out * (rowcopy_per_weight_row / pipeline_banks)
 
     fpga_cycles_per_output = 10.0
     fpga_total = n_out * fpga_cycles_per_output
 
     return LayerTiming(
         write_ns=write_total_eff,
-        and_ns=and_total,
+        maj3_ns=maj3_total_eff,
+        rowcopy_ns=rowcopy_total_eff,
         read_ns=read_total_eff,
         fpga_ns=fpga_total,
         transfer_ns=0.0,
@@ -434,7 +511,8 @@ def simulate_one_layer(
                 n_in, n_out, act_bits, timing, overlap_factor, in_dram_popcount
             )
         layer.write_ns += mv.write_ns
-        layer.and_ns += mv.and_ns
+        layer.maj3_ns += mv.maj3_ns
+        layer.rowcopy_ns += mv.rowcopy_ns
         layer.read_ns += mv.read_ns
         layer.fpga_ns += mv.fpga_ns
     return layer
@@ -498,7 +576,8 @@ def simulate_full_model(
     # Aggregate across all layers
     total = LayerTiming(
         write_ns=layer_timing.write_ns * model.num_layers,
-        and_ns=layer_timing.and_ns * model.num_layers,
+        maj3_ns=layer_timing.maj3_ns * model.num_layers,
+        rowcopy_ns=layer_timing.rowcopy_ns * model.num_layers,
         read_ns=layer_timing.read_ns * model.num_layers,
         fpga_ns=layer_timing.fpga_ns * model.num_layers,
     )
@@ -506,7 +585,8 @@ def simulate_full_model(
     # Multi-DIMM parallelism
     if config.num_dimms > 1:
         total.write_ns /= config.num_dimms
-        total.and_ns /= config.num_dimms
+        total.maj3_ns /= config.num_dimms
+        total.rowcopy_ns /= config.num_dimms
         total.read_ns /= config.num_dimms
         total.fpga_ns /= config.num_dimms
 
@@ -525,22 +605,26 @@ def simulate_full_model(
     else:
         refresh_fraction = compute_refresh_overhead_fraction_ddr4(timing)
 
-    dram_time = total.write_ns + total.and_ns + total.read_ns
+    dram_time = total.write_ns + total.maj3_ns + total.rowcopy_ns + total.read_ns
     if dram_time > 0:
         total.write_ns *= (1.0 + refresh_fraction)
-        total.and_ns *= (1.0 + refresh_fraction)
+        total.maj3_ns *= (1.0 + refresh_fraction)
+        total.rowcopy_ns *= (1.0 + refresh_fraction)
         total.read_ns *= (1.0 + refresh_fraction)
 
     # ODECC penalty: if ODECC corrupts AND results, model as additional
     # correction passes. Each corrupted result requires a re-read + re-compute.
-    # Effective overhead = odecc_ber_penalty fraction of additional AND+READ time.
+    # Effective overhead = odecc_ber_penalty fraction of additional MAJ3+RowCopy+READ time.
     if config.odecc_ber_penalty > 0:
-        correction_overhead = (total.and_ns + total.read_ns) * config.odecc_ber_penalty
-        # Distribute proportionally between AND and READ
-        if (total.and_ns + total.read_ns) > 0:
-            and_frac = total.and_ns / (total.and_ns + total.read_ns)
-            total.and_ns += correction_overhead * and_frac
-            total.read_ns += correction_overhead * (1.0 - and_frac)
+        compute_time = total.maj3_ns + total.rowcopy_ns + total.read_ns
+        correction_overhead = compute_time * config.odecc_ber_penalty
+        if compute_time > 0:
+            maj3_frac = total.maj3_ns / compute_time
+            rowcopy_frac = total.rowcopy_ns / compute_time
+            read_frac = total.read_ns / compute_time
+            total.maj3_ns += correction_overhead * maj3_frac
+            total.rowcopy_ns += correction_overhead * rowcopy_frac
+            total.read_ns += correction_overhead * read_frac
 
     # Final per-token time
     total_ns = total.total_ns
@@ -847,12 +931,13 @@ def print_breakdown_table(results: List[SimResult], title: str = ""):
     hdr = (
         f"{'Configuration':<42s} "
         f"{'Write':>10s} "
-        f"{'AND':>10s} "
+        f"{'MAJ3':>10s} "
+        f"{'RowCopy':>10s} "
         f"{'Read':>10s} "
         f"{'FPGA':>10s} "
         f"{'Transfer':>10s} "
         f"{'TOTAL':>10s} "
-        f"{'AND %':>7s}"
+        f"{'Bus%':>6s}"
     )
     print(hdr)
     print_separator("-")
@@ -861,26 +946,28 @@ def print_breakdown_table(results: List[SimResult], title: str = ""):
         b = r.breakdown
         total = b.total_ns / 1e6
         w = b.write_ns / 1e6
-        a = b.and_ns / 1e6
+        m = b.maj3_ns / 1e6
+        rc = b.rowcopy_ns / 1e6
         rd = b.read_ns / 1e6
         fp = b.fpga_ns / 1e6
         tr = b.transfer_ns / 1e6
-        and_pct = (b.and_ns / b.total_ns * 100) if b.total_ns > 0 else 0.0
+        bus_pct = ((b.write_ns + b.read_ns) / b.total_ns * 100) if b.total_ns > 0 else 0.0
 
         print(
             f"{r.config.name:<42s} "
             f"{w:>10.2f} "
-            f"{a:>10.2f} "
+            f"{m:>10.2f} "
+            f"{rc:>10.2f} "
             f"{rd:>10.2f} "
             f"{fp:>10.2f} "
             f"{tr:>10.2f} "
             f"{total:>10.2f} "
-            f"{and_pct:>6.1f}%"
+            f"{bus_pct:>5.1f}%"
         )
 
     print_separator()
-    print("Note: AND% shows the fraction of time spent on in-DRAM charge-sharing compute.")
-    print("      High AND% means the DRAM compute is the bottleneck (good -- bus is not idle).")
+    print("Note: Bus% = (Write+Read)/Total. Lower is better (less bus-bound).")
+    print("      MAJ3 = in-DRAM AND compute. RowCopy = weight reload + zero-ref init.")
     print()
 
 
@@ -1004,11 +1091,12 @@ def print_bottleneck_analysis(results: List[SimResult]):
         if total == 0:
             continue
         components = {
-            "WRITE": b.write_ns,
-            "AND":   b.and_ns,
-            "READ":  b.read_ns,
-            "FPGA":  b.fpga_ns,
-            "XFER":  b.transfer_ns,
+            "WRITE":   b.write_ns,
+            "MAJ3":    b.maj3_ns,
+            "ROWCOPY": b.rowcopy_ns,
+            "READ":    b.read_ns,
+            "FPGA":    b.fpga_ns,
+            "XFER":    b.transfer_ns,
         }
         bottleneck = max(components, key=components.get)
         pct = components[bottleneck] / total * 100
@@ -1167,7 +1255,8 @@ def generate_comparison_chart(
     key_names = [r.config.name.replace("DDR5: ", "") for r in key_results]
 
     write_ms = [r.breakdown.write_ns / 1e6 for r in key_results]
-    and_ms = [r.breakdown.and_ns / 1e6 for r in key_results]
+    maj3_ms = [r.breakdown.maj3_ns / 1e6 for r in key_results]
+    rowcopy_ms = [r.breakdown.rowcopy_ns / 1e6 for r in key_results]
     read_ms = [r.breakdown.read_ns / 1e6 for r in key_results]
     fpga_ms = [r.breakdown.fpga_ns / 1e6 for r in key_results]
     transfer_ms = [r.breakdown.transfer_ns / 1e6 for r in key_results]
@@ -1178,7 +1267,8 @@ def generate_comparison_chart(
 
     components = [
         (write_ms, "WRITE", "#1f77b4"),
-        (and_ms, "AND (compute)", "#ff7f0e"),
+        (maj3_ms, "MAJ3 (compute)", "#ff7f0e"),
+        (rowcopy_ms, "RowCopy", "#bcbd22"),
         (read_ms, "READ", "#2ca02c"),
         (fpga_ms, "FPGA", "#d62728"),
         (transfer_ms, "Inter-DIMM", "#9467bd"),
@@ -1239,18 +1329,22 @@ def main():
     print()
 
     w5 = compute_write_time_ddr5(2560, timing_ddr5)
-    a5 = compute_and_time_ddr5(timing_ddr5)
+    m5 = compute_maj3_time_ddr5(timing_ddr5)
+    rc5 = compute_rowcopy_time_ddr5(timing_ddr5)
     r5 = compute_read_time_ddr5(2560, timing_ddr5)
     print(f"  DDR5 WRITE 2560-bit row:   {w5:.2f} ns  ({math.ceil(2560/8/64)} burst(s))")
-    print(f"  DDR5 AND (double-ACT):     {a5:.2f} ns")
+    print(f"  DDR5 MAJ3 (triple-ACT):    {m5:.2f} ns  (3*tRCD + tRAS)")
+    print(f"  DDR5 RowCopy:              {rc5:.2f} ns  (2*tRCD + tRAS + tRP)")
     print(f"  DDR5 READ 2560-bit row:    {r5:.2f} ns  ({math.ceil(2560/8/64)} burst(s))")
     print()
 
     w4 = compute_write_time_ddr4(2560, timing_ddr4)
-    a4 = compute_and_time_ddr4(timing_ddr4)
+    m4 = compute_maj3_time_ddr4(timing_ddr4)
+    rc4 = compute_rowcopy_time_ddr4(timing_ddr4)
     r4 = compute_read_time_ddr4(2560, timing_ddr4)
     print(f"  DDR4 WRITE 2560-bit row:   {w4:.2f} ns  ({math.ceil(2560/8/64)} burst(s))")
-    print(f"  DDR4 AND (double-ACT):     {a4:.2f} ns")
+    print(f"  DDR4 MAJ3 (triple-ACT):    {m4:.2f} ns  (3*tRCD + tRAS)")
+    print(f"  DDR4 RowCopy:              {rc4:.2f} ns  (2*tRCD + tRAS + tRP)")
     print(f"  DDR4 READ 2560-bit row:    {r4:.2f} ns  ({math.ceil(2560/8/64)} burst(s))")
     print()
 
@@ -1343,7 +1437,7 @@ def main():
     print(f"       -> Better bank-level parallelism for overlapped scheduling")
     print(f"    3. Per-bank refresh (REFab): only 1/32 banks stalled vs DDR4 all-bank")
     print(f"       -> Refresh overhead: {ref5*100:.4f}% vs {ref4*100:.2f}% ({ref4/ref5:.0f}x improvement)")
-    print(f"    4. Faster tRAS: 32 ns vs 35 ns -> faster AND operation")
+    print(f"    4. Faster tRAS: 32 ns vs 35 ns -> faster MAJ3 AND operation")
     print()
 
     print("  DDR5 Concerns for PIM:")
