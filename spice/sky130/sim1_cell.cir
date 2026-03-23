@@ -1,0 +1,65 @@
+* Sim 1: Single Cell Read - Charge Sharing Signal
+* Sky130 130nm MOSFET models
+* Simple: one cell + bitline + precharge. No SA.
+* Expected: ~83mV differential from Vref
+
+.include sky130_minimal.lib
+
+* --- Convergence options ---
+.options reltol=0.003 abstol=1e-10 vntol=1e-5 gmin=1e-11 method=gear
+
+* --- Parameters ---
+.param Vdd=1.8
+.param Vref=0.9
+.param Vwl_hi=2.5
+.param Ccell_val=30e-15
+.param Cbl_val=300e-15
+
+* --- Power supplies ---
+Vdd vdd 0 {Vdd}
+Vref vref_node 0 {Vref}
+
+* --- Wordline drive ---
+* Stays low during precharge, goes high at 5ns
+Vwl wl 0 PWL(0 0 4.9n 0 5n {Vwl_hi})
+
+* --- Precharge control ---
+* Active (high) during precharge, turns off before WL opens
+Vpre pre_ctrl 0 PWL(0 {Vwl_hi} 3.9n {Vwl_hi} 4n 0)
+
+* --- Cell storage capacitor ---
+* Initialize to Vdd (storing '1') - floating node, no voltage source
+Ccell cell_store 0 {Ccell_val} IC={Vdd}
+
+* --- Access transistor ---
+XMacc bl wl cell_store 0 sky130_fd_pr__nfet_01v8 w=0.42e-6 l=0.15e-6
+
+* --- Bitline capacitance ---
+Cbl bl 0 {Cbl_val} IC={Vref}
+
+* --- Precharge circuit (3 NFETs) ---
+* BL to Vref
+XMpre1 bl pre_ctrl vref_node 0 sky130_fd_pr__nfet_01v8 w=0.84e-6 l=0.15e-6
+* /BL to Vref
+XMpre2 blb pre_ctrl vref_node 0 sky130_fd_pr__nfet_01v8 w=0.84e-6 l=0.15e-6
+* Equalize BL and /BL
+XMpre3 bl pre_ctrl blb 0 sky130_fd_pr__nfet_01v8 w=0.84e-6 l=0.15e-6
+
+* --- Complementary bitline (reference, no cell) ---
+Cblb blb 0 {Cbl_val} IC={Vref}
+
+* --- Measurements ---
+* Measure BL voltage after charge sharing settles (at 15ns)
+.meas tran V_bl FIND V(bl) AT=15n
+.meas tran V_blb FIND V(blb) AT=15n
+.meas tran V_signal PARAM V_bl-V_blb
+
+* Charge sharing signal: expected Ccell/(Ccell+Cbl) * (Vdd-Vref) = 30/330 * 0.9 = ~81.8mV
+.meas tran V_bl_8ns FIND V(bl) AT=8n
+.meas tran V_bl_10ns FIND V(bl) AT=10n
+.meas tran V_bl_20ns FIND V(bl) AT=20n
+
+* --- Analysis ---
+.tran 0.1n 25n uic
+
+.end

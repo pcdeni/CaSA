@@ -1,0 +1,34 @@
+* Sim 1: Single Cell Read - Discrete DRAM PIM
+* One cell (Ccell=100nF, ic=5V) through BSS138 to bitline (Cbl=1uF, ic=2.5V)
+* Expected signal: ~227mV above Vref (2.5V)
+
+.model BSS138 NMOS(Vto=1.5 Kp=0.5 Rd=1 Rs=1)
+
+* Supply
+Vdd vdd 0 5V
+
+* Wordline driver: 0V until 10us, then 7V (boosted)
+Vwl wl 0 PULSE(0 7 10u 100n 100n 100u 200u)
+
+* Cell storage capacitor (charged to 5V = storing '1')
+Ccell cell 0 100n ic=5
+
+* Access transistor (BSS138 NFET)
+M1 bl wl cell cell BSS138
+
+* Bitline capacitance (precharged to Vref=2.5V)
+Cbl bl 0 1u ic=2.5
+
+* Simulation
+.tran 0 50u 0 10n uic
+.options plotwinsize=0
+
+* Measurements
+.meas TRAN Vbl_before FIND V(bl) AT=9.9u
+.meas TRAN Vbl_after FIND V(bl) AT=40u
+.meas TRAN Vcell_after FIND V(cell) AT=40u
+.meas TRAN signal PARAM Vbl_after-2.5
+.meas TRAN Vbl_settled FIND V(bl) AT=45u
+
+.backanno
+.end

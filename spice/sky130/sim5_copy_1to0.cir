@@ -1,0 +1,112 @@
+* Sim 5: 2-Row RowCopy — The "Bug" That's a Feature
+*
+* 2-row activation produces COPY(A→B). We proved this "fails" as AND,
+* but it's EXACTLY what we need for reloading weights after MAJ3 destroys them.
+*
+* Test: Copy Row A (source) value to Row B (destination)
+* Protocol: ACT Row A → SA latches → ACT Row B → Row B overwritten with A's value
+*
+* Test all 4 combinations to verify COPY (not AND):
+* A=1,B=0 → B should become 1 (copy)
+* A=0,B=1 → B should become 0 (copy)
+* A=1,B=1 → B stays 1
+* A=0,B=0 → B stays 0
+
+.include sky130_minimal.lib
+
+.options reltol=0.003 abstol=1e-10 vntol=1e-5 gmin=1e-11 method=gear
+
+.param VDD=1.8
+.param Vref=0.9
+
+Vdd vdd 0 {VDD}
+
+* ============================================================
+* Source cell (Row A) — value to copy FROM
+* ============================================================
+XMa bl_cells wla_local cella 0 sky130_fd_pr__nfet_01v8 w=0.42e-6 l=0.15e-6
+Ccella cella 0 30f ic=1.8
+
+* ============================================================
+* Destination cell (Row B) — value to copy TO
+* ============================================================
+XMb bl_cells wlb_local cellb 0 sky130_fd_pr__nfet_01v8 w=0.42e-6 l=0.15e-6
+Ccellb cellb 0 30f ic=0
+
+* Reference cell on /BL
+XMref blb_cells wl_ref cellref 0 sky130_fd_pr__nfet_01v8 w=0.42e-6 l=0.15e-6
+Ccellref cellref 0 30f ic={Vref}
+
+* Bitline segments with RC
+Cbl_seg_t bl_cells 0 150f
+Rbl_t bl_cells bl_iso_t 500
+Cbl_seg_b blb_cells 0 150f
+Rbl_b blb_cells blb_iso_b 500
+
+* ISO transistors
+XM_iso_t bl_iso_t iso bl_sa 0 sky130_fd_pr__nfet_01v8 w=1.68e-6 l=0.15e-6
+XM_iso_b blb_iso_b iso blb_sa 0 sky130_fd_pr__nfet_01v8 w=1.68e-6 l=0.15e-6
+
+Csa_t bl_sa 0 5f
+Csa_b blb_sa 0 5f
+
+* Sense amp
+XMn1 bl_sa blb_sa san_local 0 sky130_fd_pr__nfet_01v8 w=0.84e-6 l=0.15e-6
+XMn2 blb_sa bl_sa san_local 0 sky130_fd_pr__nfet_01v8 w=0.84e-6 l=0.15e-6
+XMp1 bl_sa blb_sa sap_local vdd sky130_fd_pr__pfet_01v8 w=1.26e-6 l=0.15e-6
+XMp2 blb_sa bl_sa sap_local vdd sky130_fd_pr__pfet_01v8 w=1.26e-6 l=0.15e-6
+
+R_san san_drive san_local 200
+C_san san_local 0 50f
+R_sap sap_drive sap_local 200
+C_sap sap_local 0 50f
+
+* Precharge
+XMpre_t bl_sa pre_sig pre_ref 0 sky130_fd_pr__nfet_01v8 w=0.84e-6 l=0.15e-6
+XMpre_b blb_sa pre_sig pre_ref 0 sky130_fd_pr__nfet_01v8 w=0.84e-6 l=0.15e-6
+XMeq bl_sa pre_sig blb_sa 0 sky130_fd_pr__nfet_01v8 w=0.42e-6 l=0.15e-6
+Vpre_ref pre_ref 0 {Vref}
+
+R_wla wla_drive wla_local 1000
+C_wla wla_local 0 20f
+R_wlb wlb_drive wlb_local 1000
+C_wlb wlb_local 0 20f
+R_wlref wlref_drive wl_ref 1000
+C_wlref wl_ref 0 20f
+
+* ============================================================
+* PROTOCOL: 2-Row RowCopy
+* ============================================================
+* 0-10ns: Precharge on, ISO on, SA off
+* 10ns:   PRE off. WL_A + WL_ref open. Charge sharing.
+* 15ns:   SA fires. Latches Row A value. Drives BL to rail.
+* 25ns:   WL_B opens (Row B). SA overwrites Row B with Row A's value.
+* 40ns:   Measure — Row B should equal Row A.
+
+Vpre pre_sig 0 PWL(0 2.5 9.9n 2.5 10n 0 80n 0)
+Viso iso 0 2.5
+
+* WL_A: open at 10ns (stays open — weight source)
+Vwla wla_drive 0 PWL(0n 0 10n 0 10.1n 2.5 80n 2.5)
+Vwlref wlref_drive 0 PWL(0n 0 10n 0 10.1n 2.5 80n 2.5)
+
+* SA: fires at 15ns (full, not partial)
+Vsan san_drive 0 PWL(0 {Vref} 15n {Vref} 15.5n 0 80n 0)
+Vsap sap_drive 0 PWL(0 {Vref} 15n {Vref} 15.5n {VDD} 80n {VDD})
+
+* WL_B: opens at 25ns (after SA has fully resolved)
+Vwlb wlb_drive 0 PWL(0n 0 25n 0 25.1n 2.5 80n 2.5)
+
+.ic V(bl_cells)={Vref} V(blb_cells)={Vref}
++ V(bl_sa)={Vref} V(blb_sa)={Vref}
++ V(bl_iso_t)={Vref} V(blb_iso_b)={Vref}
++ V(cella)=1.8 V(cellb)=0 V(cellref)={Vref}
+
+.tran 0.1n 80n uic
+
+.meas tran V_cella_final FIND V(cella) AT=60n
+.meas tran V_cellb_final FIND V(cellb) AT=60n
+.meas tran V_bl_final FIND V(bl_sa) AT=60n
+
+.backanno
+.end

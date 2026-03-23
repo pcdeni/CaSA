@@ -1,0 +1,64 @@
+* Sim 2: Sense Amplifier - Discrete DRAM PIM
+* Cross-coupled CMOS latch with BSS138 (NMOS) + BSS84 (PMOS)
+* Cell on BL storing '1', reference on /BL at Vref
+* WL opens, charge sharing, SA fires
+
+.model BSS138 NMOS(Vto=1.5 Kp=0.5 Rd=1 Rs=1)
+.model BSS84 PMOS(Vto=-1.5 Kp=0.5 Rd=1 Rs=1)
+
+* Supply
+Vdd vdd 0 5V
+
+* Wordline driver: opens at 10us
+Vwl wl 0 PULSE(0 7 10u 100n 100n 100u 200u)
+
+* SA enable signals
+* SAN (NMOS enable): pulls low side to ground at 20us
+* SAP (PMOS enable): pulls high side to Vdd at 20us
+Vsan san 0 PULSE(0 5 20u 100n 100n 100u 200u)
+Vsap_src sap_node 0 PULSE(5 0 20u 100n 100n 100u 200u)
+
+* Cell storage capacitor (charged to 5V = storing '1')
+Ccell cell 0 100n ic=5
+
+* Access transistor
+M_acc bl wl cell cell BSS138
+
+* Bitline capacitance (precharged to Vref=2.5V)
+Cbl bl 0 1u ic=2.5
+
+* Reference bitline (/BL) at Vref
+Cblb blb 0 1u ic=2.5
+
+* Cross-coupled sense amplifier
+* NMOS pair (cross-coupled)
+M_n1 bl blb nsa nsa BSS138
+M_n2 blb bl nsa nsa BSS138
+
+* PMOS pair (cross-coupled)
+M_p1 bl blb psa psa BSS84
+M_p2 blb bl psa psa BSS84
+
+* SA NMOS enable: connect NSA to ground when SAN goes high
+M_en_n nsa san 0 0 BSS138
+
+* SA PMOS enable: connect PSA to Vdd when SAP goes low
+M_en_p psa sap_node vdd vdd BSS84
+
+* Simulation
+.tran 0 60u 0 10n uic
+.options plotwinsize=0
+
+* Measurements
+.meas TRAN Vbl_preshare FIND V(bl) AT=9.9u
+.meas TRAN Vblb_preshare FIND V(blb) AT=9.9u
+.meas TRAN Vbl_postshare FIND V(bl) AT=19.9u
+.meas TRAN Vblb_postshare FIND V(blb) AT=19.9u
+.meas TRAN differential_in PARAM Vbl_postshare-Vblb_postshare
+.meas TRAN Vbl_final FIND V(bl) AT=55u
+.meas TRAN Vblb_final FIND V(blb) AT=55u
+.meas TRAN Vcell_final FIND V(cell) AT=55u
+.meas TRAN resolve_time TRIG V(bl) VAL=3.0 RISE=1 TARG V(bl) VAL=4.5 RISE=1
+
+.backanno
+.end

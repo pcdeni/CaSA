@@ -1,0 +1,144 @@
+* Sim 2: Full Realistic Subarray - Sense Amplifier Read
+* Sky130 130nm, full realistic model with ISO, RC parasitics, precharge
+*
+* Architecture:
+*   Cell --[Rbl]-- BL_seg --[ISO]-- SA_node --[precharge]-- Vref
+*   Ref  --[Rbl]-- /BL_seg --[ISO]-- /SA_node --[precharge]-- Vref
+*
+* Timing:
+*   0-4ns:   Precharge active (BL and /BL at Vref)
+*   4ns:     Precharge off
+*   5ns:     WL opens (data cell) + ref WL opens (ref cell on /BL)
+*   6ns:     ISO turns on (connect BL segments to SA)
+*   11ns:    SA fires (SAN low, SAP high)
+*   25ns+:   Measure final
+
+.include sky130_minimal.lib
+
+.options reltol=0.003 abstol=1e-10 vntol=1e-5 gmin=1e-11 method=gear
+
+* --- Parameters ---
+.param Vdd=1.8
+.param Vref=0.9
+.param Vwl_hi=2.5
+
+* --- Power supplies ---
+Vdd vdd 0 {Vdd}
+Vgnd gnd_node 0 0
+Vref vref_node 0 {Vref}
+
+* --- Control signals ---
+* Precharge: active high during 0-4ns
+Vpre pre_ctrl 0 PWL(0 {Vwl_hi} 3.9n {Vwl_hi} 4n 0)
+
+* Wordline: opens at 5ns
+Vwl wl 0 PWL(0 0 4.9n 0 5n {Vwl_hi})
+
+* Reference wordline on /BL side: opens at 5ns
+Vwl_ref wl_ref 0 PWL(0 0 4.9n 0 5n {Vwl_hi})
+
+* ISO: connect BL segment to SA at 6ns
+Viso iso_ctrl 0 PWL(0 0 5.9n 0 6n {Vwl_hi})
+
+* SA enable: fires at 11ns (through RC delay)
+* SAN (NMOS enable) goes low->high with RC
+* SAP (PMOS enable) goes high->low with RC
+Vsan_drv san_drv 0 PWL(0 0 10.9n 0 11n {Vdd})
+Vsap_drv sap_drv 0 PWL(0 {Vdd} 10.9n {Vdd} 11n 0)
+
+* SA enable RC delay
+Rsan san_drv san_en 200
+Csan san_en 0 50e-15
+Rsap sap_drv sap_en 200
+Csap sap_en 0 50e-15
+
+* ============================================================
+* DATA SIDE (BL) - Cell storing '1' (Vdd)
+* ============================================================
+
+* Data cell: 30fF charged to Vdd
+Ccell cell_store 0 30e-15 IC={Vdd}
+
+* Access transistor
+XMacc bl_cell wl cell_store 0 sky130_fd_pr__nfet_01v8 w=0.42e-6 l=0.15e-6
+
+* Bitline segment resistance
+Rbl_data bl_cell bl_seg 500
+
+* Bitline segment capacitance
+Cbl_seg bl_seg 0 150e-15
+
+* ISO transistor (wider for low Ron)
+XMiso_data bl_seg iso_ctrl sa_bl 0 sky130_fd_pr__nfet_01v8 w=1.68e-6 l=0.15e-6
+
+* SA-side parasitic cap
+Csa_bl sa_bl 0 5e-15
+
+* ============================================================
+* REFERENCE SIDE (/BL) - Cell storing '0' (0V)
+* ============================================================
+
+* Reference cell: 30fF at 0V
+Ccell_ref ref_store 0 30e-15 IC=0
+
+* Access transistor for ref
+XMacc_ref blb_cell wl_ref ref_store 0 sky130_fd_pr__nfet_01v8 w=0.42e-6 l=0.15e-6
+
+* Bitline segment resistance
+Rbl_ref blb_cell blb_seg 500
+
+* Bitline segment capacitance
+Cblb_seg blb_seg 0 150e-15
+
+* ISO transistor
+XMiso_ref blb_seg iso_ctrl sa_blb 0 sky130_fd_pr__nfet_01v8 w=1.68e-6 l=0.15e-6
+
+* SA-side parasitic cap
+Csa_blb sa_blb 0 5e-15
+
+* ============================================================
+* PRECHARGE CIRCUIT (on SA side)
+* ============================================================
+XMpre1 sa_bl pre_ctrl vref_node 0 sky130_fd_pr__nfet_01v8 w=0.84e-6 l=0.15e-6
+XMpre2 sa_blb pre_ctrl vref_node 0 sky130_fd_pr__nfet_01v8 w=0.84e-6 l=0.15e-6
+XMpre3 sa_bl pre_ctrl sa_blb 0 sky130_fd_pr__nfet_01v8 w=0.84e-6 l=0.15e-6
+
+* ============================================================
+* SENSE AMPLIFIER (cross-coupled latch)
+* ============================================================
+* NMOS pair (cross-coupled)
+XMn1 sa_bl sa_blb san_node 0 sky130_fd_pr__nfet_01v8 w=0.84e-6 l=0.15e-6
+XMn2 sa_blb sa_bl san_node 0 sky130_fd_pr__nfet_01v8 w=0.84e-6 l=0.15e-6
+
+* PMOS pair (cross-coupled)
+XMp1 sa_bl sa_blb sap_node sap_node sky130_fd_pr__pfet_01v8 w=1.26e-6 l=0.15e-6
+XMp2 sa_blb sa_bl sap_node sap_node sky130_fd_pr__pfet_01v8 w=1.26e-6 l=0.15e-6
+
+* SA enable transistors
+XMsan san_node san_en gnd_node 0 sky130_fd_pr__nfet_01v8 w=1.68e-6 l=0.15e-6
+XMsap sap_node sap_en vdd vdd sky130_fd_pr__pfet_01v8 w=2.52e-6 l=0.15e-6
+
+* ============================================================
+* MEASUREMENTS
+* ============================================================
+
+* Pre-SA signal (right before SA fires)
+.meas tran V_sa_bl_preSA FIND V(sa_bl) AT=10.5n
+.meas tran V_sa_blb_preSA FIND V(sa_blb) AT=10.5n
+.meas tran V_signal_preSA PARAM V_sa_bl_preSA-V_sa_blb_preSA
+
+* Final resolved voltages
+.meas tran V_sa_bl_final FIND V(sa_bl) AT=25n
+.meas tran V_sa_blb_final FIND V(sa_blb) AT=25n
+
+* SA resolution time (time for BL to reach 90% of Vdd from SA fire)
+.meas tran t_resolve TRIG V(san_en) VAL=0.9 RISE=1 TARG V(sa_bl) VAL=1.62 RISE=1
+
+* Cell charge sharing on BL segment
+.meas tran V_bl_seg_7ns FIND V(bl_seg) AT=7n
+.meas tran V_bl_seg_10ns FIND V(bl_seg) AT=10n
+
+* --- Analysis ---
+.tran 0.1n 30n uic
+
+.end

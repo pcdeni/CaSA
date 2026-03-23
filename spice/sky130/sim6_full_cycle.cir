@@ -1,0 +1,161 @@
+* Sim 6: Full CaSA Cycle — MAJ3 AND + RowCopy Weight Reload
+*
+* Complete sequence for one AND operation:
+*   Phase 1: MAJ3(weight, activation, zero_ref) → AND result
+*   Phase 2: RowCopy(weight_backup → weight_row) → restore weight
+*
+* This proves the full cycle works: compute AND, then restore the
+* destroyed weight from a backup copy, all in-DRAM.
+*
+* Test case: weight=1, activation=0 → AND should be 0, weight restored to 1
+
+.include sky130_minimal.lib
+
+.options reltol=0.003 abstol=1e-10 vntol=1e-5 gmin=1e-11 method=gear
+
+.param VDD=1.8
+.param Vref=0.9
+
+Vdd vdd 0 {VDD}
+
+* ============================================================
+* Cells in the compute subarray (all share the same bitline)
+* ============================================================
+* Weight row (W=1)
+XMw bl_cells wlw_local cellw 0 sky130_fd_pr__nfet_01v8 w=0.42e-6 l=0.15e-6
+Ccellw cellw 0 30f ic={VDD}
+
+* Activation row (x=0)
+XMx bl_cells wlx_local cellx 0 sky130_fd_pr__nfet_01v8 w=0.42e-6 l=0.15e-6
+Ccellx cellx 0 30f ic=0
+
+* Zero reference row (R=0)
+XMr bl_cells wlr_local cellr 0 sky130_fd_pr__nfet_01v8 w=0.42e-6 l=0.15e-6
+Ccellr cellr 0 30f ic=0
+
+* Weight backup row (copy of weight, in same subarray)
+XMwb bl_cells wlwb_local cellwb 0 sky130_fd_pr__nfet_01v8 w=0.42e-6 l=0.15e-6
+Ccellwb cellwb 0 30f ic={VDD}
+
+* Reference cell on /BL
+XMref blb_cells wl_ref cellref 0 sky130_fd_pr__nfet_01v8 w=0.42e-6 l=0.15e-6
+Ccellref cellref 0 30f ic={Vref}
+
+* Bitline segments
+Cbl_seg_t bl_cells 0 150f
+Rbl_t bl_cells bl_iso_t 500
+Cbl_seg_b blb_cells 0 150f
+Rbl_b blb_cells blb_iso_b 500
+
+* ISO transistors
+XM_iso_t bl_iso_t iso bl_sa 0 sky130_fd_pr__nfet_01v8 w=1.68e-6 l=0.15e-6
+XM_iso_b blb_iso_b iso blb_sa 0 sky130_fd_pr__nfet_01v8 w=1.68e-6 l=0.15e-6
+
+Csa_t bl_sa 0 5f
+Csa_b blb_sa 0 5f
+
+* Sense amp
+XMn1 bl_sa blb_sa san_local 0 sky130_fd_pr__nfet_01v8 w=0.84e-6 l=0.15e-6
+XMn2 blb_sa bl_sa san_local 0 sky130_fd_pr__nfet_01v8 w=0.84e-6 l=0.15e-6
+XMp1 bl_sa blb_sa sap_local vdd sky130_fd_pr__pfet_01v8 w=1.26e-6 l=0.15e-6
+XMp2 blb_sa bl_sa sap_local vdd sky130_fd_pr__pfet_01v8 w=1.26e-6 l=0.15e-6
+
+R_san san_drive san_local 200
+C_san san_local 0 50f
+R_sap sap_drive sap_local 200
+C_sap sap_local 0 50f
+
+* Precharge
+XMpre_t bl_sa pre_sig pre_ref 0 sky130_fd_pr__nfet_01v8 w=0.84e-6 l=0.15e-6
+XMpre_b blb_sa pre_sig pre_ref 0 sky130_fd_pr__nfet_01v8 w=0.84e-6 l=0.15e-6
+XMeq bl_sa pre_sig blb_sa 0 sky130_fd_pr__nfet_01v8 w=0.42e-6 l=0.15e-6
+Vpre_ref pre_ref 0 {Vref}
+
+* WL drivers
+R_wlw wlw_drive wlw_local 1000
+C_wlw wlw_local 0 20f
+R_wlx wlx_drive wlx_local 1000
+C_wlx wlx_local 0 20f
+R_wlr wlr_drive wlr_local 1000
+C_wlr wlr_local 0 20f
+R_wlwb wlwb_drive wlwb_local 1000
+C_wlwb wlwb_local 0 20f
+R_wlref wlref_drive wl_ref 1000
+C_wlref wl_ref 0 20f
+
+* ============================================================
+* PHASE 1: MAJ3 AND (0-40ns)
+* ============================================================
+* 0-10ns:  Precharge. ISO on.
+* 10ns:    PRE off. WL_w + WL_x + WL_r + WL_ref all open.
+* 15ns:    SA fires. Resolves MAJ3(1, 0, 0) = 0.
+* 25ns:    All WLs close. SA off.
+* 26-35ns: Precharge (reset BL for phase 2)
+
+* ============================================================
+* PHASE 2: RowCopy weight reload (40-80ns)
+* ============================================================
+* 36ns:    PRE off.
+* 40ns:    WL_wb (weight backup) + WL_ref open. SA fires.
+*          SA latches backup weight value (1).
+* 50ns:    WL_w (weight row, currently destroyed) opens.
+*          SA overwrites weight row with backup value.
+* 60ns:    Done. Weight restored.
+
+* --- Precharge ---
+* On: 0-10ns (phase 1 init), 26-36ns (between phases)
+Vpre pre_sig 0 PWL(0 2.5 9.9n 2.5 10n 0 25n 0 26n 2.5 35.9n 2.5 36n 0 120n 0)
+
+* --- ISO ---
+Viso iso 0 2.5
+
+* --- Phase 1 WLs: W, X, R open at 10ns, close at 25ns ---
+Vwlw wlw_drive 0 PWL(0 0 10n 0 10.1n 2.5 25n 2.5 25.1n 0 39n 0 39.1n 0 120n 0)
+Vwlx wlx_drive 0 PWL(0 0 10n 0 10.1n 2.5 25n 2.5 25.1n 0 120n 0)
+Vwlr wlr_drive 0 PWL(0 0 10n 0 10.1n 2.5 25n 2.5 25.1n 0 120n 0)
+
+* --- Phase 2 WLs: backup opens at 40ns, weight opens at 50ns ---
+Vwlwb wlwb_drive 0 PWL(0 0 40n 0 40.1n 2.5 120n 2.5)
+* Weight row reopens at 50ns for RowCopy destination
+Vwlw2 wlw_local 0 PWL(50n 0 50.1n 2.5 120n 2.5)
+
+* --- Reference WL ---
+* Opens with phase 1, closes, reopens with phase 2
+Vwlref wlref_drive 0 PWL(0 0 10n 0 10.1n 2.5 25n 2.5 25.1n 0 40n 0 40.1n 2.5 120n 2.5)
+
+* --- SA enable ---
+* Phase 1: fire at 15ns, off at 25ns
+* Phase 2: fire at 45ns, stays on through RowCopy
+Vsan san_drive 0 PWL(0 {Vref} 15n {Vref} 15.5n 0 24.5n 0 25n {Vref} 45n {Vref} 45.5n 0 120n 0)
+Vsap sap_drive 0 PWL(0 {Vref} 15n {Vref} 15.5n {VDD} 24.5n {VDD} 25n {Vref} 45n {Vref} 45.5n {VDD} 120n {VDD})
+
+* ============================================================
+* Initial conditions
+* ============================================================
+.ic V(bl_cells)={Vref} V(blb_cells)={Vref}
++ V(bl_sa)={Vref} V(blb_sa)={Vref}
++ V(bl_iso_t)={Vref} V(blb_iso_b)={Vref}
++ V(cellw)={VDD} V(cellx)=0 V(cellr)=0 V(cellwb)={VDD} V(cellref)={Vref}
+
+.tran 0.1n 120n uic
+
+* ============================================================
+* Measurements
+* ============================================================
+* Phase 1: MAJ3 result
+.meas tran V_bl_phase1 FIND V(bl_cells) AT=14n
+.meas tran V_bl_phase1_sa FIND V(bl_sa) AT=20n
+
+* After Phase 1: weight should be destroyed (overwritten with AND result)
+.meas tran V_cellw_after_maj3 FIND V(cellw) AT=30n
+.meas tran V_cellx_after_maj3 FIND V(cellx) AT=30n
+
+* Phase 2: weight backup latched by SA
+.meas tran V_bl_phase2_sa FIND V(bl_sa) AT=49n
+
+* Final: weight should be restored from backup
+.meas tran V_cellw_restored FIND V(cellw) AT=80n
+.meas tran V_cellwb_final FIND V(cellwb) AT=80n
+
+.backanno
+.end

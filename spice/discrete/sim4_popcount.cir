@@ -1,0 +1,63 @@
+* Sim 4: Popcount - Discrete DRAM PIM
+* 8 cells on same bitline, sweep number of '1' cells
+* Measure BL voltage for each count (0 to 8)
+
+.model BSS138 NMOS(Vto=1.5 Kp=0.5 Rd=1 Rs=1)
+
+* Supply
+Vdd vdd 0 5V
+
+* All 8 wordlines open at 10us
+Vwl wl 0 PULSE(0 7 10u 100n 100n 100u 200u)
+
+* Parameter: number of '1' cells (0 to 8)
+.param N1=0
+
+* 8 cells with access transistors
+* Cell 1
+Ccell1 c1 0 100n ic={if(N1>=1,5,0)}
+M1 bl wl c1 c1 BSS138
+
+* Cell 2
+Ccell2 c2 0 100n ic={if(N1>=2,5,0)}
+M2 bl wl c2 c2 BSS138
+
+* Cell 3
+Ccell3 c3 0 100n ic={if(N1>=3,5,0)}
+M3 bl wl c3 c3 BSS138
+
+* Cell 4
+Ccell4 c4 0 100n ic={if(N1>=4,5,0)}
+M4 bl wl c4 c4 BSS138
+
+* Cell 5
+Ccell5 c5 0 100n ic={if(N1>=5,5,0)}
+M5 bl wl c5 c5 BSS138
+
+* Cell 6
+Ccell6 c6 0 100n ic={if(N1>=6,5,0)}
+M6 bl wl c6 c6 BSS138
+
+* Cell 7
+Ccell7 c7 0 100n ic={if(N1>=7,5,0)}
+M7 bl wl c7 c7 BSS138
+
+* Cell 8
+Ccell8 c8 0 100n ic={if(N1>=8,5,0)}
+M8 bl wl c8 c8 BSS138
+
+* Bitline capacitance (precharged to 0V for popcount)
+Cbl bl 0 1u ic=0
+
+* Simulation
+.tran 0 50u 0 10n uic
+.options plotwinsize=0
+
+* Measurements
+.meas TRAN Vbl_final FIND V(bl) AT=45u
+
+* Sweep from 0 to 8 cells storing '1'
+.step param N1 list 0 1 2 3 4 5 6 7 8
+
+.backanno
+.end

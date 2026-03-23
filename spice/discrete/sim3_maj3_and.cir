@@ -1,0 +1,70 @@
+* Sim 3: MAJ3 AND Truth Table - Discrete DRAM PIM
+* THREE cells on BL: Cell A, Cell B, Cell R (reference=0V)
+* One reference cell on /BL at Vref
+* AND(A,B) = MAJ3(A, B, 0)
+* Test case: A=5V, B=5V (both '1') -> AND=1
+
+.model BSS138 NMOS(Vto=1.5 Kp=0.5 Rd=1 Rs=1)
+.model BSS84 PMOS(Vto=-1.5 Kp=0.5 Rd=1 Rs=1)
+
+* Parameters for sweeping inputs
+.param Va=5
+.param Vb=5
+
+* Supply
+Vdd vdd 0 5V
+
+* Wordline drivers: all three open at 10us
+Vwl_a wl_a 0 PULSE(0 7 10u 100n 100n 100u 200u)
+Vwl_b wl_b 0 PULSE(0 7 10u 100n 100n 100u 200u)
+Vwl_r wl_r 0 PULSE(0 7 10u 100n 100n 100u 200u)
+
+* SA enable signals at 20us
+Vsan san 0 PULSE(0 5 20u 100n 100n 100u 200u)
+Vsap_src sap_node 0 PULSE(5 0 20u 100n 100n 100u 200u)
+
+* Cell A (input A)
+Ccell_a cell_a 0 100n ic={Va}
+M_a bl wl_a cell_a cell_a BSS138
+
+* Cell B (input B)
+Ccell_b cell_b 0 100n ic={Vb}
+M_b bl wl_b cell_b cell_b BSS138
+
+* Cell R (reference = always 0, makes MAJ3 into AND)
+Ccell_r cell_r 0 100n ic=0
+M_r bl wl_r cell_r cell_r BSS138
+
+* Bitline (precharged to Vref)
+Cbl bl 0 1u ic=2.5
+
+* Reference bitline
+Cblb blb 0 1u ic=2.5
+
+* Cross-coupled sense amplifier
+M_n1 bl blb nsa nsa BSS138
+M_n2 blb bl nsa nsa BSS138
+M_p1 bl blb psa psa BSS84
+M_p2 blb bl psa psa BSS84
+M_en_n nsa san 0 0 BSS138
+M_en_p psa sap_node vdd vdd BSS84
+
+* Simulation
+.tran 0 60u 0 10n uic
+.options plotwinsize=0
+
+* Measurements
+.meas TRAN Vbl_share FIND V(bl) AT=19.9u
+.meas TRAN Vblb_share FIND V(blb) AT=19.9u
+.meas TRAN diff_in PARAM Vbl_share-Vblb_share
+.meas TRAN Vbl_final FIND V(bl) AT=55u
+.meas TRAN Vblb_final FIND V(blb) AT=55u
+.meas TRAN Vcell_b_final FIND V(cell_b) AT=55u
+.meas TRAN result PARAM (Vbl_final>2.5)*5
+
+* Step through all 4 input combinations
+.step param Va list 0 0 5 5
+.step param Vb list 0 5 0 5
+
+.backanno
+.end

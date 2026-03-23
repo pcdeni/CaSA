@@ -1,0 +1,105 @@
+* Sim 4: Popcount - 8 cells on one bitline segment
+* Sky130 130nm, simplified model (no ISO/RC, just cells + bitline cap)
+*
+* Sweep number of '1' cells from 0 to 8
+* Measure BL voltage to characterize step size and linearity
+*
+* Architecture: 8 cells with access transistors on a single bitline
+* Bitline cap = 300fF (simulating the full BL capacitance)
+* All 8 WLs open simultaneously at 5ns after precharge
+*
+* Using .step param to sweep count of '1' cells
+* Cells 1-N are at Vdd, cells N+1-8 are at 0V
+
+.include sky130_minimal.lib
+
+.options reltol=0.003 abstol=1e-10 vntol=1e-5 gmin=1e-11 method=gear
+
+* --- Parameters ---
+.param Vdd=1.8
+.param Vref=0.9
+.param Vwl_hi=2.5
+.param Ccell_val=30e-15
+.param Cbl_val=300e-15
+
+* Sweep count of '1' cells: 0 through 8
+.step param N_ones list 0 1 2 3 4 5 6 7 8
+
+* Cell voltages: cell_i = Vdd if i <= N_ones, else 0
+* Using conditional expressions
+.param V1=if(N_ones>=1, Vdd, 0)
+.param V2=if(N_ones>=2, Vdd, 0)
+.param V3=if(N_ones>=3, Vdd, 0)
+.param V4=if(N_ones>=4, Vdd, 0)
+.param V5=if(N_ones>=5, Vdd, 0)
+.param V6=if(N_ones>=6, Vdd, 0)
+.param V7=if(N_ones>=7, Vdd, 0)
+.param V8=if(N_ones>=8, Vdd, 0)
+
+* --- Power supplies ---
+Vdd vdd 0 {Vdd}
+Vref vref_node 0 {Vref}
+
+* --- Control signals ---
+Vpre pre_ctrl 0 PWL(0 {Vwl_hi} 3.9n {Vwl_hi} 4n 0)
+Vwl wl 0 PWL(0 0 4.9n 0 5n {Vwl_hi})
+
+* ============================================================
+* 8 DRAM CELLS on single bitline
+* ============================================================
+
+* Cell 1
+Ccell1 cs1 0 {Ccell_val} IC={V1}
+XMa1 bl wl cs1 0 sky130_fd_pr__nfet_01v8 w=0.42e-6 l=0.15e-6
+
+* Cell 2
+Ccell2 cs2 0 {Ccell_val} IC={V2}
+XMa2 bl wl cs2 0 sky130_fd_pr__nfet_01v8 w=0.42e-6 l=0.15e-6
+
+* Cell 3
+Ccell3 cs3 0 {Ccell_val} IC={V3}
+XMa3 bl wl cs3 0 sky130_fd_pr__nfet_01v8 w=0.42e-6 l=0.15e-6
+
+* Cell 4
+Ccell4 cs4 0 {Ccell_val} IC={V4}
+XMa4 bl wl cs4 0 sky130_fd_pr__nfet_01v8 w=0.42e-6 l=0.15e-6
+
+* Cell 5
+Ccell5 cs5 0 {Ccell_val} IC={V5}
+XMa5 bl wl cs5 0 sky130_fd_pr__nfet_01v8 w=0.42e-6 l=0.15e-6
+
+* Cell 6
+Ccell6 cs6 0 {Ccell_val} IC={V6}
+XMa6 bl wl cs6 0 sky130_fd_pr__nfet_01v8 w=0.42e-6 l=0.15e-6
+
+* Cell 7
+Ccell7 cs7 0 {Ccell_val} IC={V7}
+XMa7 bl wl cs7 0 sky130_fd_pr__nfet_01v8 w=0.42e-6 l=0.15e-6
+
+* Cell 8
+Ccell8 cs8 0 {Ccell_val} IC={V8}
+XMa8 bl wl cs8 0 sky130_fd_pr__nfet_01v8 w=0.42e-6 l=0.15e-6
+
+* --- Bitline capacitance ---
+Cbl bl 0 {Cbl_val} IC={Vref}
+
+* --- Precharge (just BL to Vref) ---
+XMpre1 bl pre_ctrl vref_node 0 sky130_fd_pr__nfet_01v8 w=0.84e-6 l=0.15e-6
+
+* ============================================================
+* MEASUREMENTS
+* ============================================================
+
+* BL voltage after charge sharing settles
+.meas tran V_bl_15ns FIND V(bl) AT=15n
+.meas tran V_bl_20ns FIND V(bl) AT=20n
+
+* Theoretical: V_bl = (Vref*Cbl + N*Vdd*Ccell + (8-N)*0*Ccell) / (Cbl + 8*Ccell)
+* = (0.9*300 + N*1.8*30) / (300 + 240)
+* = (270 + N*54) / 540
+* N=0: 0.500V, N=1: 0.600V, N=2: 0.700V, ... N=8: 1.100V
+* Step size: 54/540 = 0.100V per cell
+
+.tran 0.1n 25n uic
+
+.end

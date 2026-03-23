@@ -1,0 +1,16 @@
+* Sky130 Minimal Model Library for LTspice
+* Includes 1.8V NFET and PFET with all required parameters
+*
+* Usage: .include sky130_minimal.lib
+*        XM1 d g s b sky130_fd_pr__nfet_01v8 w=0.42e-6 l=0.15e-6
+*        XM2 d g s b sky130_fd_pr__pfet_01v8 w=0.84e-6 l=0.15e-6
+
+* All invariant parameters (slopes, bin diffs, wlod_diff, junction params)
+* This file contains ALL mismatch slope values — no separate mismatch file needed
+.include sky130_fd_pr/models/parameters/invariant.spice
+
+* NFET 1.8V TT corner model
+.include sky130_fd_pr/cells/nfet_01v8/sky130_fd_pr__nfet_01v8__tt.pm3.spice
+
+* PFET 1.8V TT corner model
+.include sky130_fd_pr/cells/pfet_01v8/sky130_fd_pr__pfet_01v8__tt.pm3.spice

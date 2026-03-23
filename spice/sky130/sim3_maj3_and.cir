@@ -1,0 +1,119 @@
+* Sim 3: MAJ3 AND Gate - AND(A,B) = MAJ3(A, B, 0)
+* Sky130 130nm, full realistic subarray model
+*
+* BL side: 3 cells (A, B, R=0) on bitline segment
+* /BL side: 3 reference cells at Vref (capacitive load matching)
+*   - This ensures BL and /BL have identical total capacitance
+*   - Ref cells at Vref don't change /BL voltage, just match loading
+*   - SA sees only the differential from data cells
+*
+* Timing: precharge(0-4ns), WL(5ns), ISO(6ns), SA(11ns)
+*
+* Truth table: AND(A,B) = MAJ3(A, B, 0)
+*   A=0,B=0 -> 0 ones/3 -> BL < /BL -> SA=0
+*   A=0,B=1 -> 1 one/3  -> BL < /BL -> SA=0
+*   A=1,B=0 -> 1 one/3  -> BL < /BL -> SA=0
+*   A=1,B=1 -> 2 ones/3 -> BL > /BL -> SA=1
+
+.include sky130_minimal.lib
+
+.options reltol=0.003 abstol=1e-10 vntol=1e-5 gmin=1e-11 method=gear
+
+* --- Parameters ---
+.param Vdd=1.8
+.param Vref=0.9
+.param Vwl_hi=2.5
+
+* Sweep all 4 input combinations via nested .step
+.step param VA_init list 0 1.8
+.step param VB_init list 0 1.8
+
+* --- Power supplies ---
+Vdd vdd 0 {Vdd}
+Vgnd gnd_node 0 0
+Vref vref_node 0 {Vref}
+
+* --- Control signals ---
+Vpre pre_ctrl 0 PWL(0 {Vwl_hi} 3.9n {Vwl_hi} 4n 0)
+Vwl_a wl_a 0 PWL(0 0 4.9n 0 5n {Vwl_hi})
+Vwl_b wl_b 0 PWL(0 0 4.9n 0 5n {Vwl_hi})
+Vwl_r wl_r 0 PWL(0 0 4.9n 0 5n {Vwl_hi})
+Vwl_ref1 wl_ref1 0 PWL(0 0 4.9n 0 5n {Vwl_hi})
+Vwl_ref2 wl_ref2 0 PWL(0 0 4.9n 0 5n {Vwl_hi})
+Vwl_ref3 wl_ref3 0 PWL(0 0 4.9n 0 5n {Vwl_hi})
+Viso iso_ctrl 0 PWL(0 0 5.9n 0 6n {Vwl_hi})
+Vsan_drv san_drv 0 PWL(0 0 10.9n 0 11n {Vdd})
+Vsap_drv sap_drv 0 PWL(0 {Vdd} 10.9n {Vdd} 11n 0)
+Rsan san_drv san_en 200
+Csan san_en 0 50e-15
+Rsap sap_drv sap_en 200
+Csap sap_en 0 50e-15
+
+* ============================================================
+* BL SIDE: 3 data cells (A, B, R=0)
+* ============================================================
+Ccell_a cell_a 0 30e-15 IC={VA_init}
+XMacc_a bl_cells wl_a cell_a 0 sky130_fd_pr__nfet_01v8 w=0.42e-6 l=0.15e-6
+
+Ccell_b cell_b 0 30e-15 IC={VB_init}
+XMacc_b bl_cells wl_b cell_b 0 sky130_fd_pr__nfet_01v8 w=0.42e-6 l=0.15e-6
+
+Ccell_r cell_r 0 30e-15 IC=0
+XMacc_r bl_cells wl_r cell_r 0 sky130_fd_pr__nfet_01v8 w=0.42e-6 l=0.15e-6
+
+Rbl_data bl_cells bl_seg 500
+Cbl_seg bl_seg 0 150e-15
+
+XMiso_data bl_seg iso_ctrl sa_bl 0 sky130_fd_pr__nfet_01v8 w=1.68e-6 l=0.15e-6
+Csa_bl sa_bl 0 5e-15
+
+* ============================================================
+* /BL SIDE: 3 reference cells at Vref (capacitive load match)
+* ============================================================
+Ccell_ref1 ref1_store 0 30e-15 IC={Vref}
+XMacc_ref1 blb_cells wl_ref1 ref1_store 0 sky130_fd_pr__nfet_01v8 w=0.42e-6 l=0.15e-6
+
+Ccell_ref2 ref2_store 0 30e-15 IC={Vref}
+XMacc_ref2 blb_cells wl_ref2 ref2_store 0 sky130_fd_pr__nfet_01v8 w=0.42e-6 l=0.15e-6
+
+Ccell_ref3 ref3_store 0 30e-15 IC={Vref}
+XMacc_ref3 blb_cells wl_ref3 ref3_store 0 sky130_fd_pr__nfet_01v8 w=0.42e-6 l=0.15e-6
+
+Rbl_ref blb_cells blb_seg 500
+Cblb_seg blb_seg 0 150e-15
+
+XMiso_ref blb_seg iso_ctrl sa_blb 0 sky130_fd_pr__nfet_01v8 w=1.68e-6 l=0.15e-6
+Csa_blb sa_blb 0 5e-15
+
+* ============================================================
+* PRECHARGE
+* ============================================================
+XMpre1 sa_bl pre_ctrl vref_node 0 sky130_fd_pr__nfet_01v8 w=0.84e-6 l=0.15e-6
+XMpre2 sa_blb pre_ctrl vref_node 0 sky130_fd_pr__nfet_01v8 w=0.84e-6 l=0.15e-6
+XMpre3 sa_bl pre_ctrl sa_blb 0 sky130_fd_pr__nfet_01v8 w=0.84e-6 l=0.15e-6
+
+* ============================================================
+* SENSE AMPLIFIER
+* ============================================================
+XMn1 sa_bl sa_blb san_node 0 sky130_fd_pr__nfet_01v8 w=0.84e-6 l=0.15e-6
+XMn2 sa_blb sa_bl san_node 0 sky130_fd_pr__nfet_01v8 w=0.84e-6 l=0.15e-6
+XMp1 sa_bl sa_blb sap_node sap_node sky130_fd_pr__pfet_01v8 w=1.26e-6 l=0.15e-6
+XMp2 sa_blb sa_bl sap_node sap_node sky130_fd_pr__pfet_01v8 w=1.26e-6 l=0.15e-6
+XMsan san_node san_en gnd_node 0 sky130_fd_pr__nfet_01v8 w=1.68e-6 l=0.15e-6
+XMsap sap_node sap_en vdd vdd sky130_fd_pr__pfet_01v8 w=2.52e-6 l=0.15e-6
+
+* ============================================================
+* MEASUREMENTS
+* ============================================================
+.meas tran V_bl_preSA FIND V(sa_bl) AT=10.5n
+.meas tran V_blb_preSA FIND V(sa_blb) AT=10.5n
+.meas tran V_diff_preSA PARAM V_bl_preSA-V_blb_preSA
+.meas tran V_bl_final FIND V(sa_bl) AT=25n
+.meas tran V_blb_final FIND V(sa_blb) AT=25n
+.meas tran V_cellB_final FIND V(cell_b) AT=25n
+.meas tran V_bl_seg_10ns FIND V(bl_seg) AT=10n
+.meas tran V_blb_seg_10ns FIND V(blb_seg) AT=10n
+
+.tran 0.1n 30n uic
+
+.end
