@@ -1,0 +1,34 @@
+# Build artifacts
+*.o
+*.so
+*.a
+app/*-exe
+app/bitnet-proj-server
+scheduler/casa_sched
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
+
+# Model weights and other large assets — download separately
+*.bin
+*.safetensors
+*.onnx
+*.gguf
+
+# Calibration sweep raw outputs (large; only the joined/perfect-tuple
+# files in calibration/ go in the repo)
+**/dimm[0-9]/open_rows_*.csv
+**/dimm[0-9]/all_subarrays.csv
+**/dimm[0-9]/run.log

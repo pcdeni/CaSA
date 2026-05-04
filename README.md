@@ -1,0 +1,143 @@
+# CaSA — running an LLM inside a DRAM chip
+
+A real, published 2.4-billion-parameter language model answers a
+question, and the matrix-multiplications that produce the answer
+happen *inside the DRAM cells* of a regular DDR4 memory module — via
+charge-sharing, on real silicon.
+
+This repository contains the software side of that demonstration:
+
+- **`scheduler/`** — `casa_sched.c`, a discrete-event scheduler that
+  models a DDR4 channel running charge-sharing PIM primitives, with
+  bus contention tracked explicitly. Used to project per-token
+  throughput under different optimization stacks.
+- **`app/`** — C++ apps that issue charge-sharing primitives
+  (RowClone, MAJ3 via `doubleACT`, multi-row broadcast) on real
+  DRAM-Bender silicon and run the matmuls of Microsoft's
+  BitNet b1.58-2B-4T using them. Drop these into a DRAM-Bender
+  checkout and `make`.
+- **`python/`** — orchestrator that patches Hugging Face's
+  `transformers` library to route specific BitNet projection layers to
+  the FPGA-side server while the rest of the model runs on the CPU.
+- **`calibration/`** — calibrated MAJ3-perfect open-row tuples for one
+  of our test DIMMs. Format documented; you produce your own for new
+  DIMMs.
+- **`docs/`** — hardware requirements, calibration protocol,
+  scheduler-projection methodology.
+
+This builds directly on prior research from the
+[CMU SAFARI group](https://safari.ethz.ch/) — RowClone, Ambit,
+SiMRA-DRAM, Multi-Row-Init, LISA, pLUTo — and the open-source
+[DRAM-Bender](https://github.com/CMU-SAFARI/DRAM-Bender) FPGA platform.
+We don't re-host either; you clone them yourself and place the C++
+apps from `app/` into the right path. See `app/README.md`.
+
+## Headline result
+
+| Configuration | Per-token | Notes |
+|---|---|---|
+| Today, 1 DRAM module, all 7 layer-0 projections on PIM (multi-bank) | **~30 s/tok** | measured |
+| Same hardware after the obvious software work + 4 DIMMs in parallel | ~520 ms/tok | scheduler-projected, bus-bound |
+| Plus a small in-DRAM popcount circuit (vendor change) | ~17 ms/tok | scheduler-projected |
+| Plus LISA cross-subarray data path (vendor change) | ~10 ms/tok | scheduler-projected |
+
+We are bus-bound today, not compute-bound. The model is **bit-exact
+correct** (or close to it; ~5/22 144 cells flip on uncalibrated input
+patterns — ternary models tolerate this). See `docs/METHODOLOGY.md`
+for how the projections are derived and where the simulator is
+optimistic.
+
+The point of the work is not to beat a GPU on speed. The point is to
+**demonstrate the mechanism** on real silicon and put concrete,
+scheduler-bounded numbers on what would change with two specific
+DRAM-vendor improvements (in-DRAM popcount, LISA).
+
+## Quick start (assuming you already have DRAM-Bender silicon)
+
+```bash
+# 1. Clone DRAM-Bender (the FPGA controller + bitstream)
+git clone https://github.com/CMU-SAFARI/DRAM-Bender
+# … bring up the BCU1525 bitstream per DRAM-Bender's docs.
+
+# 2. Drop our C++ apps into DRAM-Bender's apps tree and build.
+cp app/*.cpp app/Makefile DRAM-Bender/sources/apps/DSN_AE_APPS/BitNet/
+cp calibration/calib_dimm0.txt   DRAM-Bender/sources/apps/DSN_AE_APPS/BitNet/
+cd DRAM-Bender/sources/apps/DSN_AE_APPS/BitNet
+make
+
+# 3. Calibrate a DIMM (only needed once per chip — see docs/CALIBRATION.md).
+#    The shipped calib_dimm0.txt is for one of our test DIMMs;
+#    your hardware may need its own characterization.
+
+# 4. Run an end-to-end smoke test:
+./bitnet-real-exe 0 calib_dimm0.txt 1
+# Expected: bit-exact match on a small ternary x int8 matrix multiply.
+
+# 5. Hook the long-running PIM server into BitNet inference:
+export CASA_RUNNER=$PWD/bitnet-proj-exe
+export CASA_SERVER=$PWD/bitnet-proj-server
+export BITNET_CACHE=~/bitnet_weights         # any HF cache dir
+cd <repo>/python
+pip install transformers==4.52 torch
+python3 run_bitnet_pim.py \
+    --max-tokens 8 --projs all --bank "0,1,2,3" \
+    --prompt "What is the capital of Hungary? Answer in one sentence."
+# Expected output ends with "Budapest" after ~4 minutes.
+```
+
+See `python/README.md` for argument details and how the
+`pim_substitute` swap works internally.
+
+## Hardware requirements (summary)
+
+- A Xilinx Alveo U200 / BCU1525 (or compatible) FPGA card flashed
+  with the DRAM-Bender bitstream.
+- One or more DDR4 1333 MT/s DIMMs in the FPGA's DIMM slots
+  (you'll need to characterize them).
+- A host with PCIe-attached FPGA, the Xilinx XDMA driver loaded,
+  and the SoftMC API available.
+
+Full details in `docs/HARDWARE.md`.
+
+## Honest caveats
+
+- **Per-cell yield**: a small fraction of cells (we measured
+  ~5/22 144 in one full layer = 0.02 %) flip on input bit-patterns
+  the calibration didn't exhaust. BitNet is robust enough to absorb
+  this, and most outputs land bit-exact. The per-bank yield is
+  run-to-run nondeterministic — `docs/METHODOLOGY.md` discusses.
+- **Multi-bank divergence**: parallelizing across multiple banks
+  uses multiple calibrated tuples, each with its own flaky-cell
+  pattern. Output stays sensible but is not bit-exact across runs.
+  For deterministic demos, pin to one bank.
+- **Multi-DIMM scaling** is not yet integrated: characterization on
+  the additional DIMMs (1, 2, 3) is in progress at the time of
+  release. The scheduler projections that include 4-DIMM parallelism
+  assume the calibration completes; the pure single-DIMM numbers do
+  not.
+- **The simulator was written before the silicon implementation**.
+  Its hardcoded charge-sharing latencies were patched against
+  measured DIMM 0 values; numbers shift by <2% because the
+  projections are bus-bound, not MAJ3-bound. See
+  `docs/METHODOLOGY.md`.
+
+## Acknowledgments
+
+- **CMU SAFARI Group** (Onur Mutlu et al.) — RowClone, Ambit,
+  SiMRA-DRAM, Multi-Row-Init, LISA, pLUTo. Without their decade of
+  characterization papers and open-source toolkits, none of this is
+  possible on existing silicon.
+- **Microsoft Research** — BitNet b1.58-2B-4T, an open-weight
+  2.4-billion-parameter ternary language model.
+- **Hugging Face** — `transformers` library (we test against
+  v4.52).
+- The communities behind `Manim`, `Piper TTS`, `matplotlib`, and
+  `ffmpeg` for the video-production tooling used in the
+  presentation (sources for those live in the private prototype
+  repository, not here).
+
+## License
+
+MIT — see [LICENSE](LICENSE). Upstream components remain under their
+own licenses (DRAM-Bender, SiMRA-DRAM, BitNet, transformers, …); we
+don't ship them.
