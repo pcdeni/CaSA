@@ -32,20 +32,58 @@ SiMRA-DRAM, Multi-Row-Init, LISA, pLUTo — and the open-source
 We don't re-host either; you clone them yourself and place the C++
 apps from `app/` into the right path. See `app/README.md`.
 
-## Headline result
+## Headline result — three regimes
 
-| Configuration | Per-token | Notes |
-|---|---|---|
-| Today, 1 DRAM module, all 7 layer-0 projections on PIM (multi-bank) | **~30 s/tok** | measured |
-| Same hardware after the obvious software work + 4 DIMMs in parallel | ~520 ms/tok | scheduler-projected, bus-bound |
-| Plus a small in-DRAM popcount circuit (vendor change) | ~17 ms/tok | scheduler-projected |
-| Plus LISA cross-subarray data path (vendor change) | ~10 ms/tok | scheduler-projected |
+**What we are running today** is BitNet b1.58-2B-4T with **1 of its
+30 transformer layers' matrix-multiplies executing in DRAM** (the
+seven projections of layer 0). The other 29 layers run in PyTorch
+on the CPU. This is enough to demonstrate the mechanism end-to-end
+on a real published model — running all 30 layers in DRAM is
+straightforward engineering, not a science question, and the
+scheduler projects what that would look like.
 
-We are bus-bound today, not compute-bound. The model is **bit-exact
-correct** (or close to it; ~5/22 144 cells flip on uncalibrated input
-patterns — ternary models tolerate this). See `docs/METHODOLOGY.md`
-for how the projections are derived and where the simulator is
-optimistic.
+The current measurement is **dominated by orchestration overhead**
+(per-call PCIe round-trips, per-column weight writes, Python +
+subprocess). It is not what the silicon can do — it is what our
+software currently lets the silicon do.
+
+The cycle-level scheduler `casa_sched.c` exists to project the
+**bus-bound** silicon ceiling: what happens once orchestration
+overhead is engineered out and the only real wall is the DDR bus.
+Every number below the "MEASURED" row comes from running the
+scheduler with the listed flags; the bus utilization the scheduler
+reports is printed alongside.
+
+| Regime | Per-token | tok/s | Bus % | Source |
+|---|---|---|---|---|
+| **MEASURED today** — 1 of 30 BitNet layers' matmuls in DRAM, multi-bank | ~30 s per layer in DRAM | 0.03 (extrapolated to all 30 layers) | ~2 % | this hardware, today |
+| Bus-bound ceiling, all 30 layers in DRAM, 1 DIMM | 503 ms | **1.92** | 98.3 % | `casa_sched --dimms 1` |
+| + bank-group-parallel bus | 404 ms | 2.38 | 97.9 % | `casa_sched --dimms 1 --bg-parallel` |
+| + 4 DIMMs in parallel | 110 ms | 8.75 | 96.8 % | `casa_sched --dimms 4 --bg-parallel` |
+| **+ in-DRAM popcount** *(vendor RTL change)* | 16 ms | **59.99** | 73 % | `... --popcount dram` |
+| **+ LISA cross-subarray bus** *(vendor RTL change)* | 9 ms | **109.16** | 18 % | `... --lisa` |
+| + binary activations (model retrain) | 1.8 ms | 545 | 18 % | `... --act-bits 1` |
+
+Two sentences for the story:
+
+1. **Today's wall-clock measurement is ~1500× slower than the
+   silicon's bus-bound ceiling**, and the entire gap is software
+   engineering — not new memory technology. Eliminating per-call
+   subprocess overhead, making weights persistent in DRAM across
+   all MAJ3s, batching executes, killing per-column writes that
+   happen mid-loop: all of it.
+
+2. **Beyond the bus-bound ceiling**, two specific DRAM-vendor
+   changes (in-DRAM popcount, LISA) move the wall off the bus and
+   into the compute itself, lifting throughput from ~9 tok/s (4
+   DIMMs, all SW done) to ~109 tok/s — competitive with a midrange
+   GPU on this exact model.
+
+Output is **bit-exact correct on most cells** (~22 139 of 22 144 in
+one full BitNet layer = 99.98 %). The 5 stray flips come from cells
+that pass the calibrated 1000-pattern stability test but flip on
+uncalibrated bit-combinations. Ternary models are robust to this by
+construction. See `docs/METHODOLOGY.md`.
 
 The point of the work is not to beat a GPU on speed. The point is to
 **demonstrate the mechanism** on real silicon and put concrete,

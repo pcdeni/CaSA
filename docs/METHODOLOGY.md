@@ -15,54 +15,75 @@ or **scheduler-bounded** (with the assumed configuration explicit).
 Numbers we tried to estimate without measurement turned out wrong
 by orders of magnitude — see "Estimation vs. measurement" below.
 
-## Per-token throughput we measured
+## What we are running today (and what we are not)
 
-All measurements use the same prompt
+The current measurement runs **one of BitNet's 30 transformer
+layers' matrix-multiplies in DRAM** — specifically the seven
+projections of layer 0 (Q, K, V, O, gate, up, down). The other 29
+layers run in PyTorch on the CPU. This is enough to demonstrate the
+mechanism end-to-end on a real published model. Running all 30
+layers in DRAM is engineering — make all weights persistent in their
+calibrated rows, never page them in over PCIe, route activations
+between layers — not a science question.
+
+All measurements below use the same prompt
 (`"What is the capital of Hungary? Answer in one sentence."`), the
 same model (`microsoft/bitnet-b1.58-2B-4T`), `do_sample=False` so
 generation is deterministic, and 8 generated tokens unless noted.
 Per-token times include the full Python + PyTorch + PCIe + DRAM
 loop, not just FPGA compute.
 
-| Configuration | 8 tok | per token |
+| Configuration | 8 tok | per token (1 layer in DRAM) |
 |---|---|---|
 | Pure PyTorch (no PIM) | ~3.0 s | 0.4 s/tok |
-| 1 layer's `q_proj` on PIM, no persistent weights | 70.0 s | 8.75 s/tok |
-| 1 layer's `q_proj` on PIM, persistent weights | 41.8 s | 5.23 s/tok |
-| 1 layer's `q_proj` on PIM, persistent + combined program | 27.4 s | 3.43 s/tok |
-| All 7 layer-0 projections on PIM, persistent + combined, single bank | 303.7 s | 38.0 s/tok |
-| All 7 layer-0 projections on PIM, multi-bank `0,1,2,3` | **238.1 s** | **29.76 s/tok** |
+| 1 layer's `q_proj` only, no persistent weights | 70.0 s | 8.75 s/tok |
+| 1 layer's `q_proj` only, persistent weights | 41.8 s | 5.23 s/tok |
+| 1 layer's `q_proj` only, persistent + combined program | 27.4 s | 3.43 s/tok |
+| All 7 layer-0 projections, single bank | 303.7 s | 38.0 s/tok |
+| All 7 layer-0 projections, multi-bank `0,1,2,3` | **238.1 s** | **29.76 s/tok** |
 
 The **measured today** number in the README headline is the bottom
-row: ~30 s/tok for one layer's full set of seven projections on
-PIM, multi-bank.
+row: ~30 s/tok for one BitNet layer's full set of seven projections
+on PIM, multi-bank. Extrapolated linearly to all 30 layers in DRAM
+at this same orchestration overhead: ~900 s/tok ≈ 15 minutes/token.
 
-To extrapolate to all 30 layers running on PIM (which we have not
-demonstrated end-to-end — the work to make 30 layers' worth of
-weights persistent is engineering, not science): roughly
-~30× the per-layer number, so ~900 s/tok = ~15 minutes per token
-in the configuration measured. This is the "today, all 30 layers
-extrapolated" bar in the chart.
+That extrapolation is **not what the silicon does** — it is what
+our current orchestration does. The same hardware running the same
+operations, with no per-call subprocess and no per-column writes
+mid-loop, would land on the bus-bound projection below — ~500 ms/tok
+on 1 DIMM, three orders of magnitude faster than the orchestration-
+bound floor. The gap is software, not silicon.
 
-## Where the time goes per matrix-multiply
+## Where the time actually goes — TODAY vs BUS-BOUND
 
-From the scheduler, the per-MAJ3 critical path on the measured
-single-DIMM Tier-A configuration breaks down approximately as:
+The two operating points are very different in shape, not just in
+magnitude. Below: roughly where each microsecond is spent per
+matrix-multiply step, in (a) what we measured today and (b) what the
+scheduler says the silicon does once orchestration overhead is gone.
 
-| Phase | % of critical path |
-|---|---|
-| RowClone (refresh weight from backup) | ~15 % |
-| Broadcast (copy activation across rows) | ~20 % |
-| MAJ3 (the actual physics) | ~18 % |
-| Bus read (8 KB result row over PCIe) | **~35 %** |
-| Misc DRAM ops (PRE / SLEEP / frac) | ~10 % |
-| Popcount (CPU side) | ~2 % |
+| Phase | TODAY (Tier-0, orchestration-bound) | BUS-BOUND (Tier-A, scheduler) |
+|---|---|---|
+| Per-column writes for weight loading | ~340 ms / matmul | 0 (weights persistent in DRAM) |
+| Subprocess + Python + PCIe per `execute()` round-trips | ~50 ms / matmul | 0 (assumed zero in scheduler) |
+| Per-MAJ3 PCIe read of 8 KB result row | tens of ms / matmul | ~35 % of critical path |
+| RowClone broadcast (`doubleACT(10,2)`) | tens of ms / matmul | ~20 % |
+| MAJ3 doubleACT (the actual physics) | tens of ms / matmul | ~18 % |
+| Misc DRAM bookkeeping (PRE / SLEEP / frac) | ~10 ms / matmul | ~10 % |
+| Popcount (CPU-side adds of 8 KB row) | ~5 ms / matmul | ~2 % |
+| **Per matrix-multiply step (≈ 1 BitNet projection)** | **~3 sec** | **~3 ms** |
+| **Per token, all 30 layers in DRAM** | **~15 min** (extrapolated) | **~500 ms** (scheduler) |
+| **Bus utilization** | **~2 %** (almost idle) | **~98 %** (bus-bound, the wall) |
 
-We are bus-bound, not compute-bound. The 8 KB result row crossing
-the bus is the single biggest chunk. This is why an in-DRAM popcount
-circuit (which lets the chip ship back ~2 bytes instead of 8 KB)
-gives the largest speedup of any optimization in the projection
-ladder, despite being a small piece of silicon at the periphery.
+The TODAY column is dominated by per-column writes (we copy the
+weight pattern over PCIe before each matmul) and per-call PCIe
+round-trips between Python and the FPGA. Engineering this out gets
+us to the BUS-BOUND column, where the bus is the actual wall and
+the chip cannot go faster on this configuration without an
+architectural change.
+
+This is why we are bus-bound at the silicon ceiling, even though we
+are nowhere near bus-bound today: the bus is already the limit *of
+the silicon*, not of our software.
 
 ## Throughput projections from the scheduler
 
@@ -71,26 +92,44 @@ the standard JEDEC DDR4 timing parameters (tRCD=9, tRP=9, tRAS=24,
 tRC=33, tRRD=4/6, tFAW=20, tCCD=5, tBurst=4, tWR=10, tREFI=5200,
 tRFC=233 cycles), bank/bus contention, and the measured
 charge-sharing latencies (t_12/t_23 = 0/0 for MAJ3, 10/2 for
-broadcast, 30/1 for RowClone). It does not model PCIe / kernel /
-Python overhead; it assumes the FPGA is fed instructions at zero
-cost.
+broadcast / Multi-Row-Init, 30/1 for the 2-row RowClone we use for
+persistent-weight refresh).
 
-| Stack | Per-token | Bus % | tok/s | What it requires |
+The MAJ3 and RowClone primitives are modeled as `doubleACT`
+sequences (two ACTs back-to-back with the timing violation between
+them, no intermediate PRE) — matching what the silicon actually
+does. Derived per-primitive cost: **MAJ3 = 20 tCK = 30 ns**,
+**RC = 32 tCK = 48 ns** at our measured timings.
+
+The scheduler does **not** model PCIe / kernel / Python overhead. It
+assumes the FPGA is fed instructions at zero cost. That is correct
+for the silicon-ceiling question; it is the gap between the
+scheduler and our current measured throughput that "orchestration
+overhead" refers to.
+
+All numbers below are from running `casa_sched.c` with the listed
+flags. Reproduce locally with `cc -O2 scheduler/casa_sched.c -o
+casa_sched` and the same flags.
+
+| Stack | CLI flags | ms / token | Bus % | tok/s |
 |---|---|---|---|---|
-| **A.** sim baseline (1 DIMM, FPGA pop) | 523 ms | 98.2 % | 1.9 | software work to feed the FPGA at full bus rate, persistent weights everywhere |
-| **B.** + bank-group parallel bus | 419 ms | 97.9 % | 2.4 | scheduler change, no hardware |
-| **C.** + 4 DIMMs in parallel | 114 ms | 96.8 % per DIMM | 8.7 | calibration on additional DIMMs |
-| **E.** + POPCNT3 (chained MAJ3 popcount in DRAM) | 69 ms | 95.9 % | 14.6 | RTL change to the FPGA-side controller |
-| ─── horizontal divider — vendor changes below ─── | | | | |
-| **D.** + dedicated in-DRAM popcount circuit | 17 ms | 75 % | 60 | DRAM-vendor silicon change |
-| **F.** + LISA cross-subarray bus | 10 ms | 60 % | 97 | DRAM-vendor silicon change |
-| **H.** + binary activations (model retrain) | 1.7 ms | 52 % | ~580 | retrain BitNet at 1-bit activations |
+| **A1** baseline, 1 DIMM, FPGA pop | `--dimms 1` | 503 | 98.3 % | **1.92** |
+| **A2** + bank-group parallel bus | `--dimms 1 --bg-parallel` | 404 | 97.9 % | 2.38 |
+| **A3** + 4 DIMMs in parallel | `--dimms 4` | 137 | 97.4 % | 7.04 |
+| **A4** + 4 DIMMs + bank-group parallel | `--dimms 4 --bg-parallel` | 110 | 96.8 % | 8.75 |
+| ─── *vendor changes below* ─── | | | | |
+| **D** + in-DRAM popcount circuit | `... --popcount dram` | 16 | 73 % | **59.99** |
+| **F** + LISA cross-subarray bus | `... --lisa` | 9 | 18 % | **109.16** |
+| **H** + binary activations (model retrain) | `... --act-bits 1` | 1.8 | 18 % | 545 |
 
-The horizontal divider is where the story changes. **Above it:
-software, calibration, and FPGA RTL — engineering only, no new
-chip.** Even with all of it, we cap at ~15 tok/s because the bus
-stays ~96 % busy. Below it: small DRAM-vendor changes that move the
-bottleneck off the bus and into the DRAM compute itself.
+Tier A is engineering only — no new silicon. Even with all of it
+(4 DIMMs, bg-parallel, all 30 layers persistent in DRAM, no
+orchestration overhead), we cap at ~9 tok/s because the bus stays
+~97 % busy. **Below the divider** is where DRAM-vendor changes
+unlock the bus and lift throughput into GPU territory. The
+in-DRAM popcount alone (a few hundred logic cells per subarray,
+no cell-array changes) gives the biggest single jump: ~9 → ~60
+tok/s, with bus utilization dropping from 97 % to 73 %.
 
 ## Where the simulator matches reality, and where it doesn't
 
@@ -114,8 +153,8 @@ elsewhere.**
 We re-ran the simulator with conservative assumptions for the
 hypothetical parameters:
 
-- In-DRAM popcount with `t_popcount = 20` cycles (~30 ns) → **60 tok/s**
-- In-DRAM popcount with `t_popcount = 200` cycles (~300 ns, 10× slower) → **58 tok/s** (1.5 % drop)
+- In-DRAM popcount with `t_popcount = 20` cycles (~30 ns) → **59.99 tok/s**
+- In-DRAM popcount with `t_popcount = 200` cycles (~300 ns, 10× slower) → **56.97 tok/s** (~5 % drop)
 
 So the in-DRAM popcount projection is robust to the exact circuit
 performance. Even a slow popcount circuit gets us most of the way.

@@ -125,14 +125,29 @@ typedef struct {
 
 void dimm_init(DIMMConfig *cfg) {
     cfg->n_banks = cfg->n_bank_groups * cfg->banks_per_bg;
-    /* 3-row APA: ACT(weight) + t12 + PRE(violated) + t23 + ACT(zero-ref)
-     *           + t12 + PRE(violated) + t23 + ACT(activation) + tRCD + tRP
-     * 5 commands total (3 ACT + 2 violated PRE) */
+    /* MAJ3 via doubleACT(t_12_maj3, t_23_maj3) on a pre-staged 16-row
+     * open-set (5 weight + 5 activation + 5 zero + 1 buffer copies, set
+     * up earlier with Multi-Row-Init). Two commands:
+     *
+     *   ACT(R1) + t_12_maj3 + ACT(R2) + t_23_maj3 + tRCD + tRP
+     *
+     * The bitline charge mixing happens during t_23 + tRCD, with the
+     * sense amps latching the majority of the 16 simultaneously open
+     * rows. Measured on DIMM 0: t_12_maj3 = t_23_maj3 = 0 tCK. */
     cfg->maj3_time = 1 + cfg->t_12_maj3 + 1 + cfg->t_23_maj3
-                   + 1 + cfg->t_12_maj3 + 1 + cfg->t_23_maj3
-                   + 1 + cfg->tRCD + cfg->tRP;
-    /* SA-mediated RowCopy (2-row): ACT(src) + t12 + PRE(violated) + t23 + ACT(dst) + tRCD + tRP */
-    cfg->rc_time = 1 + cfg->t_12_rc + 1 + cfg->t_23_rc + 1 + cfg->tRCD + cfg->tRP;
+                   + cfg->tRCD + cfg->tRP;
+    /* RowClone / Multi-Row-Init via doubleACT(t_12_rc, t_23_rc):
+     *   ACT(src) + t_12_rc + ACT(dst) + t_23_rc + tRCD + tRP
+     *
+     * Same instruction structure as MAJ3 (no intermediate PRE — the
+     * timing violation is between the two ACTs). Measured for the
+     * 16-row Multi-Row-Init broadcast on DIMM 0: t_12_rc = 10,
+     * t_23_rc = 2. The 2-row RowClone we use for persistent-weight
+     * refresh is the same primitive at (30, 1); we use the MRI value
+     * here because broadcast happens once per matmul step in the
+     * bus-bound model, while RowClone is amortized engineering cost. */
+    cfg->rc_time = 1 + cfg->t_12_rc + 1 + cfg->t_23_rc
+                 + cfg->tRCD + cfg->tRP;
 
     /* Full-row bus access: 120 sequential column accesses via page-mode.
      * Column accesses are tCCD_L apart (same bank = same bank group). */
