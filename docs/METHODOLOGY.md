@@ -101,35 +101,89 @@ them, no intermediate PRE) — matching what the silicon actually
 does. Derived per-primitive cost: **MAJ3 = 20 tCK = 30 ns**,
 **RC = 32 tCK = 48 ns** at our measured timings.
 
+### What the scheduler counts per MAJ3
+
+To make the bus-bound projection reflect our **current silicon
+implementation** (not a hypothetical future), the scheduler
+explicitly accounts for what `emit_bank_combined_body` in
+`app/test_bitnet_server.cpp` actually issues:
+
+| Operation | Cost | Why |
+|---|---|---|
+| Weight RowClone refresh `doubleACT(30,1)` | rc_time = 32 tCK | bank-only, charge-sharing |
+| Activation broadcast `doubleACT(10,2)` | rc_time = 32 tCK | bank-only, charge-sharing |
+| **Activation update wrRows × 5** | **5 × bus_wr_time = ~3140 tCK** | **bus traffic** — `doubleACT(10,2)` broadcasts to *all 16* open rows, so the 5 activation slots must be individually overwritten with the per-bitplane x_pattern. With persistent zeros + buffer (one-time setup per chunk), only the 5 activation wrRows remain per MAJ3. |
+| Frac discharge × 3 | ~84 tCK | bank-only, observed empirically necessary on DIMM 0 for stable MAJ3 |
+| MAJ3 `doubleACT(0,0)` | maj3_time = 20 tCK | bank-only, the actual physics |
+| Result read | bus_rd_time ≈ 618 tCK *(or ~50 tCK with in-DRAM popcount)* | bus traffic |
+
+**The 5 wrRows for activation update dominate per-MAJ3 silicon
+time** — about 3140 tCK out of ~3920 tCK total. The bus_read is the
+second-largest chunk (618 tCK). MAJ3 itself is negligible (20 tCK,
+~0.5 %).
+
 The scheduler does **not** model PCIe / kernel / Python overhead. It
 assumes the FPGA is fed instructions at zero cost. That is correct
 for the silicon-ceiling question; it is the gap between the
 scheduler and our current measured throughput that "orchestration
-overhead" refers to.
+overhead" refers to. Per-MAJ3 measured wall-clock today is ~1.2 ms
+(wall-clock for one of the multi-bank executes); per-MAJ3 silicon-
+only at bus-bound is ~5.9 µs. Ratio ≈ **200×**, all engineering
+overhead (PCIe per-call, Python, per-column weight writes that we
+re-issue per matmul instead of once at startup).
+
+### Realistic projections (current silicon implementation)
 
 All numbers below are from running `casa_sched.c` with the listed
 flags. Reproduce locally with `cc -O2 scheduler/casa_sched.c -o
-casa_sched` and the same flags.
+casa_sched` and the same flags. The default config models our
+current silicon path (5 activation wrRows + frac discharge per
+MAJ3); see "ideal-acts" section below for the hypothetical-future
+projections.
 
 | Stack | CLI flags | ms / token | Bus % | tok/s |
 |---|---|---|---|---|
-| **A1** baseline, 1 DIMM, FPGA pop | `--dimms 1` | 503 | 98.3 % | **1.92** |
-| **A2** + bank-group parallel bus | `--dimms 1 --bg-parallel` | 404 | 97.9 % | 2.38 |
-| **A3** + 4 DIMMs in parallel | `--dimms 4` | 137 | 97.4 % | 7.04 |
-| **A4** + 4 DIMMs + bank-group parallel | `--dimms 4 --bg-parallel` | 110 | 96.8 % | 8.75 |
-| ─── *vendor changes below* ─── | | | | |
-| **D** + in-DRAM popcount circuit | `... --popcount dram` | 16 | 73 % | **59.99** |
-| **F** + LISA cross-subarray bus | `... --lisa` | 9 | 18 % | **109.16** |
-| **H** + binary activations (model retrain) | `... --act-bits 1` | 1.8 | 18 % | 545 |
+| **R1** 1 DIMM | `--dimms 1` | 3000 | 97.2 % | **0.33** |
+| **R2** + bank-group-parallel bus | `... --bg-parallel` | 2400 | 96.5 % | 0.40 |
+| **R3** + 4 DIMMs in parallel | `--dimms 4 --bg-parallel` | 610 | 95.6 % | 1.57 |
+| **R4** + in-DRAM popcount *(vendor RTL)* | `... --popcount dram` | 520 | 94.9 % | 1.86 |
+| **R5** + LISA cross-subarray bus *(vendor RTL)* | `... --lisa` | 510 | 94.9 % | 1.90 |
 
-Tier A is engineering only — no new silicon. Even with all of it
-(4 DIMMs, bg-parallel, all 30 layers persistent in DRAM, no
-orchestration overhead), we cap at ~9 tok/s because the bus stays
-~97 % busy. **Below the divider** is where DRAM-vendor changes
-unlock the bus and lift throughput into GPU territory. The
-in-DRAM popcount alone (a few hundred logic cells per subarray,
-no cell-array changes) gives the biggest single jump: ~9 → ~60
-tok/s, with bus utilization dropping from 97 % to 73 %.
+The realistic ceiling for our current silicon path on 4 DIMMs even
+with **both** vendor changes is **~1.9 tok/s**. In-DRAM popcount
+helps only **1.18×** here (1.57 → 1.86), and LISA barely registers,
+because the bus is saturated by activation wrRows, not result reads.
+The vendor changes target the wrong bottleneck if we keep the
+current activation-update mechanism.
+
+### "ideal-acts" projections (hypothetical primitive that doesn't exist today)
+
+If a future DRAM primitive enabled selective broadcast — i.e.
+update *only* the 5 activation rows in the 16-row open-set via
+charge-sharing instead of 5 individual full-row bus writes — the
+per-MAJ3 silicon cost drops from ~3920 tCK to ~770 tCK, and the
+projections shift dramatically:
+
+| Stack | CLI flags | ms / token | Bus % | tok/s |
+|---|---|---|---|---|
+| **I1** 1 DIMM ideal | `--dimms 1 --ideal-acts` | 503 | 98.3 % | 1.92 |
+| **I2** + bg-parallel | `... --bg-parallel` | 404 | 97.9 % | 2.38 |
+| **I3** + 4 DIMMs | `--dimms 4 --bg-parallel --ideal-acts` | 110 | 96.8 % | 8.75 |
+| **I4** + in-DRAM popcount | `... --popcount dram` | 16 | 73 % | **59.99** |
+| **I5** + LISA | `... --lisa` | 9 | 18 % | **109.16** |
+| **I6** + binary activations (model retrain) | `... --act-bits 1` | 1.8 | 18 % | 545 |
+
+In the ideal-acts world, in-DRAM popcount delivers the **~30×**
+speedup we'd expect (1.86 → 60), because the bus is no longer
+write-saturated. **GPU-competitive throughput on existing DDR4
+silicon requires both the popcount circuit AND the selective-
+broadcast primitive.** Either alone gives modest improvement.
+
+This is an honest consequence of our current MAJ3 implementation
+relying on the all-16 broadcast. If the BitNet PIM mapping were
+restructured (different layout — e.g., bit-serial — or a different
+multi-row-charge-sharing primitive), some of this gap could close
+without needing a new DRAM primitive.
 
 ## Where the simulator matches reality, and where it doesn't
 
@@ -153,8 +207,21 @@ elsewhere.**
 We re-ran the simulator with conservative assumptions for the
 hypothetical parameters:
 
-- In-DRAM popcount with `t_popcount = 20` cycles (~30 ns) → **59.99 tok/s**
-- In-DRAM popcount with `t_popcount = 200` cycles (~300 ns, 10× slower) → **56.97 tok/s** (~5 % drop)
+**Realistic mode** (4 DIMMs + bg-parallel + popcount, default activation
+wrRows + frac discharge):
+- `t_popcount = 20` cycles (~30 ns) → **1.86 tok/s**
+- `t_popcount = 200` cycles (~300 ns, 10× slower) → **1.86 tok/s** (no measurable drop — bus is saturated by activation wrRows, not the popcount path)
+
+**Ideal-acts mode** (with the hypothetical selective-broadcast primitive,
+4 DIMMs + bg-parallel + popcount):
+- `t_popcount = 20` cycles → **59.99 tok/s**
+- `t_popcount = 200` cycles → **56.97 tok/s** (~5 % drop)
+
+The realistic-mode flatness is informative: it confirms the bus is
+write-bound, so faster popcount inside DRAM doesn't help. To move
+the 1.86 tok/s number, you'd need to address the wrRow bottleneck
+first (selective-broadcast primitive, or a layout change that
+amortizes activation updates).
 
 So the in-DRAM popcount projection is robust to the exact circuit
 performance. Even a slow popcount circuit gets us most of the way.

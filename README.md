@@ -54,30 +54,57 @@ Every number below the "MEASURED" row comes from running the
 scheduler with the listed flags; the bus utilization the scheduler
 reports is printed alongside.
 
+All projections come from `casa_sched.c` configured to match what our
+silicon actually issues per MAJ3: an activation broadcast plus 5
+full-row bus_writes (the activation update — `doubleACT(10,2)`
+broadcasts to all 16 open rows, so the activation slots have to be
+overwritten individually), a 3-cycle frac discharge, the MAJ3 itself,
+and a result read. The scheduler bookkeeping respects every standard
+DDR4 timing parameter (tRCD, tRP, tFAW, tCCD, tBurst, tWR, tREFI,
+tRFC) and tracks bus and bank utilization explicitly. Bus-bound
+projections quoted below are what our **current silicon
+implementation** would achieve at full bus utilization — i.e. with
+all the orchestration overhead engineered out. They are not
+hypothetical-future projections.
+
 | Regime | Per-token | tok/s | Bus % | Source |
 |---|---|---|---|---|
-| **MEASURED today** — 1 of 30 BitNet layers' matmuls in DRAM, multi-bank | ~30 s per layer in DRAM | 0.03 (extrapolated to all 30 layers) | ~2 % | this hardware, today |
-| Bus-bound ceiling, all 30 layers in DRAM, 1 DIMM | 503 ms | **1.92** | 98.3 % | `casa_sched --dimms 1` |
-| + bank-group-parallel bus | 404 ms | 2.38 | 97.9 % | `casa_sched --dimms 1 --bg-parallel` |
-| + 4 DIMMs in parallel | 110 ms | 8.75 | 96.8 % | `casa_sched --dimms 4 --bg-parallel` |
-| **+ in-DRAM popcount** *(vendor RTL change)* | 16 ms | **59.99** | 73 % | `... --popcount dram` |
-| **+ LISA cross-subarray bus** *(vendor RTL change)* | 9 ms | **109.16** | 18 % | `... --lisa` |
-| + binary activations (model retrain) | 1.8 ms | 545 | 18 % | `... --act-bits 1` |
+| **MEASURED today** — 1 of 30 BitNet layers in DRAM, multi-bank, ~200× orchestration overhead per MAJ3 | ~30 s/tok per layer in DRAM | ~0.001 *(if extrapolated to all 30 layers)* | ~2 % | this hardware, today |
+| **Bus-bound ceiling** — all 30 layers in DRAM, 1 DIMM, current silicon path | 3.0 s | **0.33** | 97.2 % | `casa_sched --dimms 1` |
+| + bank-group-parallel bus | 2.4 s | 0.40 | 96.5 % | `... --bg-parallel` |
+| + 4 DIMMs in parallel | 0.61 s | 1.57 | 95.6 % | `--dimms 4 --bg-parallel` |
+| + in-DRAM popcount *(vendor RTL change)* | 0.52 s | 1.86 | 94.9 % | `... --popcount dram` |
+| + LISA cross-subarray bus *(vendor RTL change)* | 0.51 s | 1.90 | 94.9 % | `... --lisa` |
+| ─── *with a hypothetical selective-broadcast DRAM primitive (`--ideal-acts`) that would eliminate the per-MAJ3 activation wrRows* ─── | | | | |
+| 1 DIMM ideal | 503 ms | 1.92 | 98.3 % | `casa_sched --dimms 1 --ideal-acts` |
+| 4 DIMMs ideal + popcount | 16 ms | **59.99** | 73 % | `... --popcount dram --ideal-acts` |
+| 4 DIMMs ideal + popcount + LISA | 9 ms | **109.16** | 18 % | `... --lisa --ideal-acts` |
+| + binary activations (model retrain) | 1.8 ms | 545 | 18 % | `... --act-bits 1 --ideal-acts` |
 
-Two sentences for the story:
+Three sentences for the story:
 
-1. **Today's wall-clock measurement is ~1500× slower than the
-   silicon's bus-bound ceiling**, and the entire gap is software
-   engineering — not new memory technology. Eliminating per-call
-   subprocess overhead, making weights persistent in DRAM across
-   all MAJ3s, batching executes, killing per-column writes that
-   happen mid-loop: all of it.
+1. **Today's measurement is ~200× slower per MAJ3 than the
+   silicon's bus-bound ceiling**, and the entire gap is software —
+   eliminating per-call PCIe round-trips, batching MAJ3s into
+   SoftMC outer loops, pre-loading weights into DRAM at startup
+   so the runtime never per-column-writes weights again.
 
-2. **Beyond the bus-bound ceiling**, two specific DRAM-vendor
-   changes (in-DRAM popcount, LISA) move the wall off the bus and
-   into the compute itself, lifting throughput from ~9 tok/s (4
-   DIMMs, all SW done) to ~109 tok/s — competitive with a midrange
-   GPU on this exact model.
+2. **The bus-bound ceiling on existing DRAM is modest** — ~2 tok/s
+   with 4 DIMMs even after every realistic optimization, because
+   updating activation rows takes 5 full-row bus_writes per MAJ3
+   (the `doubleACT` broadcast primitive distributes to all 16
+   open rows, so the 5 activation slots must be individually
+   re-written via wrRow). At that point the bus is genuinely full;
+   adding popcount or LISA helps only marginally because they
+   target the bus_read, not the bus_writes that dominate.
+
+3. **Beyond ~2 tok/s requires a new DRAM primitive** — specifically
+   a selective subset-broadcast that updates the 5 activation rows
+   in the open-set via charge-sharing instead of bus_writes. The
+   scheduler models this hypothetically as `--ideal-acts`; with it,
+   in-DRAM popcount unlocks 60 tok/s and LISA brings it to 109 —
+   GPU-competitive on this exact model. None of those numbers are
+   reachable on existing DRAM without that new primitive.
 
 Output is **bit-exact correct on most cells** (~22 139 of 22 144 in
 one full BitNet layer = 99.98 %). The 5 stray flips come from cells

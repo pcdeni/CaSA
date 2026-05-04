@@ -121,6 +121,17 @@ typedef struct {
                              *     Enables valid POPCNT3 accumulation (NeurIPS 2024). */
     int bs_K;               /* bit-serial batch size K (inputs accumulated per POPCNT3 tree).
                              * Must fit in one subarray with intermediate rows. */
+    int act_wr_per_maj3;    /* Number of full-row bus writes per MAJ3 to update
+                             * activation slots in the 16-row open-set. Reflects
+                             * what `emit_bank_combined_body` actually issues:
+                             * 5 (act-only, with persistent zeros + buffer rows),
+                             * or 11 (everything per-MAJ3, today's code). 0 models
+                             * a hypothetical selective-broadcast primitive (no
+                             * such DDR4 op exists today). Default 5. */
+    int frac_tck_per_maj3;  /* Bank-busy cycles per MAJ3 for the frac-discharge
+                             * sequence (3 ACT-PRE-NOP-NOP cycles + surrounding
+                             * SLEEPs). Measured on DIMM 0: ~84 tCK. Default 84.
+                             * Set to 0 to model a calibration that obviates it. */
 } Layout;
 
 void dimm_init(DIMMConfig *cfg) {
@@ -702,11 +713,28 @@ static int bus_time(DIMMConfig *c, int nbytes, int is_write) {
 
 /* Schedule one weight-row cycle (1 neuron group x 1 bitplane) on a bank.
  *
- * Protocol per weight-row-cycle:
- *   1. RowCopy activation backup -> working row (MAJ3 destroys activation)
- *   2. MAJ3(weight, activation_working, zero_pool_row) -> result
- *   3. Bus READ full row: 120 column accesses -> FPGA streams + popcounts
- *   4. RowCopy weight backup -> weight row (restore, if needed)
+ * Protocol per weight-row-cycle (matching what
+ * test_bitnet_server.cpp::emit_bank_combined_body actually issues to the
+ * SoftMC, which is what the silicon's PHY actually executes):
+ *
+ *   1a. (skipped if zero_pool_size==16) RowCopy zeros into 5 zero rows.
+ *   1b. RowCopy activation backup -> activation source row (rc_time, bank-only).
+ *   1c. lay->act_wr_per_maj3 full-row bus_writes to update the activation rows
+ *       in the 16-row open-set. doubleACT broadcasts to ALL 16 open rows, so
+ *       the activation rows must be individually overwritten with the
+ *       per-bitplane x_pattern. Default 5. Set to 0 to model a hypothetical
+ *       selective-broadcast primitive that doesn't exist on existing silicon.
+ *   1d. Frac discharge: lay->frac_tck_per_maj3 bank-busy cycles. Default 84.
+ *   2.  MAJ3 doubleACT(0,0) (maj3_time = ~20 tCK).
+ *   3.  Bus READ full row (or small in-DRAM popcount result).
+ *   4.  Weight restore (Multi-RowCopy or RowCopy, every weight_copies-th bp).
+ *   5.  FPGA-side popcount (overlaps with bus read).
+ *
+ * The act_wr / frac costs were missing from earlier scheduler versions —
+ * they're the silicon-real per-MAJ3 overhead our current implementation has
+ * because of the all-16-rows broadcast primitive. Without modeling them, the
+ * bus-bound projection is optimistic; with them, it reflects what the silicon
+ * actually does once orchestration overhead (Python+PCIe per-call) is gone.
  */
 static int sched_add_weight_row_cycle(Scheduler *s, int di, int bank,
                                        int wr, int bp, int act_dep,
@@ -721,12 +749,29 @@ static int sched_add_weight_row_cycle(Scheduler *s, int di, int bank,
         add_dep(s, act_dep, step1a);
     }
 
-    /* Step 1b: RowCopy activation backup -> activation working row. */
+    /* Step 1b: RowCopy activation backup -> activation source row. */
     int step1b = add_work(s, WORK_ROWCOPY, di, bank, c->rc_time);
     if (step1a >= 0)
         add_dep(s, step1a, step1b);
     else
         add_dep(s, act_dep, step1b);
+
+    /* Step 1c: Per-MAJ3 activation-row bus_writes. With current DDR4 primitives
+     * (no selective subset broadcast), updating activation slots in the
+     * 16-row open-set requires individual full-row writes. */
+    int prev = step1b;
+    for (int i = 0; i < lay->act_wr_per_maj3; i++) {
+        int aw = add_work(s, WORK_BUS_WRITE, di, bank, c->bus_wr_time);
+        add_dep(s, prev, aw);
+        prev = aw;
+    }
+
+    /* Step 1d: Frac discharge — bank-busy time, no bus traffic. */
+    if (lay->frac_tck_per_maj3 > 0) {
+        int fd = add_work(s, WORK_MAJ3, di, bank, lay->frac_tck_per_maj3);
+        add_dep(s, prev, fd);
+        prev = fd;
+    }
 
     /* Step 2: MAJ3 + optional in-DRAM popcount.
      * If in-DRAM popcount: bank stays busy for MAJ3 + t_popcount (SA computes
@@ -735,7 +780,7 @@ static int sched_add_weight_row_cycle(Scheduler *s, int di, int bank,
     if (lay->popcount_in_dram)
         maj3_dur += lay->t_popcount;
     int step2 = add_work(s, WORK_MAJ3, di, bank, maj3_dur);
-    add_dep(s, step1b, step2);
+    add_dep(s, prev, step2);
 
     /* Step 3: Read result from DRAM to FPGA */
     int step3;
@@ -805,8 +850,22 @@ static int sched_add_maj3_only(Scheduler *s, int di, int bank,
     if (step1a >= 0) add_dep(s, step1a, step1b);
     else add_dep(s, act_dep, step1b);
 
+    /* Per-MAJ3 activation-row bus_writes + frac discharge (mirror
+     * sched_add_weight_row_cycle for consistency). */
+    int prev = step1b;
+    for (int i = 0; i < lay->act_wr_per_maj3; i++) {
+        int aw = add_work(s, WORK_BUS_WRITE, di, bank, c->bus_wr_time);
+        add_dep(s, prev, aw);
+        prev = aw;
+    }
+    if (lay->frac_tck_per_maj3 > 0) {
+        int fd = add_work(s, WORK_MAJ3, di, bank, lay->frac_tck_per_maj3);
+        add_dep(s, prev, fd);
+        prev = fd;
+    }
+
     int step2 = add_work(s, WORK_MAJ3, di, bank, c->maj3_time);
-    add_dep(s, step1b, step2);
+    add_dep(s, prev, step2);
 
     /* Weight restore — Multi-RowCopy when weight_copies > 1 (1 src -> N-1 dst),
      * single RowCopy otherwise. See same logic in sched_add_weight_row_cycle. */
@@ -1584,6 +1643,9 @@ int main(int argc, char **argv) {
     int bit_serial = 0;   /* 0 = neuron-packed (current); 1 = bit-serial layout */
     int bs_K = 127;       /* bit-serial batch size */
     int cold_start = 0;   /* 0 = skip; 1 = model & report cold-start init phase */
+    int act_wr_per_maj3 = 5;    /* default: 5 wrRows per MAJ3 (activation only,
+                                 * with persistent zeros + buffer) */
+    int frac_tck_per_maj3 = 84; /* default: 84 tCK frac discharge per MAJ3 */
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--layers") == 0 && i + 1 < argc)
@@ -1624,6 +1686,17 @@ int main(int argc, char **argv) {
             bs_K = atoi(argv[++i]);
         else if (strcmp(argv[i], "--cold-start") == 0)
             cold_start = 1;
+        else if (strcmp(argv[i], "--act-wr-per-maj3") == 0 && i + 1 < argc)
+            act_wr_per_maj3 = atoi(argv[++i]);
+        else if (strcmp(argv[i], "--frac-tck-per-maj3") == 0 && i + 1 < argc)
+            frac_tck_per_maj3 = atoi(argv[++i]);
+        else if (strcmp(argv[i], "--ideal-acts") == 0) {
+            /* Hypothetical-future shorthand: assume a selective-broadcast
+             * primitive eliminates per-MAJ3 activation wrRows AND a
+             * calibration step obviates frac discharge. */
+            act_wr_per_maj3 = 0;
+            frac_tck_per_maj3 = 0;
+        }
     }
 
     if (act_bits < 1 || act_bits > MAX_BITPLANES) {
@@ -1637,7 +1710,8 @@ int main(int argc, char **argv) {
 
     Layout layout = { 16, 8, act_bits, popcount_in_dram, t_popcount,
                        use_popcnt3, t_popcnt3, use_lisa, proj_banks, use_pluto,
-                       weight_banks, bg_parallel, bit_serial, bs_K };
+                       weight_banks, bg_parallel, bit_serial, bs_K,
+                       act_wr_per_maj3, frac_tck_per_maj3 };
 
     /* bg_parallel: with bank-group interleaving, DDR4 data bus achieves 100% use
      * (tBurst cadence) vs 80% for single-BG serial (tCCD_L cadence).
