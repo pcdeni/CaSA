@@ -446,14 +446,32 @@ static bool read_exact(void* buf, size_t n) {
 // the calibrated open_rows used by MAJ3.
 struct BankConfig {
   int bank_id;
-  Calib calib;
-  std::vector<uint32_t> backup_pool;  // backup rows in this bank's subarray
+  Calib calib;                        // primary (calib_idx=0)
+  std::vector<uint32_t> backup_pool;  // primary's safe-zone pool
+  // Cross-calib voting (request-level `calib_idx`, see process_request).
+  // Each entry is a calib in a physically-distinct sub-cluster of this
+  // same bank; ordered by cluster size (denser first) so 3-vote majority
+  // doesn't get biased by a known-weak cluster.
+  std::vector<Calib>                cs_extra;
+  std::vector<std::vector<uint32_t>> pool_extra;
 };
 
 // Round R → backup_pool index (modular wrap when n_rounds > pool size).
 // Per-column write rewrites the row each round, so cycling through is
 // safe — adjacent ACTs occur on the SAME round's row, and the empirical
 // stride-8 disturb-free property still holds.
+// Select calib + pool by per-request calib_idx (0 = primary; ≥1 = cs_extra).
+static inline const Calib& bc_calib_idx(const BankConfig& bc, uint32_t idx) {
+  if (idx == 0 || bc.cs_extra.empty()) return bc.calib;
+  size_t i = (idx - 1) % bc.cs_extra.size();
+  return bc.cs_extra[i];
+}
+static inline const std::vector<uint32_t>& bc_pool_idx(const BankConfig& bc, uint32_t idx) {
+  if (idx == 0 || bc.pool_extra.empty()) return bc.backup_pool;
+  size_t i = (idx - 1) % bc.pool_extra.size();
+  return bc.pool_extra[i];
+}
+
 static inline size_t round_to_pool_idx(const BankConfig& bc, size_t round) {
   if (bc.backup_pool.empty()) return 0;  // shouldn't happen
   return round % bc.backup_pool.size();
@@ -515,10 +533,15 @@ static int process_request(SoftMCPlatform& platform,
     fprintf(stderr, "[server] expected d_out=2048, got %u\n", d_out);
     return -1;
   }
-  size_t need = (size_t)5*4 + (size_t)n_chunks*d_out*4*2
-              + (size_t)n_chunks*n_bitplanes*4 + (size_t)n_bitplanes*4;
-  if (req_len < need) {
-    fprintf(stderr, "[server] short request: need %zu got %zu\n", need, req_len);
+  size_t need_no_idx = (size_t)5*4 + (size_t)n_chunks*d_out*4*2
+                     + (size_t)n_chunks*n_bitplanes*4 + (size_t)n_bitplanes*4;
+  // Optional per-request calib_idx appended after bp_factor (= 4 more bytes).
+  // If present, pick that bank's cs_extra entry; otherwise default to primary.
+  size_t need_with_idx = need_no_idx + 4;
+  uint32_t calib_idx = 0;
+  if (req_len < need_no_idx) {
+    fprintf(stderr, "[server] short request: need %zu got %zu\n",
+            need_no_idx, req_len);
     return -1;
   }
 
@@ -530,6 +553,10 @@ static int process_request(SoftMCPlatform& platform,
   const uint32_t* x_bitplane_all = (const uint32_t*)(req + off);
   off += (size_t)n_chunks * n_bitplanes * 4;
   const int32_t*  bitplane_factor = (const int32_t*)(req + off);
+  off += (size_t)n_bitplanes * 4;
+  if (req_len >= need_with_idx) {
+    rd_u32(calib_idx);
+  }
 
   const int N = (int)banks.size();
   const size_t n_units = (size_t)n_chunks * 2;        // (chunk, sign) pairs
@@ -575,11 +602,14 @@ static int process_request(SoftMCPlatform& platform,
       const uint32_t* mask = (sign == 0)
           ? pos_mask_all + (size_t)chunk * d_out
           : neg_mask_all + (size_t)chunk * d_out;
-      // v2 must NOT collide with rows already taken by LOAD_WEIGHTS.
-      // Use slots starting at pool_cursor (= first free slot above any
-      // loaded handle data).
+      // Per-request calib_idx selects which physical-cell layout to use
+      // (primary = 0; ≥1 picks from cs_extra). Different calibs hit
+      // different cells → different cell-flake noise → useful for
+      // 3-vote majority correction across multiple requests.
+      const std::vector<uint32_t>& pool = bc_pool_idx(banks[bk], calib_idx);
       size_t pool_idx = round_to_pool_idx(banks[bk], round);
-      uint32_t backup_row = banks[bk].backup_pool[pool_idx];
+      if (pool_idx >= pool.size()) pool_idx %= pool.size();
+      uint32_t backup_row = pool[pool_idx];
       auto t0 = clk::now();
       per_column_write_row(platform, banks[bk].bank_id, backup_row, mask);
       t_wcol_ns += std::chrono::duration_cast<ns_t>(clk::now() - t0).count();
@@ -624,10 +654,12 @@ static int process_request(SoftMCPlatform& platform,
           uint32_t chunk = (uint32_t)(u / 2);
           int sign = (int)(u % 2);
           uint32_t xb = x_bitplane_all[(size_t)chunk * n_bitplanes + b];
-          const Calib& c = banks[bk].calib;
+          const Calib& c = bc_calib_idx(banks[bk], calib_idx);
+          const std::vector<uint32_t>& pool = bc_pool_idx(banks[bk], calib_idx);
           size_t pool_idx = round_to_pool_idx(banks[bk], round);
+          if (pool_idx >= pool.size()) pool_idx %= pool.size();
           ex_bank_ids.push_back(banks[bk].bank_id);
-          ex_backup_rows.push_back(banks[bk].backup_pool[pool_idx]);
+          ex_backup_rows.push_back(pool[pool_idx]);
           ex_Rfirsts.push_back(c.Rfirst);
           ex_Rseconds.push_back(c.Rsecond);
           ex_open_rows.push_back(c.open_rows.data());
@@ -809,6 +841,45 @@ int main(int argc, char** argv) {
     if (bc.backup_pool.empty()) {
       fprintf(stderr, "[server] empty backup pool for bank %d\n", bk);
       return 2;
+    }
+    // Cross-calib voting extras: pick distinct sub-clusters (different
+    // 640-row groupings vs primary), ranked by population (denser = more
+    // tuples passed calibration screening = lower expected per-cell
+    // noise). Skip sparse clusters (<10 tuples) — including them in the
+    // 3-vote median actually hurts (median of {strong, weak, weak} biases
+    // toward weak).
+    {
+      std::map<uint32_t, size_t> cluster_count;
+      for (const auto& c : cs) {
+        uint32_t sub = (c.open_rows[0] / 640) * 640;
+        cluster_count[sub]++;
+      }
+      uint32_t sub0 = (cs[0].open_rows[0] / 640) * 640;
+      std::vector<std::pair<size_t,uint32_t>> ranked;
+      for (auto& kv : cluster_count) {
+        if (kv.first == sub0) continue;
+        if (kv.second < 10) continue;
+        ranked.emplace_back(kv.second, kv.first);
+      }
+      std::sort(ranked.begin(), ranked.end(),
+                [](const auto& a, const auto& b){ return a.first > b.first; });
+      for (auto& [cnt, sub] : ranked) {
+        if (bc.cs_extra.size() >= 4) break;
+        for (const auto& c : cs) {
+          uint32_t s = (c.open_rows[0] / 640) * 640;
+          if (s != sub) continue;
+          std::vector<uint32_t> pool_i = build_backup_pool(c);
+          if (pool_i.empty()) break;
+          bc.cs_extra.push_back(c);
+          bc.pool_extra.push_back(std::move(pool_i));
+          break;
+        }
+      }
+      fprintf(stderr, "[server] bank %d: %zu extra calibs (dense clusters)",
+              bk, bc.cs_extra.size());
+      for (const auto& c : bc.cs_extra)
+        fprintf(stderr, " sub=%u", (c.open_rows[0] / 640));
+      fprintf(stderr, "\n");
     }
     banks.push_back(std::move(bc));
   }

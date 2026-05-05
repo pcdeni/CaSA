@@ -235,22 +235,42 @@ class PimBitLinear(nn.Module):
                 pos_mask[:, start:start + n_real] = pos_mask[:, :n_real]
                 neg_mask[:, start:start + n_real] = neg_mask[:, :n_real]
 
-            # Build request body (same format as inputs.bin v2).
-            body = (struct.pack('<I', MAGIC_V2)
-                    + struct.pack('<I', d_in)
-                    + struct.pack('<I', D_OUT_SLICE)
-                    + struct.pack('<I', n_chunks)
-                    + struct.pack('<I', N_BITPLANES)
-                    + pos_mask.tobytes()
-                    + neg_mask.tobytes()
-                    + x_bitplane.tobytes()
-                    + BITPLANE_FACTORS.tobytes())
+            # Build the V2 body. Header is 5 × uint32; the optional
+            # trailing calib_idx is appended per request below.
+            body_no_idx = (struct.pack('<I', MAGIC_V2)
+                           + struct.pack('<I', d_in)
+                           + struct.pack('<I', D_OUT_SLICE)
+                           + struct.pack('<I', n_chunks)
+                           + struct.pack('<I', N_BITPLANES)
+                           + pos_mask.tobytes()
+                           + neg_mask.tobytes()
+                           + x_bitplane.tobytes()
+                           + BITPLANE_FACTORS.tobytes())
+            # 3-vote cross-calib correction on FULL-row slices (n_copies==1).
+            # Partial-row slices (n_copies>=2) are corrected in-row by C and
+            # send 1 trip. Set PIM_VOTE_FULL=0 to disable full-row voting.
+            d_full_vote = (n_copies == 1
+                           and os.environ.get('PIM_VOTE_FULL', '1') == '1')
             if self._server is not None:
                 # Long-running server backend.
-                resp = self._server.request(body)
-                y_slice = np.frombuffer(resp, dtype=np.int32, count=D_OUT_SLICE).copy()
+                if d_full_vote:
+                    y_trips = []
+                    for cal_idx in (0, 1, 2):
+                        body = body_no_idx + struct.pack('<I', cal_idx)
+                        resp = self._server.request(body)
+                        y_trips.append(np.frombuffer(resp, dtype=np.int32,
+                                                       count=D_OUT_SLICE).copy())
+                    y_slice = np.median(np.stack(y_trips, axis=0),
+                                          axis=0).astype(np.int32)
+                else:
+                    body = body_no_idx + struct.pack('<I', 0)
+                    resp = self._server.request(body)
+                    y_slice = np.frombuffer(resp, dtype=np.int32,
+                                              count=D_OUT_SLICE).copy()
             else:
-                # Legacy subprocess-per-call backend.
+                # Legacy subprocess-per-call backend (no D voting in this
+                # path — only the long-running server supports calib_idx).
+                body = body_no_idx + struct.pack('<I', 0)
                 with tempfile.NamedTemporaryFile(prefix='pim_in_', suffix='.bin',
                                                   delete=False) as f:
                     in_path = f.name; f.write(body)
