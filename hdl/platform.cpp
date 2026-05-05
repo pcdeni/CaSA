@@ -79,7 +79,13 @@ int SoftMCPlatform::init(){
     instr_buf = malloc(INSTR_BUF_SIZE);
     memset(instr_buf, 0, INSTR_BUF_SIZE);
 
-    iface = new BoardInterface(BoardInterface::IFACE::XDMA, dimm_select);
+    // PIM_BACKEND=sim → drop-in in-process behavioral DDR+SiMRA model
+    // (see api/pim_sim.{h,cpp}). Otherwise, real /dev/xdma path.
+    const char* backend = getenv("PIM_BACKEND");
+    BoardInterface::IFACE iface_kind = BoardInterface::IFACE::XDMA;
+    if (backend && std::string(backend) == "sim")
+      iface_kind = BoardInterface::IFACE::SIM;
+    iface = new BoardInterface(iface_kind, dimm_select);
     if(!iface -> init())
       return SOFTMC_SUCCESS;
     else

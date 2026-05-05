@@ -2,6 +2,9 @@
 
 #ifndef BOARD_H
 #define BOARD_H
+
+class SimDramModel;  // forward decl — defined in pim_sim.h, allocated when iface_type==SIM
+
 /** This class defines how the host
  * interfaces with the board.
  */
@@ -15,7 +18,12 @@ class BoardInterface{
   const uint RECV_BUF_SIZE = 1024*64;
 public:
   enum class IFACE {
-      XDMA = 0
+      XDMA = 0,
+      // In-process behavioral DDR + SiMRA model. Selected by
+      // PIM_BACKEND=sim env var (handled in SoftMCPlatform::init()).
+      // Calib path comes from PIM_SIM_CALIB env (or first arg of the
+      // platform's existing calib path).
+      SIM  = 1
   };
   // dimm_select picks the XDMA channel pair on multi-bender bitstreams
   // (e.g. BCU1525_QUAD): N → /dev/xdma0_h2c_N + /dev/xdma0_c2h_N.
@@ -28,6 +36,7 @@ public:
 private:
   IFACE iface_type;
   int dimm_select;
+  SimDramModel* sim_model = nullptr;  // owned, lazily allocated when iface_type==SIM
   // XDMA related constructs
   int to_card;
   int from_card;
