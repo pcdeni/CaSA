@@ -1,4 +1,5 @@
-SHARED_SRCS := ../util.cpp $(wildcard ../../../api/*.c) $(wildcard ../../../api/*.cpp)
+SHARED_SRCS := ../util.cpp parallel_emit.cpp regalloc.cpp \
+               $(wildcard ../../../api/*.c) $(wildcard ../../../api/*.cpp)
 SHARED_OBJS := ${SHARED_SRCS:.cpp=.o}
 SHARED_OBJS := ${SHARED_OBJS:.c=.o}
 INCLUDE_DIRS := ../../../api ../../../../boost-lib
@@ -10,7 +11,7 @@ CC = g++
 
 .PHONY: all clean distclean
 
-BINARIES := maj3-smoke-exe matvec-smoke-exe columnwise-smoke-exe dense-matvec-smoke-exe broadcast-verify-exe dense-matvec-bcast-exe multibank-bcast-exe bitnet-e2e-v1-exe bitnet-e2e-v2-exe bitnet-e2e-v3-exe bitnet-real-exe bitnet-proj-exe bitnet-proj-server rowclone-smoke-exe persistent-smoke-exe
+BINARIES := maj3-smoke-exe matvec-smoke-exe columnwise-smoke-exe dense-matvec-smoke-exe broadcast-verify-exe dense-matvec-bcast-exe multibank-bcast-exe bitnet-e2e-v1-exe bitnet-e2e-v2-exe bitnet-e2e-v3-exe bitnet-real-exe bitnet-proj-exe bitnet-proj-server rowclone-smoke-exe persistent-smoke-exe rowclone-preserve-exe multibank-disturb-exe write-disturb-exe
 
 all: $(BINARIES)
 
@@ -36,6 +37,15 @@ bitnet-proj-server: test_bitnet_server.o $(SHARED_OBJS)
 	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
 
 rowclone-smoke-exe: test_rowclone_smoke.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+rowclone-preserve-exe: test_rowclone_preserve.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+multibank-disturb-exe: test_multibank_disturb.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+write-disturb-exe: test_write_disturb.o $(SHARED_OBJS)
 	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
 
 persistent-smoke-exe: test_persistent_weights_smoke.o $(SHARED_OBJS)

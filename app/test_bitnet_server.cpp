@@ -30,6 +30,7 @@
 #include "prog.h"
 #include "platform.h"
 #include "../util.h"
+#include "parallel_emit.h"
 
 #include <algorithm>
 #include <chrono>
@@ -345,6 +346,116 @@ static Program build_multibank_combined_program(
   return p;
 }
 
+// Bank-parallel variant: emit the SiMRA doubleACTs (RowClone t_12=30/t_23=1,
+// Broadcast 10/2, MAJ3 0/0) as 4-bank parallel pack4 sequences via
+// `parallel_doubleACT`, while keeping the wrRow/frac/rdRow serial bodies
+// per bank (those use shared regs / wdata that aren't easily 4-way
+// parallelized). Net: ~3-4× compression on the SiMRA stages (RowClone
+// 4×34 PHY → 37 PHY; Broadcast 4×14 → 21; MAJ3 stays).
+//
+// Register layout (live across parallel sections):
+//   slots 1, 2, 3, 9: bar0..bar3 (LI'd once at body top)
+//   slots 11, 4, 5, 8: src_reg[0..3] — re-LI'd per phase
+//   slots 13, 6, 14, 15: dst_reg[0..3] — re-LI'd per phase
+// Other slots (BAR=7, PATTERN_REG=12, etc.) are confined to per-bank
+// serial sections and re-LI their inputs there.
+static Program build_multibank_parallel_program(
+    const std::vector<int>& bank_ids,
+    const std::vector<uint32_t>& backup_rows,
+    const std::vector<uint32_t>& Rfirsts,
+    const std::vector<uint32_t>& Rseconds,
+    const std::vector<const uint32_t*>& open_rows_list,
+    const std::vector<uint32_t>& x_patterns,
+    int label_seed)
+{
+  const int N = (int)bank_ids.size();
+  if (N != 4) {
+    return build_multibank_combined_program(
+        bank_ids, backup_rows, Rfirsts, Rseconds,
+        open_rows_list, x_patterns, label_seed);
+  }
+  Program p;
+  p.add_inst(SMC_LI(8, CASR));
+  const std::vector<int> bar_reg = {1, 2, 3, 9};
+  for (int b = 0; b < 4; b++)
+    p.add_inst(SMC_LI((uint32_t)bank_ids[b], bar_reg[b]));
+  const std::vector<int> src_reg = {11, 4, 5, 8};
+  const std::vector<int> dst_reg = {13, 6, 14, 15};
+
+  auto li_rows = [&](const std::vector<int>& slots,
+                     const std::vector<uint32_t>& vals) {
+    for (int b = 0; b < 4; b++) p.add_inst(SMC_LI(vals[b], slots[b]));
+  };
+  auto pre_all = [&]() {
+    p.add_inst(SMC_PRE(bar_reg[0], 0, 0),
+               SMC_PRE(bar_reg[1], 0, 0),
+               SMC_PRE(bar_reg[2], 0, 0),
+               SMC_PRE(bar_reg[3], 0, 0));
+  };
+
+  // Phase 1: parallel RowClone (scratch[k] → Rfirst[k]).
+  pre_all(); p.add_inst(SMC_SLEEP(6));
+  li_rows(src_reg, backup_rows); li_rows(dst_reg, Rfirsts);
+  p.add_below(parallel_doubleACT(30, 1, bar_reg, src_reg, dst_reg));
+  p.add_inst(SMC_SLEEP(6));
+  pre_all(); p.add_inst(SMC_SLEEP(6));
+
+  // Phase 2: parallel Broadcast (Rfirst[k] → 16 open_rows[k]).
+  li_rows(src_reg, Rfirsts); li_rows(dst_reg, Rseconds);
+  p.add_below(parallel_doubleACT(10, 2, bar_reg, src_reg, dst_reg));
+  p.add_inst(SMC_SLEEP(6));
+  pre_all(); p.add_inst(SMC_SLEEP(6));
+
+  // Phases 3+4: per-bank serial wrRow setup + frac.
+  static const int act_pos[5]  = {1, 4, 7, 10, 13};
+  static const int zero_pos[5] = {2, 5, 8, 11, 14};
+  for (int b = 0; b < 4; b++) {
+    p.add_inst(SMC_LI((uint32_t)bank_ids[b], BAR));
+    p.add_inst(SMC_LI(128, NUM_COLS_REG));
+    p.add_below(wrRow_immediate_label(BAR, open_rows_list[b][0],
+                                       ONE, label_seed + b*2000 + 0));
+    for (int i = 0; i < 5; i++)
+      p.add_below(wrRow_immediate_label(BAR, open_rows_list[b][act_pos[i]],
+                                         x_patterns[b],
+                                         label_seed + b*2000 + 1 + i));
+    for (int i = 0; i < 5; i++)
+      p.add_below(wrRow_immediate_label(BAR, open_rows_list[b][zero_pos[i]],
+                                         0u,
+                                         label_seed + b*2000 + 100 + i));
+    p.add_inst(SMC_SLEEP(6));
+    p.add_below(PRE(BAR, 0, 0));
+    p.add_inst(SMC_SLEEP(6));
+    for (int j = 0; j < 3; j++) {
+      p.add_inst(SMC_SLEEP(6));
+      p.add_below(frac_template(/*t_frac=*/0, open_rows_list[b][0]));
+      p.add_inst(SMC_SLEEP(6));
+    }
+    p.add_inst(SMC_SLEEP(6));
+    p.add_below(PRE(BAR, 0, 0));
+    p.add_inst(SMC_SLEEP(6));
+  }
+
+  // Phase 5: parallel MAJ3.
+  li_rows(src_reg, Rfirsts); li_rows(dst_reg, Rseconds);
+  p.add_below(parallel_doubleACT(0, 0, bar_reg, src_reg, dst_reg));
+  p.add_inst(SMC_SLEEP(6));
+  pre_all(); p.add_inst(SMC_SLEEP(6));
+
+  // Phase 6: per-bank serial rdRow.
+  for (int b = 0; b < 4; b++) {
+    p.add_inst(SMC_LI((uint32_t)bank_ids[b], BAR));
+    p.add_inst(SMC_LI(128, NUM_COLS_REG));
+    p.add_below(rdRow_immediate_label(BAR, open_rows_list[b][0],
+                                        label_seed + b*2000 + 999));
+    p.add_inst(all_nops()); p.add_inst(all_nops());
+    p.add_below(PRE(BAR, 0, 0));
+    p.add_inst(all_nops()); p.add_inst(all_nops());
+  }
+
+  p.add_inst(SMC_END());
+  return p;
+}
+
 static Program build_bcast_maj3_program(int bank_id,
                                          uint32_t Rfirst, uint32_t Rsecond,
                                          const uint32_t* open_rows,
@@ -486,6 +597,10 @@ static inline size_t round_to_pool_idx(const BankConfig& bc, size_t round) {
 // still fits today's 2048 IMEM; K=8 N=4 ≈ 3840 insts — needs the
 // IMEM_ADDR_WIDTH 11→13 bitstream rebuild).
 static int g_inline_bp  = -1;
+// PIM_PARALLEL_BANKS=1 swaps build_multibank_combined_program for
+// build_multibank_parallel_program (4-bank parallel SiMRA pack4
+// scheduling). Default OFF.
+static int g_parallel_banks = -1;
 static int env_flag(const char* name, int dflt) {
   const char* v = getenv(name);
   if (!v || !*v) return dflt;
@@ -494,6 +609,7 @@ static int env_flag(const char* name, int dflt) {
 static void init_debug_flags() {
   if (g_inline_bp  < 0) g_inline_bp  = env_flag("PIM_INLINE_BITPLANES", 1);
   if (g_inline_bp < 1) g_inline_bp = 1;
+  if (g_parallel_banks < 0) g_parallel_banks = env_flag("PIM_PARALLEL_BANKS", 0);
 }
 
 // Run a matmul using a previously-loaded handle's backup rows; identical to
@@ -668,9 +784,11 @@ static int process_request(SoftMCPlatform& platform,
         }
       }
 
-      Program p = build_multibank_combined_program(
-          ex_bank_ids, ex_backup_rows, ex_Rfirsts, ex_Rseconds,
-          ex_open_rows, ex_x_patterns, label_base);
+      Program p = (g_parallel_banks
+          ? build_multibank_parallel_program
+          : build_multibank_combined_program)(
+              ex_bank_ids, ex_backup_rows, ex_Rfirsts, ex_Rseconds,
+              ex_open_rows, ex_x_patterns, label_base);
       label_base += 2000 * (int)M + 1000;
       auto t_exec0 = clk::now();
       platform.execute(p);
