@@ -42,16 +42,15 @@
 **ON-SCREEN TABLE:**
 | | value |
 |---|---|
-| Model substituted onto PIM | **210 of 210 BitLinears** = 100 % of BitLinears = ~95 % of model params (LM head + embedding stay in PyTorch — irreducible) |
+| Model substituted onto PIM | **180 of 210 BitLinears = 6/7 per layer** (q,k,v,o,gate,up; **down_proj withheld — see below**). ~70 % of model params on PIM, ~30 % on PyTorch (5 % LM-head/embedding + 25 % down_proj). |
 | Substrate | DDR4 module, DIMM 0 of BCU1525_QUAD bitstream |
 | Banks used per request | 4 (banks 0,1,2,3 of DIMM 0, in parallel) |
-| Per-BitLinear total time (steady-state) | 580 ms (k/v) … 3500 ms (down_proj) |
-| **Wall time, 1 generated token, full 7/7** | **371.8 s** (silicon-measured, 2026-05-05) |
-| **Decode throughput** | **0.0027 tok/s** |
-| Backup-pool config | dual-subarray per bank (s_id 61 + 77, 78+79=157 rows each bank) — required for down_proj's n_rounds=108 |
-| Bytes sent over PCIe / token | **1.53 GB** (per `pipe-write` + per-request weight upload) |
-| Bytes received over PCIe / token | ~30 MB result rows |
-| Caveat | PCIe link degraded to 5 GT/s × 4 today (vs nominal 8 GT/s × 8) — recv ~2× slower than memory-noted past runs |
+| Per-BitLinear total time (steady-state) | 580 ms (k/v) … 2580 ms (gate/up) |
+| **Wall time, 1 generated token** | **269.9 s** (silicon-measured, 2026-05-05) |
+| **Decode throughput** | **~0.004 tok/s** |
+| **Correctness** | **PIM next-token = CPU PyTorch next-token (bit-exact for `Paris` → `","` greedy decode)** |
+| Why down_proj is on PyTorch today | d_in=6912 ⇒ n_rounds=108 with 4 banks; the deployed bitstream's per-subarray backup pool maxes at ~78 rows. Three known fixes (none deployed yet): (a) 64-bit chunks halve n_rounds; (b) dual-subarray pool — staged but produces wrong output, debug pending; (c) persistent weights via LOAD_WEIGHTS — also has known correctness bug. |
+| Caveat | PCIe link in degraded mode 5 GT/s × 4 today (vs nominal 8 GT/s × 8) — recv ~2× slower than past memory-noted runs |
 
 **NARRATION:**
 > What you saw is the full model — all thirty transformer layers,
@@ -278,10 +277,10 @@ After binary activations:
 
 | Number | Source | Date / commit |
 |---|---|---|
-| **0.0027 tok/s today (full 7/7)** | This session, run_bitnet_pim.py end-to-end on DIMM 0 banks 0,1,2,3, PCIe degraded 5GT/s×4, prompt "Paris" no chat template, 1 generated token, dual-subarray pool. Took 371.8 s wall. | 2026-05-05 |
-| 325 ms / BitLinear (steady-state) | Same run, srv-prof line means | 2026-05-05 |
-| 1.53 GB sent / token | Same run, `bytes-sent` summary | 2026-05-05 |
-| 960 PCIe requests / token | Same run, `calls=960` over 3 forwards (2 prefill + 1 decode) = 320 reqs/forward × 3 | 2026-05-05 |
+| **6/7 BitLinears, 269.9 s/tok** | run_bitnet_pim.py with `--projs (q,k,v,o,gate,up)` (no down_proj), `PIM_DUAL_SUBARRAY=0`, prompt "Paris" no chat template, 1 generated token. PIM next-token matches CPU PyTorch reference (`,`). | 2026-05-05 |
+| 285 ms / BitLinear (steady-state) | Same run, srv-prof line means | 2026-05-05 |
+| (Withheld) 7/7 dual-subarray run gave wrong output (`convo`) | Buggy implementation of dual-subarray B; default reverted to OFF. Tracked as task #75. | 2026-05-05 |
+| Reference next-token from CPU | PyTorch CPU forward on the same model, no chat template, prompt "Paris", greedy → `,` | 2026-05-05 |
 | 0.38 tok/s @ 1 DIMM | `casa_sched --layers 30 --dimms 1 --bg-parallel` | 2026-05-05 |
 | 1.48 tok/s @ 4 DIMMs | `casa_sched --layers 30 --dimms 4 --bg-parallel` | 2026-05-05 |
 | 1.75 tok/s + popcount-DRAM | `casa_sched ... --popcount dram` | 2026-05-05 |
@@ -291,14 +290,17 @@ After binary activations:
 ## Appendix B — Reproducing on this hardware
 
 ```
-# Today's measured run (full 7/7, 1 token, ~6 min wall)
+# Today's correct silicon demo: 6/7 BitLinears on PIM, full 30 layers,
+# bit-exact next-token match vs CPU PyTorch, ~4.5 min wall.
 cd /home/deni/bitnet_weights
-PIM_NO_CHAT_TEMPLATE=1 PIM_POOL_OFFSET=0 PIM_DUAL_SUBARRAY=1 \
+PIM_NO_CHAT_TEMPLATE=1 PIM_POOL_OFFSET=0 PIM_DUAL_SUBARRAY=0 \
 python3 -u run_bitnet_pim.py \
     --bender 0 --bank "0,1,2,3" \
-    --layers all --projs all \
+    --layers all \
+    --projs "self_attn.q_proj,self_attn.k_proj,self_attn.v_proj,self_attn.o_proj,mlp.gate_proj,mlp.up_proj" \
     --max-tokens 1 \
     --prompt "Paris"
+# Expected output: ',' (matches CPU PyTorch reference)
 
 # Projection ladder (one row per cell of the casa_sched table)
 cd /home/deni/Claude/CaSA-main

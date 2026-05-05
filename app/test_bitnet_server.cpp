@@ -1404,12 +1404,20 @@ int main(int argc, char** argv) {
     return 2;
   }
 
-  // Load calibrated tuples per requested bank. With PIM_DUAL_SUBARRAY=1
-  // (default on, since it doubles the effective backup pool with no
-  // correctness risk) each bank gets TWO calibrated subarrays from
-  // physically distinct subarray_starts. Round R uses subarray (R&1).
+  // Load calibrated tuples per requested bank. PIM_DUAL_SUBARRAY=1
+  // would let each bank use TWO calibrated subarrays alternating per
+  // round, doubling the effective backup pool to fit larger projections
+  // (e.g. down_proj's n_rounds=108 with N=4 banks).
+  // **CURRENTLY DEFAULT OFF** because alternating compute subarrays per
+  // round empirically produces wrong PIM output (verified 2026-05-05:
+  // layer-0-only test gives correct ',' from CPU vs wrong 'L' under
+  // dual mode, despite the per-round dispatch logic being self-consistent
+  // by code review). Likely a physical interaction (row-decoder timing,
+  // bank-state leak, cross-subarray disturb) that needs more investigation.
+  // Until debugged, ship single-subarray + skip down_proj for correct
+  // output. See task #75.
   bool dual_mode = atoi(getenv("PIM_DUAL_SUBARRAY")
-                       ? getenv("PIM_DUAL_SUBARRAY") : "1") != 0;
+                       ? getenv("PIM_DUAL_SUBARRAY") : "0") != 0;
   std::vector<BankConfig> banks;
   for (int bk : wanted_banks) {
     vector<Calib> cs = read_calib(calib_p, bk);
