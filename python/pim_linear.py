@@ -212,15 +212,28 @@ class PimBitLinear(nn.Module):
             n_real = b - a
 
             # Build pos/neg masks for this slice (zero-pad outputs).
+            # Free row-replication: when n_real < D_OUT_SLICE, the row has
+            # unused output slots. Replicate the weight masks into them so
+            # each output gets ≥2 (preferably 3) physically distinct cell
+            # positions to compute its popcount in. Host majority-votes
+            # after receive — eliminates the per-output cell-flip outliers
+            # that propagate as residual through the model. Costs zero
+            # extra MAJ3 ops because the row was already going to be
+            # written; we just fill the spare bytes with copies.
             W_slice = np.zeros((D_OUT_SLICE, d_in), dtype=np.int8)
             W_slice[:n_real, :] = self._w_int[a:b, :]
             pos_mask = np.zeros((n_chunks, D_OUT_SLICE), dtype=np.uint32)
             neg_mask = np.zeros((n_chunks, D_OUT_SLICE), dtype=np.uint32)
             powers = (np.uint32(1) << np.arange(32, dtype=np.uint32))[None, :]
             for c in range(n_chunks):
-                seg = W_slice[:, c*32:(c+1)*32]
-                pos_mask[c, :] = ((seg == 1).astype(np.uint32) * powers).sum(axis=1, dtype=np.uint32)
-                neg_mask[c, :] = ((seg == -1).astype(np.uint32) * powers).sum(axis=1, dtype=np.uint32)
+                seg = W_slice[:n_real, c*32:(c+1)*32]
+                pos_mask[c, :n_real] = ((seg == 1).astype(np.uint32) * powers).sum(axis=1, dtype=np.uint32)
+                neg_mask[c, :n_real] = ((seg == -1).astype(np.uint32) * powers).sum(axis=1, dtype=np.uint32)
+            n_copies = max(1, D_OUT_SLICE // n_real) if n_real > 0 else 1
+            for k in range(1, n_copies):
+                start = k * n_real
+                pos_mask[:, start:start + n_real] = pos_mask[:, :n_real]
+                neg_mask[:, start:start + n_real] = neg_mask[:, :n_real]
 
             # Build request body (same format as inputs.bin v2).
             body = (struct.pack('<I', MAGIC_V2)
@@ -253,7 +266,18 @@ class PimBitLinear(nn.Module):
                     y_slice = np.frombuffer(f.read(), dtype=np.int32,
                                              count=D_OUT_SLICE).copy()
                 os.unlink(in_path); os.unlink(out_path)
-            y[a:b] = y_slice[:n_real]
+            # Vote across replicated copies (free if n_copies > 1).
+            if n_copies > 1:
+                copies = y_slice[:n_copies * n_real].reshape(n_copies, n_real)
+                if n_copies >= 3:
+                    voted = np.median(copies, axis=0).astype(np.int32)
+                else:
+                    voted = ((copies[0].astype(np.int64)
+                              + copies[1].astype(np.int64)) // 2
+                            ).astype(np.int32)
+                y[a:b] = voted
+            else:
+                y[a:b] = y_slice[:n_real]
         return y
 
 
