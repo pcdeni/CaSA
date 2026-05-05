@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <cstddef>
 #include <map>
+#include <mutex>
 #include <vector>
 #include <string>
 
@@ -70,10 +71,20 @@ private:
   // Wide-data buffer (16 × 32-bit slots) used by WRITE instructions.
   uint32_t wdata_slot[16] = {0};
 
+  // ----- Concurrency: real bitnet-proj-server has a consumer thread
+  //       that reads c2h while the main thread writes h2c. Lock both
+  //       deferred_programs and response_queue under one mutex.
+  std::mutex mtx;
+
   // ----- c2h response queue --------------------------------------------
   std::vector<uint8_t> response_queue;
 
   // ----- Program memory (the IMEM the SoftMC pipeline would run) ------
+  // Programs queued by send_program() but DEFERRED until recv_response()
+  // pulls. Mirrors real-hardware c2h producer/consumer ordering: the
+  // FPGA wouldn't have produced any output bytes either before its own
+  // c2h thread starts reading. This keeps `consumeData()` happy.
+  std::vector<std::vector<uint64_t>> deferred_programs;
   std::vector<uint64_t> imem;
 
   // ----- Execution loop ------------------------------------------------

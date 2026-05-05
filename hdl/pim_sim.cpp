@@ -443,41 +443,75 @@ void SimDramModel::execute_inst(uint64_t inst, size_t& pc) {
 void SimDramModel::execute_program() {
   size_t pc = 0;
   size_t guard = 0;
+  size_t last_logged_pc = (size_t)-1;
+  size_t same_pc_stuck = 0;
   while (pc != (size_t)-1 && pc < imem.size() && guard < 50000000) {
     uint64_t inst = imem[pc];
+    if (verbose >= 3 || (guard < 30 && verbose >= 1)) {
+      fprintf(stderr, "[pim_sim] @pc=%zu inst=0x%016lx\n", pc, (unsigned long)inst);
+    }
+    size_t pc_before = pc;
     execute_inst(inst, pc);
+    if (pc == pc_before) {
+      same_pc_stuck++;
+      if (same_pc_stuck > 100) {
+        fprintf(stderr, "[pim_sim] STUCK at pc=%zu inst=0x%016lx (guard=%zu)\n",
+                pc, (unsigned long)inst, guard);
+        return;
+      }
+    } else {
+      same_pc_stuck = 0;
+    }
+    if (verbose >= 1 && guard >= 100000 && (guard % 100000 == 0)) {
+      fprintf(stderr, "[pim_sim] progress: guard=%zu pc=%zu phy_ctr=%lld\n",
+              guard, pc, phy_ctr);
+    }
     guard++;
   }
   if (guard >= 50000000) {
-    fprintf(stderr, "[pim_sim] execute guard hit (50M iterations)\n");
+    fprintf(stderr, "[pim_sim] execute guard hit (50M iterations) — likely infinite loop\n");
   }
+  if (verbose >= 1)
+    fprintf(stderr, "[pim_sim] program completed in %zu inst-executions\n", guard);
 }
 
 int SimDramModel::send_program(const uint8_t* data, size_t bytes) {
-  // platform.cpp packs each Inst in the LOW 8 bytes of a 32-byte AXI
-  // word (`temp_ptr[i*4] = iseq[i]` with temp_ptr=uint64_t*). So bytes
-  // = N_inst * 32; we extract every 32-byte word's low 8 bytes.
+  std::lock_guard<std::mutex> lock(mtx);
+  // QUEUE the program for deferred execution; the actual run happens
+  // inside the next recv_response() call. This mirrors real-hardware
+  // ordering — the FPGA wouldn't produce any c2h bytes before the
+  // host's c2h reader thread starts pulling — so consumeData()'s
+  // initial read sees data appear, drains it, then sees end-of-stream
+  // and exits cleanly. Without deferral, send_program runs to
+  // completion synchronously and consumeData's first read returns 0
+  // (queue still empty when the thread first runs), exits early, and
+  // receiveData() blocks forever.
   if (bytes % 32 != 0) {
     fprintf(stderr, "[pim_sim] send_program: size %zu not multiple of 32\n", bytes);
     return 1;
   }
   size_t n_inst = bytes / 32;
-  imem.assign(n_inst, 0);
+  std::vector<uint64_t> prog(n_inst, 0);
   for (size_t i = 0; i < n_inst; i++) {
-    std::memcpy(&imem[i], data + i * 32, 8);
+    std::memcpy(&prog[i], data + i * 32, 8);
   }
-  if (verbose >= 1)
-    fprintf(stderr, "[pim_sim] running program of %zu instructions\n", n_inst);
-  execute_program();
-  // Match real bitstream's trailing AXI beat: append 32 bytes of trailer
-  // that platform.cpp's consumeData() strips.
-  // Actually the consumer strips 32 bytes when it sees `got < CHUNK` —
-  // i.e. an end-of-stream marker. We just append 32 zeros as the marker.
-  response_queue.insert(response_queue.end(), 32, 0);
+  deferred_programs.push_back(std::move(prog));
   return 0;
 }
 
 int SimDramModel::recv_response(uint8_t* buf, size_t size) {
+  std::lock_guard<std::mutex> lock(mtx);
+  // Lazily run any deferred programs to populate the response queue.
+  while (response_queue.empty() && !deferred_programs.empty()) {
+    imem = std::move(deferred_programs.front());
+    deferred_programs.erase(deferred_programs.begin());
+    if (verbose >= 1)
+      fprintf(stderr, "[pim_sim] running program of %zu instructions\n", imem.size());
+    execute_program();
+    // Mimic the FPGA's per-program trailing AXI beat. Real consumeData()
+    // strips 32 bytes when it sees a partial-chunk read — 32 zeros here.
+    response_queue.insert(response_queue.end(), 32, 0);
+  }
   size_t avail = response_queue.size();
   size_t n = std::min(size, avail);
   if (n > 0) {
