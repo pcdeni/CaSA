@@ -1690,14 +1690,14 @@ int main(int argc, char **argv) {
             act_wr_per_maj3 = atoi(argv[++i]);
         else if (strcmp(argv[i], "--frac-tck-per-maj3") == 0 && i + 1 < argc)
             frac_tck_per_maj3 = atoi(argv[++i]);
-        else if (strcmp(argv[i], "--ideal-acts") == 0) {
-            /* Hypothetical-future shorthand: assume a selective-broadcast
-             * primitive eliminates per-MAJ3 activation wrRows AND a
-             * calibration step obviates frac discharge. */
-            act_wr_per_maj3 = 0;
-            frac_tck_per_maj3 = 0;
-        }
     }
+    /* (Removed: --ideal-acts flag.  It modeled a hypothetical selective-
+     * broadcast DRAM primitive that doesn't exist on commodity DDR4.  The
+     * tok/s numbers it produced were not reachable on existing silicon
+     * without a vendor-side cell-array change, and conflated with the
+     * other regimes in a way that was misleading.  Set --act-wr-per-maj3
+     * and --frac-tck-per-maj3 explicitly if you want to model a different
+     * primitive.) */
 
     if (act_bits < 1 || act_bits > MAX_BITPLANES) {
         fprintf(stderr, "act-bits must be 1-%d\n", MAX_BITPLANES);

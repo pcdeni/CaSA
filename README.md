@@ -1,4 +1,4 @@
-# CaSA — running an LLM inside a DRAM chip
+# Running an LLM inside a DRAM chip — software side
 
 A real, published 2.4-billion-parameter language model answers a
 question, and the matrix-multiplications that produce the answer
@@ -69,17 +69,15 @@ hypothetical-future projections.
 
 | Regime | Per-token | tok/s | Bus % | Source |
 |---|---|---|---|---|
-| **MEASURED today** — 1 of 30 BitNet layers in DRAM, multi-bank, ~200× orchestration overhead per MAJ3 | ~30 s/tok per layer in DRAM | ~0.001 *(if extrapolated to all 30 layers)* | ~2 % | this hardware, today |
-| **Bus-bound ceiling** — all 30 layers in DRAM, 1 DIMM, current silicon path | 3.0 s | **0.33** | 97.2 % | `casa_sched --dimms 1` |
-| + bank-group-parallel bus | 2.4 s | 0.40 | 96.5 % | `... --bg-parallel` |
-| + 4 DIMMs in parallel | 0.61 s | 1.57 | 95.6 % | `--dimms 4 --bg-parallel` |
-| + in-DRAM popcount *(vendor RTL change)* | 0.52 s | 1.86 | 94.9 % | `... --popcount dram` |
-| + LISA cross-subarray bus *(vendor RTL change)* | 0.51 s | 1.90 | 94.9 % | `... --lisa` |
-| ─── *with a hypothetical selective-broadcast DRAM primitive (`--ideal-acts`) that would eliminate the per-MAJ3 activation wrRows* ─── | | | | |
-| 1 DIMM ideal | 503 ms | 1.92 | 98.3 % | `casa_sched --dimms 1 --ideal-acts` |
-| 4 DIMMs ideal + popcount | 16 ms | **59.99** | 73 % | `... --popcount dram --ideal-acts` |
-| 4 DIMMs ideal + popcount + LISA | 9 ms | **109.16** | 18 % | `... --lisa --ideal-acts` |
-| + binary activations (model retrain) | 1.8 ms | 545 | 18 % | `... --act-bits 1 --ideal-acts` |
+| **MEASURED today** — full 30 BitNet layers, multi-bank, ~30 s/tok dominated by orchestration overhead per MAJ3 | ~30 s | ~0.034 | ~2 % | this hardware, today |
+| **Bus-bound ceiling** — all 30 layers in DRAM, 1 DIMM, current silicon path | 3.0 s | **0.33** | 97 % | `casa_sched --dimms 1` |
+| + bank-group-parallel bus | 2.4 s | 0.40 | 96 % | `... --bg-parallel` |
+| + 4 DIMMs in parallel | 0.61 s | 1.57 | 96 % | `--dimms 4 --bg-parallel` |
+| + on-FPGA popcount accumulator (our HDL, ready) | 0.57 s | 1.75 | 95 % | `... --popcount fpga-accum` |
+| + in-DRAM popcount *(vendor RTL change)* | 0.52 s | 1.86 | 95 % | `... --popcount dram` |
+| + LISA cross-subarray bus *(vendor RTL change)* | 0.51 s | 1.90 | 95 % | `... --lisa` |
+| ── beyond here is back-of-envelope (write-side write reduction, ── | | | | |
+| ── e.g. a 3-row MAJ primitive vs today's 11-row setup) — not casa_sched output ── | | | | |
 
 Three sentences for the story:
 
@@ -99,12 +97,12 @@ Three sentences for the story:
    target the bus_read, not the bus_writes that dominate.
 
 3. **Beyond ~2 tok/s requires a new DRAM primitive** — specifically
-   a selective subset-broadcast that updates the 5 activation rows
-   in the open-set via charge-sharing instead of bus_writes. The
-   scheduler models this hypothetically as `--ideal-acts`; with it,
-   in-DRAM popcount unlocks 60 tok/s and LISA brings it to 109 —
-   GPU-competitive on this exact model. None of those numbers are
-   reachable on existing DRAM without that new primitive.
+   a way to update the activation rows without 11 full-row writes
+   per MAJ3 (e.g. a 3-row MAJ recipe, or selective subset-broadcast
+   that reaches the 16-row open-set via charge-sharing). Those are
+   DRAM-vendor changes outside the scope of this repo, so we don't
+   present headline tok/s numbers for them — only the bus-traffic
+   argument for *why* they would matter.
 
 Output is **bit-exact correct on most cells** (~22 139 of 22 144 in
 one full BitNet layer = 99.98 %). The 5 stray flips come from cells
@@ -138,9 +136,11 @@ make
 ./bitnet-real-exe 0 calib_dimm0.txt 1
 # Expected: bit-exact match on a small ternary x int8 matrix multiply.
 
-# 5. Hook the long-running PIM server into BitNet inference:
-export CASA_RUNNER=$PWD/bitnet-proj-exe
-export CASA_SERVER=$PWD/bitnet-proj-server
+# 5. Hook the long-running PIM server into BitNet inference.
+#    These two paths point the Python orchestrator at the binaries
+#    you just built. (The python script reads them via env or CLI.)
+export PIM_RUNNER=$PWD/bitnet-proj-exe
+export PIM_SERVER=$PWD/bitnet-proj-server
 export BITNET_CACHE=~/bitnet_weights         # any HF cache dir
 cd <repo>/python
 pip install transformers==4.52 torch
