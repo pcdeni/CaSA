@@ -42,12 +42,16 @@
 **ON-SCREEN TABLE:**
 | | value |
 |---|---|
-| Model substituted onto PIM | **210 of 210 BitLinears** (all 30 layers × all 7 projections) |
-| Substrate | DDR4 module, DIMM 0 of BCU1525 (Xilinx Virtex UltraScale+) |
-| Per-BitLinear time | 325 ms ± 15 ms (measured, srv-prof line) |
-| Per-token time | **~68 s/token** (= 7 × 30 × 325 ms) |
-| Throughput | **0.015 tok/s** |
-| Output (memory-noted earlier full run) | "The capital of France is Paris." |
+| Model substituted onto PIM | **210 of 210 BitLinears** = 100 % of BitLinears = ~95 % of model params (LM head + embedding stay in PyTorch — irreducible) |
+| Substrate | DDR4 module, DIMM 0 of BCU1525_QUAD bitstream |
+| Banks used per request | 4 (banks 0,1,2,3 of DIMM 0, in parallel) |
+| Per-BitLinear total time (steady-state) | 580 ms (k/v) … 3500 ms (down_proj) |
+| **Wall time, 1 generated token, full 7/7** | **371.8 s** (silicon-measured, 2026-05-05) |
+| **Decode throughput** | **0.0027 tok/s** |
+| Backup-pool config | dual-subarray per bank (s_id 61 + 77, 78+79=157 rows each bank) — required for down_proj's n_rounds=108 |
+| Bytes sent over PCIe / token | **1.53 GB** (per `pipe-write` + per-request weight upload) |
+| Bytes received over PCIe / token | ~30 MB result rows |
+| Caveat | PCIe link degraded to 5 GT/s × 4 today (vs nominal 8 GT/s × 8) — recv ~2× slower than memory-noted past runs |
 
 **NARRATION:**
 > What you saw is the full model — all thirty transformer layers,
@@ -66,7 +70,7 @@
 
 ## ACT 2 — ACKNOWLEDGE THE OVERHEAD (target 4 min)
 
-### Scene 2.1 — Where the 325 ms/request goes
+### Scene 2.1 — Where the 325 ms / request goes
 
 **VISUAL:** Stacked horizontal bar, 325 ms total, segments labelled:
 
@@ -77,6 +81,9 @@
 ├── readback drain (c2h DMA)                       120 ms  37%
 ├── host-side popcount                               3 ms   1%
 └── other host overhead                             32 ms  10%
+
+Per token, 30 layers × 7 BitLinears × ~4 slices each = ~960 such requests.
+At ~325 ms each (heavier for down_proj/gate_proj) → 371 s / token measured.
 ```
 
 **NARRATION:**
@@ -271,8 +278,10 @@ After binary activations:
 
 | Number | Source | Date / commit |
 |---|---|---|
-| 0.015 tok/s today | This session, srv-prof on bitnet-proj-server, DIMM 0, banks 0,1,2,3, PCIe degraded 5GT/s×4 | 2026-05-05 |
-| 325 ms / BitLinear | Same source, srv-prof line steady-state mean of #50 through #300 | 2026-05-05 |
+| **0.0027 tok/s today (full 7/7)** | This session, run_bitnet_pim.py end-to-end on DIMM 0 banks 0,1,2,3, PCIe degraded 5GT/s×4, prompt "Paris" no chat template, 1 generated token, dual-subarray pool. Took 371.8 s wall. | 2026-05-05 |
+| 325 ms / BitLinear (steady-state) | Same run, srv-prof line means | 2026-05-05 |
+| 1.53 GB sent / token | Same run, `bytes-sent` summary | 2026-05-05 |
+| 960 PCIe requests / token | Same run, `calls=960` over 3 forwards (2 prefill + 1 decode) = 320 reqs/forward × 3 | 2026-05-05 |
 | 0.38 tok/s @ 1 DIMM | `casa_sched --layers 30 --dimms 1 --bg-parallel` | 2026-05-05 |
 | 1.48 tok/s @ 4 DIMMs | `casa_sched --layers 30 --dimms 4 --bg-parallel` | 2026-05-05 |
 | 1.75 tok/s + popcount-DRAM | `casa_sched ... --popcount dram` | 2026-05-05 |
@@ -282,13 +291,14 @@ After binary activations:
 ## Appendix B — Reproducing on this hardware
 
 ```
-# Today's measured run
+# Today's measured run (full 7/7, 1 token, ~6 min wall)
 cd /home/deni/bitnet_weights
+PIM_NO_CHAT_TEMPLATE=1 PIM_POOL_OFFSET=0 PIM_DUAL_SUBARRAY=1 \
 python3 -u run_bitnet_pim.py \
     --bender 0 --bank "0,1,2,3" \
     --layers all --projs all \
     --max-tokens 1 \
-    --prompt "What is the capital of France?"
+    --prompt "Paris"
 
 # Projection ladder (one row per cell of the casa_sched table)
 cd /home/deni/Claude/CaSA-main

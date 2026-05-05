@@ -436,12 +436,51 @@ static bool read_exact(void* buf, size_t n) {
 // Per-bank server state: one calibrated MAJ3 tuple + persistent-weight
 // backup pool, sized for whatever fraction of (chunk, sign) work units
 // this bank will own across the largest expected matmul.
+//
+// Dual-subarray pool (Optimization B, 2026-05-05): each bank optionally
+// holds TWO calibrated tuples from physically distinct subarrays. Per
+// round R, the body uses subarray (R & 1) — its (Rfirst, Rsecond,
+// open_rows) for the compute, and its own backup_pool for the
+// per-column-write scratchpad. This doubles the effective pool size
+// for projections like down_proj where n_rounds (108 with N=4 banks)
+// exceeds a single-subarray pool (~78 rows). Each subarray's pool is
+// still intra-subarray (RowClone is a charge-sharing operation, only
+// works within ONE subarray's bitline pairs).
 struct BankConfig {
   int bank_id;
   Calib calib;
   std::vector<uint32_t> backup_pool;  // backup rows in this bank's subarray
   size_t pool_cursor = 0;  // next free index in backup_pool for handle allocation
+  // Optional second subarray (only populated when dual mode is enabled).
+  bool dual = false;
+  Calib calib_b;
+  std::vector<uint32_t> backup_pool_b;
 };
+
+// Round → (subarray_idx, in-pool index). In dual mode, even rounds use
+// subarray 0 and odd rounds use subarray 1; each gets ceil(R/2) rows.
+// In single mode (dual=false), always returns subarray 0.
+static inline int round_to_subarray(const BankConfig& bc, size_t round) {
+  return (bc.dual ? (int)(round & 1) : 0);
+}
+static inline size_t round_to_pool_idx(const BankConfig& bc, size_t round) {
+  return (bc.dual ? (round / 2) : round);
+}
+static inline const Calib& bc_calib(const BankConfig& bc, size_t round) {
+  return (bc.dual && (round & 1)) ? bc.calib_b : bc.calib;
+}
+static inline const std::vector<uint32_t>& bc_pool(const BankConfig& bc, size_t round) {
+  return (bc.dual && (round & 1)) ? bc.backup_pool_b : bc.backup_pool;
+}
+// Maximum pool occupancy this set of rounds will require, per subarray.
+// Used to validate sizing before doing any work.
+static inline size_t bc_max_pool_idx_for(const BankConfig& bc, size_t n_rounds, int sub) {
+  if (!bc.dual) return n_rounds;
+  // Subarray 0 hosts rounds 0,2,4,...; subarray 1 hosts 1,3,5,...
+  // Need at least ceil((n_rounds - sub) / 2) entries in subarray `sub`.
+  if (n_rounds <= (size_t)sub) return 0;
+  return (n_rounds - sub + 1) / 2;
+}
 
 // One LOAD_WEIGHTS-issued handle: which backup-pool indices were taken
 // per bank for this matmul-slice's (chunk, sign) work units. Indexed by
@@ -733,13 +772,24 @@ static int process_request(SoftMCPlatform& platform,
   long long t_wcol_ns = 0, t_exec_ns = 0, t_recv_ns = 0, t_pop_ns = 0;
   int n_wcol_execs = 0, n_maj3_execs = 0;
 
-  // Each bank needs `n_rounds` backup rows (one per round it participates in).
+  // Each bank needs enough backup rows in each subarray it uses.
+  // In single-subarray mode: subarray 0 holds all n_rounds rows.
+  // In dual-subarray mode: subarray 0 holds even rounds, subarray 1 holds odd rounds.
   for (int bk = 0; bk < N; bk++) {
-    if (banks[bk].backup_pool.size() < n_rounds) {
-      fprintf(stderr, "[server] bank %d backup pool too small: have %zu, "
-              "need %zu (n_units=%zu, N=%d)\n",
+    size_t need_a = bc_max_pool_idx_for(banks[bk], n_rounds, /*sub=*/0);
+    size_t need_b = bc_max_pool_idx_for(banks[bk], n_rounds, /*sub=*/1);
+    if (banks[bk].backup_pool.size() < need_a) {
+      fprintf(stderr, "[server] bank %d subarray-0 backup pool too small: have %zu, "
+              "need %zu (n_units=%zu, n_rounds=%zu, N=%d, dual=%d)\n",
               banks[bk].bank_id, banks[bk].backup_pool.size(),
-              n_rounds, n_units, N);
+              need_a, n_units, n_rounds, N, banks[bk].dual);
+      return -1;
+    }
+    if (banks[bk].dual && banks[bk].backup_pool_b.size() < need_b) {
+      fprintf(stderr, "[server] bank %d subarray-1 backup pool too small: have %zu, "
+              "need %zu (n_units=%zu, n_rounds=%zu, N=%d)\n",
+              banks[bk].bank_id, banks[bk].backup_pool_b.size(),
+              need_b, n_units, n_rounds, N);
       return -1;
     }
   }
@@ -770,8 +820,16 @@ static int process_request(SoftMCPlatform& platform,
       // v2 must NOT collide with rows already taken by LOAD_WEIGHTS.
       // Use slots starting at pool_cursor (= first free slot above any
       // loaded handle data).
-      uint32_t backup_row = banks[bk].backup_pool[
-          banks[bk].pool_cursor + round];
+      // Dual-subarray pool: round R picks subarray (R&1); within that
+      // subarray, the (R/2)-th pool slot. Single-subarray mode uses
+      // subarray 0 + pool slot R. pool_cursor reserves the first
+      // `pool_cursor` slots of subarray 0 for any LOAD_WEIGHTS handles.
+      const std::vector<uint32_t>& pool_for_round = bc_pool(banks[bk], round);
+      size_t pool_idx = round_to_pool_idx(banks[bk], round);
+      // pool_cursor only applies to subarray 0 (where handles allocate from).
+      if (round_to_subarray(banks[bk], round) == 0)
+        pool_idx += banks[bk].pool_cursor;
+      uint32_t backup_row = pool_for_round[pool_idx];
       auto t0 = clk::now();
       per_column_write_row(platform, banks[bk].bank_id, backup_row, mask);
       t_wcol_ns += std::chrono::duration_cast<ns_t>(clk::now() - t0).count();
@@ -807,6 +865,8 @@ static int process_request(SoftMCPlatform& platform,
 
       // Order in the program (and thus in the c2h drain) is bp-major:
       // bp_start/bk0, bp_start/bk1, ..., bp_start+K-1/bk{N-1}.
+      // Each bank picks the round-appropriate calib + pool slot via the
+      // dual-subarray helpers (single-subarray mode = subarray 0 always).
       for (uint32_t kp = 0; kp < K; kp++) {
         uint32_t b = bp_start + kp;
         for (int bk = 0; bk < active_in_round; bk++) {
@@ -814,12 +874,16 @@ static int process_request(SoftMCPlatform& platform,
           uint32_t chunk = (uint32_t)(u / 2);
           int sign = (int)(u % 2);
           uint32_t xb = x_bitplane_all[(size_t)chunk * n_bitplanes + b];
+          const Calib& c = bc_calib(banks[bk], round);
+          const std::vector<uint32_t>& pool_for_round = bc_pool(banks[bk], round);
+          size_t pool_idx = round_to_pool_idx(banks[bk], round);
+          if (round_to_subarray(banks[bk], round) == 0)
+            pool_idx += banks[bk].pool_cursor;
           ex_bank_ids.push_back(banks[bk].bank_id);
-          ex_backup_rows.push_back(banks[bk].backup_pool[
-              banks[bk].pool_cursor + round]);
-          ex_Rfirsts.push_back(banks[bk].calib.Rfirst);
-          ex_Rseconds.push_back(banks[bk].calib.Rsecond);
-          ex_open_rows.push_back(banks[bk].calib.open_rows.data());
+          ex_backup_rows.push_back(pool_for_round[pool_idx]);
+          ex_Rfirsts.push_back(c.Rfirst);
+          ex_Rseconds.push_back(c.Rsecond);
+          ex_open_rows.push_back(c.open_rows.data());
           ex_x_patterns.push_back(xb);
           ex_signs.push_back(sign);
         }
@@ -1340,7 +1404,12 @@ int main(int argc, char** argv) {
     return 2;
   }
 
-  // Load one calibrated tuple per requested bank.
+  // Load calibrated tuples per requested bank. With PIM_DUAL_SUBARRAY=1
+  // (default on, since it doubles the effective backup pool with no
+  // correctness risk) each bank gets TWO calibrated subarrays from
+  // physically distinct subarray_starts. Round R uses subarray (R&1).
+  bool dual_mode = atoi(getenv("PIM_DUAL_SUBARRAY")
+                       ? getenv("PIM_DUAL_SUBARRAY") : "1") != 0;
   std::vector<BankConfig> banks;
   for (int bk : wanted_banks) {
     vector<Calib> cs = read_calib(calib_p, bk);
@@ -1356,6 +1425,26 @@ int main(int argc, char** argv) {
     if (bc.backup_pool.empty()) {
       fprintf(stderr, "[server] empty backup pool for bank %d\n", bk);
       return 2;
+    }
+    // Pick a second calib whose subarray_start differs from cs[0]'s.
+    if (dual_mode && cs.size() >= 2) {
+      uint32_t sub0_start = (cs[0].open_rows[0] / 640) * 640;
+      for (size_t i = 1; i < cs.size(); i++) {
+        uint32_t subi_start = (cs[i].open_rows[0] / 640) * 640;
+        if (subi_start != sub0_start) {
+          bc.calib_b = cs[i];
+          bc.backup_pool_b = build_backup_pool(bc.calib_b);
+          if (!bc.backup_pool_b.empty()) {
+            bc.dual = true;
+          }
+          break;
+        }
+      }
+      if (!bc.dual) {
+        fprintf(stderr, "[server] bank %d: no second-subarray calib found "
+                "(have %zu calibs, all in same subarray as cs[0])\n",
+                bk, cs.size());
+      }
     }
     banks.push_back(std::move(bc));
   }
@@ -1396,6 +1485,16 @@ int main(int argc, char** argv) {
             banks[i].bank_id, banks[i].calib.s_id,
             banks[i].calib.Rfirst, banks[i].calib.Rsecond,
             banks[i].backup_pool.size(), banks[i].backup_pool[0]);
+    if (banks[i].dual) {
+      fprintf(stderr, "[server]   bank %d (dual): s_id=%d Rfirst=%u "
+              "Rsecond=%u backup_pool_b=%zu rows starting at %u "
+              "(combined effective pool=%zu)\n",
+              banks[i].bank_id, banks[i].calib_b.s_id,
+              banks[i].calib_b.Rfirst, banks[i].calib_b.Rsecond,
+              banks[i].backup_pool_b.size(),
+              banks[i].backup_pool_b[0],
+              banks[i].backup_pool.size() + banks[i].backup_pool_b.size());
+    }
   }
 
   vector<uint8_t> req_buf;
