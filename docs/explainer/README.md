@@ -6,7 +6,7 @@ An interactive, step-by-step explainer of how a ternary LLM (BitNet b1.58) is co
 
 ## What it covers
 
-10 scenes, navigate with Prev/Next buttons (or arrow keys), Play auto-advances:
+11 scenes, navigate with Prev/Next buttons (or arrow keys), Play auto-advances:
 
 1. DRAM hierarchy (cell → row → subarray → bank → DIMM)
 2. One cell: ACT / READ / PRE — the destructive-read cycle
@@ -18,6 +18,7 @@ An interactive, step-by-step explainer of how a ternary LLM (BitNet b1.58) is co
 8. Inference loop: prompt → next token
 9. Bottleneck analysis: where does the wall time go?
 10. Wishlist: what AI-specific DRAM would change
+11. Closing thought: using something in the way it was not intended
 
 ## How it was built
 

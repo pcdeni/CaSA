@@ -1224,9 +1224,51 @@ const scene10 = {
 };
 
 // =============================================================
+// SCENE 11 — Closing thought
+// =============================================================
+const scene11 = {
+  title: 'Scene 11 — Closing: using something in the way it was not intended',
+  steps: 1,
+  render(step) {
+    clearScene();
+    sceneRoot.appendChild(text(500, 30, 'the whole technique is engineered out-of-spec behaviour', 'label hl'));
+    // image: 1408x768 native, fit width 880 → height ≈ 480
+    const imgW = 880, imgH = Math.round(imgW * 768 / 1408);
+    const imgX = (1000 - imgW) / 2;
+    const imgY = 60;
+    sceneRoot.appendChild(el('image', {
+      x: imgX, y: imgY, width: imgW, height: imgH,
+      href: 'coda_creativity.png',
+      preserveAspectRatio: 'xMidYMid meet'
+    }));
+    sceneRoot.appendChild(text(500, imgY + imgH + 30, 'SiMRA · FracDRAM · FCDRAM · POPCNT3 — all violating JEDEC, all returning real capability', 'label dim'));
+  },
+  caption(step) {
+    return `<b>Every primitive in this explainer breaks the DDR4 specification on purpose.</b> RowCopy violates tRP. Multi-row activation violates tRP and tRRD. MAJ-of-K violates both. Frac interrupts the sense-amp before it resolves. None of these are bugs the manufacturer left in; they are behaviours the silicon has but the spec disallows. The SAFARI line of papers — and the work that builds on it — is a systematic search for what the silicon actually does outside the spec, with the discipline of paper-grade characterisation. <em>Using DRAM in a way it was not intended is not a bug; it's where the next layer of capability comes from.</em>`;
+  },
+  codeRef() {
+    return `<span class="src">the philosophy in one line</span>
+<span class="cm">JEDEC defines what the chip is allowed to do.</span>
+<span class="cm">Process variation defines what the chip can do.</span>
+<span class="cm">The gap is where in-DRAM compute lives.</span>
+
+<span class="src">three papers, one technique family</span>
+<span class="hl">SiMRA</span>       multi-row activation, MAJ-of-K, Multi-RowCopy
+<span class="hl">FracDRAM</span>    fractional cell voltages via Frac
+<span class="hl">FCDRAM</span>      NAND/NOR + many-input AND/OR via
+            neighbour-subarray open-bitline sharing
+
+<span class="src">none of them re-purposed DRAM</span>
+<span class="cm">all three used commercial off-the-shelf DDR4</span>
+<span class="cm">and discovered what the silicon could do that</span>
+<span class="cm">the spec sheet didn't list</span>`;
+  }
+};
+
+// =============================================================
 // Scene registry + driver
 // =============================================================
-const SCENES = [scene1, scene2, scene3, scene4, scene5, scene6, scene7, scene8, scene9, scene10];
+const SCENES = [scene1, scene2, scene3, scene4, scene5, scene6, scene7, scene8, scene9, scene10, scene11];
 let curScene = 0, curStep = 0, playTimer = null;
 
 function renderNav() {
