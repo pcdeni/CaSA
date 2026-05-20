@@ -1,0 +1,1293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>BitNet PIM explainer — DRAM-as-compute, step by step</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #0f1116;
+    color: #e6e8ee;
+    height: 100%;
+  }
+  body { display: flex; flex-direction: column; height: 100vh; }
+
+  header {
+    padding: 10px 18px;
+    background: #161922;
+    border-bottom: 1px solid #2a2f3d;
+    display: flex; gap: 12px; align-items: center;
+    flex-shrink: 0;
+  }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; color: #ffd479; }
+  header .sub { color: #8a93a8; font-size: 13px; }
+
+  nav { display: flex; gap: 4px; padding: 8px 18px; background: #131722; flex-wrap: wrap; flex-shrink: 0; }
+  nav button {
+    background: #1d2230; border: 1px solid #2a2f3d; color: #c3c9d8;
+    padding: 4px 10px; cursor: pointer; border-radius: 4px; font-size: 12px;
+  }
+  nav button:hover { background: #262d3e; }
+  nav button.active { background: #3a86ff; color: white; border-color: #3a86ff; }
+
+  main {
+    flex: 1; display: grid; grid-template-columns: 1fr 380px; gap: 16px;
+    padding: 14px 18px; min-height: 0;
+  }
+
+  .stage {
+    background: #131722; border: 1px solid #2a2f3d; border-radius: 6px;
+    display: flex; flex-direction: column; min-height: 0;
+  }
+  .stage-title { padding: 10px 14px; border-bottom: 1px solid #2a2f3d; font-size: 14px; color: #ffd479; }
+  .canvas-wrap { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 8px; overflow: hidden; }
+  .canvas-wrap svg { max-width: 100%; max-height: 100%; }
+
+  .side {
+    display: flex; flex-direction: column; gap: 12px; min-height: 0;
+  }
+  .caption, .codepane {
+    background: #131722; border: 1px solid #2a2f3d; border-radius: 6px;
+    padding: 12px 14px; font-size: 13px; line-height: 1.5;
+  }
+  .caption { color: #c3c9d8; min-height: 110px; }
+  .caption b { color: #ffd479; }
+  .caption .ex { color: #22c1c3; font-weight: 600; }
+  .caption code { background: #1f2434; padding: 1px 5px; border-radius: 3px; font-size: 12px; color: #ffd479; }
+  .codepane { font-family: ui-monospace, monospace; font-size: 11.5px; color: #8a93a8; overflow: auto; max-height: 280px; }
+  .codepane .hl { color: #ffd479; }
+  .codepane .cm { color: #5a6178; font-style: italic; }
+  .codepane .src { display: block; color: #4f9bff; margin-top: 6px; margin-bottom: 2px; font-size: 11px; font-weight: 600; }
+
+  .controls {
+    padding: 10px 18px; background: #161922; border-top: 1px solid #2a2f3d;
+    display: flex; gap: 10px; align-items: center; flex-shrink: 0;
+  }
+  .controls button {
+    background: #1d2230; border: 1px solid #2a2f3d; color: #e6e8ee;
+    padding: 6px 14px; cursor: pointer; border-radius: 4px; font-size: 13px;
+  }
+  .controls button:hover { background: #262d3e; }
+  .controls button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .controls .step { color: #8a93a8; font-size: 13px; margin-left: 8px; }
+  .controls .step b { color: #e6e8ee; }
+  .controls .scenefoot { color: #5a6178; font-size: 12px; margin-left: auto; }
+
+  /* SVG element styling */
+  .cap { fill: #3a86ff; stroke: #4f9bff; }
+  .cap.empty { fill: #1d2230; stroke: #4f9bff; }
+  .cap.half { fill: #6b8ec9; stroke: #4f9bff; }
+  .cap.frac { fill: #6b8ec9; stroke: #ffd479; }
+  .row-line { stroke: #ffd479; stroke-width: 1.5; }
+  .row-line.dim { stroke: #5a6178; stroke-width: 1; }
+  .bitline { stroke: #5e6678; stroke-width: 1; }
+  .bitline.hot { stroke: #3a86ff; stroke-width: 2; }
+  .bitline.partial { stroke: #6b8ec9; stroke-width: 1.5; }
+  .bitline.cold { stroke: #5e6678; stroke-width: 1; }
+  .sense-amp { fill: #2a3142; stroke: #4f9bff; }
+  .sense-amp.latched { fill: #3a86ff; stroke: #4f9bff; }
+  .sense-amp.partial { fill: #6b8ec9; stroke: #4f9bff; }
+  .label { fill: #c3c9d8; font-family: monospace; font-size: 11px; }
+  .label.dim { fill: #5a6178; }
+  .label.hl { fill: #ffd479; }
+  .label.cyan { fill: #22c1c3; }
+  .arrow { stroke: #ffd479; stroke-width: 2; fill: none; marker-end: url(#arrowhead); }
+</style>
+</head>
+<body>
+<header>
+  <h1>BitNet PIM — DRAM as the compute substrate</h1>
+  <span class="sub">Mechanism grounded in SiMRA, FracDRAM, FCDRAM, POPCNT3 + our project's server code</span>
+</header>
+
+<nav id="nav"></nav>
+
+<main>
+  <div class="stage">
+    <div class="stage-title" id="stage-title">—</div>
+    <div class="canvas-wrap"><svg id="canvas" viewBox="0 0 1000 600" preserveAspectRatio="xMidYMid meet">
+      <defs>
+        <marker id="arrowhead" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+          <polygon points="0 0, 8 4, 0 8" fill="#ffd479"/>
+        </marker>
+      </defs>
+      <g id="scene"></g>
+    </svg></div>
+  </div>
+  <aside class="side">
+    <div class="caption" id="caption">—</div>
+    <div class="codepane" id="codepane">—</div>
+  </aside>
+</main>
+
+<div class="controls">
+  <button id="prevBtn">◀ Prev</button>
+  <button id="playBtn">▶ Play</button>
+  <button id="nextBtn">Next ▶</button>
+  <span class="step">Step <b id="stepNum">1</b> / <b id="stepMax">1</b></span>
+  <span class="scenefoot" id="scenefoot">Scene 1 of 10</span>
+</div>
+
+<script>
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const sceneRoot = document.getElementById('scene');
+const captionEl = document.getElementById('caption');
+const codeEl    = document.getElementById('codepane');
+const titleEl   = document.getElementById('stage-title');
+const stepNumEl = document.getElementById('stepNum');
+const stepMaxEl = document.getElementById('stepMax');
+const sceneFoot = document.getElementById('scenefoot');
+const nav       = document.getElementById('nav');
+
+function el(name, attrs = {}, children = []) {
+  const e = document.createElementNS(SVG_NS, name);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  for (const c of children) e.appendChild(c);
+  return e;
+}
+function text(x, y, str, cls = 'label', anchor = 'middle') {
+  const t = el('text', { x, y, class: cls, 'text-anchor': anchor, 'dominant-baseline': 'middle' });
+  t.textContent = str;
+  return t;
+}
+function rect(x, y, w, h, cls, extra={}) {
+  return el('rect', Object.assign({ x, y, width: w, height: h, class: cls, rx: 1, ry: 1 }, extra));
+}
+function line(x1, y1, x2, y2, cls) {
+  return el('line', { x1, y1, x2, y2, class: cls });
+}
+function clearScene() { sceneRoot.innerHTML = ''; }
+
+// =============================================================
+// SCENE 1 — DRAM hierarchy
+// =============================================================
+const scene1 = {
+  title: 'Scene 1 — DRAM hierarchy (zoom out)',
+  steps: 5,
+  render(step) {
+    clearScene();
+    const stages = [
+      'one CELL = 1 access transistor + 1 capacitor (1T1C)',
+      'thousands of cells share one wordline → one ROW',
+      'rows + their local sense amps → SUBARRAY (PuD operations live here)',
+      'subarrays share I/O → BANK (one open row at a time)',
+      '16 banks per rank (4 groups × 4); typically 1–4 ranks per DIMM (DDR4 UDIMM/RDIMM)',
+    ];
+    sceneRoot.appendChild(text(500, 30, stages[step], 'label hl'));
+
+    if (step === 0) {
+      sceneRoot.appendChild(line(150, 300, 850, 300, 'row-line'));
+      sceneRoot.appendChild(text(890, 300, 'wordline', 'label'));
+      sceneRoot.appendChild(line(500, 100, 500, 550, 'bitline'));
+      sceneRoot.appendChild(text(540, 110, 'bitline', 'label'));
+      sceneRoot.appendChild(rect(480, 280, 40, 40, 'sense-amp'));
+      sceneRoot.appendChild(text(500, 270, 'access transistor', 'label dim'));
+      sceneRoot.appendChild(line(490, 350, 510, 350, 'row-line'));
+      sceneRoot.appendChild(line(490, 360, 510, 360, 'row-line'));
+      sceneRoot.appendChild(line(500, 320, 500, 350, 'bitline'));
+      sceneRoot.appendChild(line(500, 360, 500, 400, 'bitline'));
+      sceneRoot.appendChild(rect(470, 400, 60, 30, 'cap'));
+      sceneRoot.appendChild(text(500, 415, '1 bit', 'label hl'));
+      sceneRoot.appendChild(text(500, 470, 'cap holds a small charge; leaks over time; needs periodic refresh', 'label dim'));
+    }
+    else if (step === 1) {
+      const N = 16;
+      const x0 = 150, dx = 44;
+      sceneRoot.appendChild(line(120, 200, 850, 200, 'row-line'));
+      sceneRoot.appendChild(text(880, 200, 'wordline', 'label'));
+      for (let i = 0; i < N; i++) {
+        const x = x0 + i * dx;
+        sceneRoot.appendChild(line(x, 100, x, 450, 'bitline'));
+        sceneRoot.appendChild(rect(x-12, 250, 24, 24, i % 3 === 0 ? 'cap empty' : 'cap'));
+      }
+      sceneRoot.appendChild(text(500, 360, 'one wordline pulse opens ALL cells in the row at once', 'label dim'));
+      sceneRoot.appendChild(text(500, 390, '⟹ DRAM access is fundamentally row-granular', 'label hl'));
+    }
+    else if (step === 2) {
+      const W = 700, x0 = 150;
+      const numRows = 8;
+      const rowHeight = 30, y0 = 100;
+      for (let r = 0; r < numRows; r++) {
+        const y = y0 + r * rowHeight;
+        sceneRoot.appendChild(line(x0, y, x0 + W, y, 'row-line dim'));
+        sceneRoot.appendChild(text(x0 - 25, y, `r${r}`, 'label dim'));
+      }
+      const N = 16, dx = W / N;
+      for (let i = 0; i < N; i++) {
+        const x = x0 + i * dx + dx/2;
+        sceneRoot.appendChild(line(x, y0 - 10, x, y0 + numRows * rowHeight + 60, 'bitline'));
+      }
+      const saY = y0 + numRows * rowHeight + 30;
+      sceneRoot.appendChild(rect(x0, saY, W, 30, 'sense-amp'));
+      sceneRoot.appendChild(text(x0 + W + 60, saY + 15, 'sense amps', 'label hl'));
+      sceneRoot.appendChild(text(500, saY + 90, 'PuD ops (RowCopy, MAJ, ...) all happen INSIDE one subarray', 'label hl'));
+      sceneRoot.appendChild(text(500, saY + 115, 'because they rely on shared local sense amps and bitlines', 'label dim'));
+    }
+    else if (step === 3) {
+      const numSub = 4;
+      const subH = 90, subW = 600, x0 = 200, y0 = 100;
+      for (let i = 0; i < numSub; i++) {
+        const y = y0 + i * (subH + 15);
+        sceneRoot.appendChild(rect(x0, y, subW, subH, 'sense-amp'));
+        sceneRoot.appendChild(text(x0 - 50, y + subH/2, `sub ${i}`, 'label'));
+        sceneRoot.appendChild(rect(x0+5, y + subH - 12, subW - 10, 6, 'sense-amp latched'));
+      }
+      sceneRoot.appendChild(rect(x0 + subW + 20, y0, 30, numSub*(subH+15)-15, 'sense-amp latched'));
+      sceneRoot.appendChild(text(x0 + subW + 90, y0 + 30, 'shared I/O', 'label hl'));
+      sceneRoot.appendChild(text(500, 530, 'a bank serves one open row at a time across its subarrays', 'label dim'));
+    }
+    else if (step === 4) {
+      const cellW = 90, cellH = 60, gap = 8, x0 = 200, y0 = 100;
+      const groupColors = ['#3a86ff', '#ffd479', '#22c1c3', '#ff6b6b'];
+      for (let bg = 0; bg < 4; bg++) {
+        for (let b = 0; b < 4; b++) {
+          const x = x0 + bg*(cellW + gap*4);
+          const y = y0 + b*(cellH + gap);
+          sceneRoot.appendChild(rect(x, y, cellW, cellH, '', { fill: '#1d2230', stroke: groupColors[bg], 'stroke-width': 1.5, rx: 3 }));
+          sceneRoot.appendChild(text(x + cellW/2, y + cellH/2, `BG${bg}/B${b}`, 'label'));
+        }
+        sceneRoot.appendChild(text(x0 + bg*(cellW + gap*4) + cellW/2, y0 - 15, `bank group ${bg}`, 'label dim'));
+      }
+      sceneRoot.appendChild(text(500, 470, '16 banks per rank, 1-2 ranks per DIMM (DDR4 standard)', 'label hl'));
+    }
+  },
+  caption(step) {
+    const c = [
+      `<b>One bit lives in a capacitor.</b> The access transistor connects/disconnects it from the bitline. Charge leaks away — DRAM needs periodic refresh (~64 ms in DDR4) to survive.`,
+      `<b>A row = thousands of cells sharing one wordline.</b> Activating the wordline opens all cells in the row simultaneously onto their bitlines. <em>That's why DRAM access is row-granular.</em>`,
+      `<b>A subarray = rows that share local bitlines and sense amps.</b> The sense amps are the row buffer. <b>All PuD operations (RowCopy, MAJ, ...) live inside one subarray</b> because they depend on these shared sense amps.`,
+      `<b>A bank = subarrays sharing I/O.</b> Only one row open at a time per bank.`,
+      `<b>DDR4 organisation:</b> 16 banks per rank (4 groups × 4), 1–2 ranks per DIMM. Cross-bank-group commands have tighter timing parameters than same-group commands.`,
+    ];
+    return c[step];
+  },
+  codeRef() { return '<span class="cm">(general DRAM, no project-specific link)</span>'; }
+};
+
+// =============================================================
+// SCENE 2 — One cell: write, destructive read, write-back
+// =============================================================
+const scene2 = {
+  title: 'Scene 2 — One cell: write, destructive read, write-back',
+  steps: 5,
+  render(step) {
+    clearScene();
+    sceneRoot.appendChild(text(500, 30, 'one cell, one bitline, one sense amp', 'label hl'));
+
+    sceneRoot.appendChild(line(150, 270, 850, 270, step >= 1 ? 'row-line' : 'bitline'));
+    sceneRoot.appendChild(text(890, 270, 'wordline', 'label'));
+
+    const blClass = step === 0 ? 'bitline' : step === 1 ? 'bitline partial' : step === 2 ? 'bitline hot' : step === 3 ? 'bitline hot' : 'bitline';
+    sceneRoot.appendChild(line(500, 100, 500, 500, blClass));
+    sceneRoot.appendChild(text(540, 110, 'bitline', 'label'));
+
+    sceneRoot.appendChild(rect(480, 255, 40, 30, step >= 1 ? 'sense-amp latched' : 'sense-amp'));
+
+    const capStates = ['cap', 'cap', 'cap empty', 'cap empty', 'cap'];
+    sceneRoot.appendChild(rect(470, 390, 60, 30, capStates[step]));
+    sceneRoot.appendChild(line(490, 385, 510, 385, 'row-line'));
+    sceneRoot.appendChild(line(490, 380, 510, 380, 'row-line'));
+    sceneRoot.appendChild(line(500, 285, 500, 380, 'bitline'));
+    sceneRoot.appendChild(line(500, 385, 500, 390, 'bitline'));
+
+    const saClass = step === 0 ? 'sense-amp' :
+                    step === 1 ? 'sense-amp partial' :
+                    step === 2 || step === 3 ? 'sense-amp latched' : 'sense-amp';
+    sceneRoot.appendChild(rect(440, 85, 120, 30, saClass));
+    sceneRoot.appendChild(text(500, 100, 'sense amp', 'label'));
+
+    const ann = [
+      'IDLE: wordline OFF, bitline precharged to V_DD/2',
+      'ACT: wordline ON → cap charge shares with bitline',
+      'sense amp resolves → bitline driven to V_DD or GND',
+      'READ pulls value — but cap is now drained (destructive)',
+      'PRE: sense amp writes value back → wordline OFF → bitline precharges'
+    ];
+    sceneRoot.appendChild(text(500, 540, ann[step], 'label hl'));
+  },
+  caption(step) {
+    const c = [
+      `<b>Idle.</b> Cap holds its charge (representing 1 or 0). Bitline is precharged to V_DD/2 (mid-rail). Wordline OFF — cell is isolated.`,
+      `<b>ACT.</b> Wordline goes high → access transistor opens → cap connects to bitline. The cap's small charge nudges the bitline slightly above or below V_DD/2 (charge sharing).`,
+      `<b>Sense amp resolves.</b> A pair of cross-coupled inverters amplifies the tiny perturbation to full-rail. The bitline is now driven to V_DD or GND. <b>This is the row buffer.</b>`,
+      `<b>READ.</b> Column decoder picks columns out of the sense amp band to the I/O bus. <em>Notice: the cap itself is now empty — its charge drained into the bitline.</em> DRAM reads are <b>destructive</b>.`,
+      `<b>PRE (precharge).</b> Sense amp drives the cap back to its original value, wordline goes OFF, then the bitline returns to V_DD/2. Cell is restored.`,
+    ];
+    return c[step];
+  },
+  codeRef() { return '<span class="cm">(general DRAM, no project-specific link)</span>'; }
+};
+
+// =============================================================
+// SCENE 3 — Normal ACT / READ / PRE on a row
+// =============================================================
+const scene3 = {
+  title: 'Scene 3 — ACT / READ / PRE on a whole row',
+  steps: 4,
+  render(step) {
+    clearScene();
+    const N = 12;
+    const x0 = 120, dx = 60, y0 = 120;
+    const wlActive = step >= 1 && step <= 3;
+    sceneRoot.appendChild(line(80, y0, x0 + N*dx, y0, wlActive ? 'row-line' : 'bitline'));
+    sceneRoot.appendChild(text(50, y0, 'WL', 'label hl'));
+
+    for (let i = 0; i < N; i++) {
+      const x = x0 + i*dx;
+      const blState = step === 0 ? 'bitline' : step === 1 ? 'bitline partial' : 'bitline hot';
+      sceneRoot.appendChild(line(x, 60, x, 460, blState));
+      const bit = i % 2;
+      const capCls = (step >= 3 ? 'cap' : (step === 2 ? 'cap empty' : 'cap')) + (bit ? '' : ' empty');
+      sceneRoot.appendChild(rect(x-12, 350, 24, 24, capCls));
+      sceneRoot.appendChild(rect(x-12, y0-12, 24, 24, wlActive ? 'sense-amp latched' : 'sense-amp'));
+    }
+    const saCls = step === 0 ? 'sense-amp' : step === 1 ? 'sense-amp partial' : 'sense-amp latched';
+    sceneRoot.appendChild(rect(x0 - 30, 250, N*dx + 20, 30, saCls));
+    sceneRoot.appendChild(text(x0 + N*dx + 40, 265, 'sense amps (row buffer)', 'label hl'));
+
+    const phases = ['IDLE', 'ACT', 'READ (cap drains; row buffer is the only copy)', 'PRE (sense amp restores cap, wordline off)'];
+    sceneRoot.appendChild(text(500, 510, phases[step], 'label hl'));
+    sceneRoot.appendChild(text(500, 535, 'DDR4 timing rules: tRAS ≥ ACT-to-PRE; tRP ≥ PRE-to-next-ACT (JEDEC spec)', 'label dim'));
+  },
+  caption(step) {
+    const c = [
+      `<b>Idle.</b> Bank's row buffer empty. Bitlines at V_DD/2.`,
+      `<b>ACT row R.</b> All cells in R drop their charges onto bitlines simultaneously. Sense amps resolve to full rail. <b>Row buffer = row R.</b>`,
+      `<b>READ col.</b> Column decoder picks an N-byte slice from the row buffer to the I/O bus. Cells in R are now drained — row buffer is the only copy.`,
+      `<b>PRE.</b> Sense amps write their values back into R. Wordline OFF, bitlines precharge to V_DD/2. <em>SiMRA, FracDRAM, FCDRAM all bend this 3-phase cycle by violating tRAS or tRP — that's where in-DRAM compute comes from.</em>`,
+    ];
+    return c[step];
+  },
+  codeRef() { return '<span class="cm">(general DRAM, no project-specific link)</span>'; }
+};
+
+// =============================================================
+// SCENE 4 — The APA primitive
+// =============================================================
+const scene4 = {
+  title: 'Scene 4 — The APA primitive (ACT — wait t₁ — PRE — wait t₂ — ACT)',
+  steps: 5,
+  render(step) {
+    clearScene();
+    sceneRoot.appendChild(text(500, 30, 'one envelope, three different operations depending on (t₁, t₂)', 'label hl'));
+
+    // Timing diagram
+    const tx0 = 100, txw = 800, ty = 180;
+    // Baseline timing axis
+    sceneRoot.appendChild(line(tx0, ty + 40, tx0 + txw, ty + 40, 'bitline'));
+    sceneRoot.appendChild(text(tx0 + txw + 30, ty + 40, 'time →', 'label dim'));
+
+    // Three commands as boxes
+    const c1x = tx0 + 50, c2x = tx0 + 350, c3x = tx0 + 600;
+    const boxW = 80, boxH = 40;
+
+    sceneRoot.appendChild(rect(c1x, ty + 20, boxW, boxH, step >= 1 ? 'sense-amp latched' : 'sense-amp'));
+    sceneRoot.appendChild(text(c1x + boxW/2, ty + 40, 'ACT R_F', 'label hl'));
+
+    sceneRoot.appendChild(rect(c2x, ty + 20, boxW, boxH, step >= 3 ? 'sense-amp latched' : 'sense-amp'));
+    sceneRoot.appendChild(text(c2x + boxW/2, ty + 40, 'PRE', 'label hl'));
+
+    sceneRoot.appendChild(rect(c3x, ty + 20, boxW, boxH, step >= 4 ? 'sense-amp latched' : 'sense-amp'));
+    sceneRoot.appendChild(text(c3x + boxW/2, ty + 40, 'ACT R_S', 'label hl'));
+
+    // Gap annotations
+    if (step >= 2) {
+      sceneRoot.appendChild(line(c1x + boxW, ty + 90, c2x, ty + 90, 'arrow'));
+      sceneRoot.appendChild(text((c1x + boxW + c2x)/2, ty + 110, 't₁', 'label hl'));
+      sceneRoot.appendChild(text((c1x + boxW + c2x)/2, ty + 128, '(gap 1)', 'label dim'));
+    }
+    if (step >= 3) {
+      sceneRoot.appendChild(line(c2x + boxW, ty + 90, c3x, ty + 90, 'arrow'));
+      sceneRoot.appendChild(text((c2x + boxW + c3x)/2, ty + 110, 't₂', 'label hl'));
+      sceneRoot.appendChild(text((c2x + boxW + c3x)/2, ty + 128, '(gap 2)', 'label dim'));
+    }
+
+    // JEDEC vs APA rules
+    if (step >= 2) {
+      sceneRoot.appendChild(text(500, 380, 'JEDEC spec:  t₁ ≥ tRAS  (~tens of ns)   AND   t₂ ≥ tRP  (~tens of ns)', 'label dim'));
+      sceneRoot.appendChild(text(500, 405, 'APA breaks one or both — chooses t₁, t₂ to produce a specific in-DRAM operation', 'label hl'));
+    }
+
+    // Outcome table preview
+    if (step >= 4) {
+      const ty2 = 450;
+      sceneRoot.appendChild(text(500, ty2, '(t₁, t₂) determines what happens:', 'label hl'));
+      const rows = [
+        ['t₁ long  (≥ tRAS), t₂ short', '→  RowCopy / Multi-RowCopy', '(Scene 5)'],
+        ['t₁ short, t₂ short',           '→  Multi-Row Activation, then MAJ', '(Scene 6)'],
+        ['PRE  ACT  PRE  back-to-back',  '→  Frac (cell ← V_DD/2)', '(Scene 6)'],
+      ];
+      for (let i = 0; i < rows.length; i++) {
+        const y = ty2 + 25 + i*22;
+        sceneRoot.appendChild(text(250, y, rows[i][0], 'label'));
+        sceneRoot.appendChild(text(560, y, rows[i][1], 'label hl'));
+        sceneRoot.appendChild(text(740, y, rows[i][2], 'label dim'));
+      }
+    }
+  },
+  caption(step) {
+    const c = [
+      `<b>The primitive.</b> All in-DRAM compute we use is built from <b>one command envelope</b>: ACT, then PRE, then ACT. Both ACTs target rows in the same subarray.`,
+      `<b>First ACT.</b> Opens row R_F. Sense amp begins to resolve.`,
+      `<b>Then wait t₁.</b> The gap between ACT₁ and PRE — controllable by the controller. Standard DDR4 demands t₁ ≥ tRAS, but APA can shorten it.`,
+      `<b>PRE, then wait t₂.</b> The gap between PRE and ACT₂. Standard DDR4 demands t₂ ≥ tRP. Again, APA can shorten it.`,
+      `<b>Different (t₁, t₂) → different operations.</b> The bitline / sense amp ends up in different physical states depending on how much settling was allowed at each gap. <span class="ex">EXAMPLE values from one chip family appear in later scenes — the specific numbers vary across DDR4 manufacturers.</span>`,
+    ];
+    return c[step];
+  },
+  codeRef() {
+    return `<span class="src">paper: SiMRA §3.2 — APA defined</span>
+<span class="cm">"ACT R_F — wait t₁ — PRE — wait t₂ — ACT R_S"</span>
+<span class="cm">Both R_F, R_S target the same subarray.</span>
+
+<span class="src">code: util.cpp:242-286 (our doubleACT)</span>
+<span class="cm">// Cmd:    ----|ACT R0|----| PRE |----|ACT R3|----</span>
+<span class="cm">// Gaps:               t_12          t_23</span>
+
+q_inst[<span class="hl">0</span>]                = SMC_ACT(BAR, RF_REG);
+q_inst[<span class="hl">t_12 + 1</span>]         = SMC_PRE(BAR);
+q_inst[<span class="hl">2 + t_12 + t_23</span>] = SMC_ACT(BAR, RS_REG);
+
+<span class="cm">→ project's t_12 = paper's t₁,   t_23 = t₂</span>`;
+  }
+};
+
+// =============================================================
+// SCENE 5 — One envelope, three operations
+// =============================================================
+const scene5 = {
+  title: 'Scene 5 — From APA to RowCopy / Multi-RowCopy / Multi-Row Activation',
+  steps: 6,
+  render(step) {
+    clearScene();
+    const variants = [
+      'RowCopy: t₁ ≥ tRAS, t₂ ≪ tRP — sense amp fully resolves R_F, then dst opens onto driven bitlines',
+      'RowCopy result: dst absorbs src',
+      'Multi-RowCopy: same timing, but R_S address opens many wordlines via row-decoder predecoders',
+      'Multi-RowCopy result: one src → many dst rows',
+      'Multi-Row Activation: t₁ short — sense amp does NOT fully resolve any single row',
+      'K rows now share charge on the bitlines simultaneously → ready for MAJ (Scene 6)',
+    ];
+    sceneRoot.appendChild(text(500, 30, variants[step], 'label hl'));
+
+    // 3 rows visualised
+    const xs = 100, xe = 870;
+    const N = 10;
+    const dx = (xe - xs) / (N+1);
+
+    const yA = 100;   // R_F
+    const yMid = 200; // explanation area
+    const yDst0 = 300; // 8 dst rows
+
+    // R_F row
+    const wlA = step >= 0;
+    sceneRoot.appendChild(line(xs, yA, xe, yA, wlA ? 'row-line' : 'row-line dim'));
+    sceneRoot.appendChild(text(60, yA, 'R_F (src)', 'label hl'));
+    const pat = [1,0,1,1,0,1,0,0,1,0];
+
+    // Bitlines
+    let blCls;
+    if (step <= 0) blCls = 'bitline cold';
+    else if (step === 1) blCls = 'bitline hot';
+    else if (step <= 3) blCls = 'bitline hot';
+    else blCls = 'bitline partial';
+
+    for (let i = 0; i < N; i++) {
+      const x = xs + (i+1)*dx;
+      sceneRoot.appendChild(line(x, 75, x, yDst0 + 8*22 + 30, pat[i] && step >= 0 ? blCls : 'bitline cold'));
+      sceneRoot.appendChild(rect(x-10, yA-12, 20, 18, pat[i] ? 'cap' : 'cap empty'));
+    }
+
+    // Multiple destination rows
+    const numDst = step <= 1 ? 1 : (step <= 3 ? 8 : 8);
+    for (let r = 0; r < numDst; r++) {
+      const y = yDst0 + r*20;
+      const opened = (step <= 1 && r === 0) || (step >= 2);
+      sceneRoot.appendChild(line(xs, y, xe, y, opened ? 'row-line' : 'row-line dim'));
+      if (r === 0) {
+        sceneRoot.appendChild(text(60, y, step <= 1 ? 'dst (1)' : 'K dst rows', 'label hl'));
+      }
+      for (let i = 0; i < N; i++) {
+        const x = xs + (i+1)*dx;
+        let cellCls;
+        if (step <= 1 && r === 0) {
+          cellCls = step === 1 ? (pat[i] ? 'cap' : 'cap empty') : 'cap empty';
+        } else if (step <= 3) {
+          cellCls = step === 3 ? (pat[i] ? 'cap' : 'cap empty') : 'cap empty';
+        } else {
+          // multi-row activation — random initial states
+          cellCls = ((i+r) % 3 === 0) ? 'cap' : 'cap empty';
+        }
+        sceneRoot.appendChild(rect(x-7, y-7, 14, 12, cellCls));
+      }
+    }
+
+    // Sense amp band
+    const saY = yDst0 + numDst*20 + 15;
+    const saCls = (step === 0) ? 'sense-amp partial' :
+                  (step >= 1 && step <= 3) ? 'sense-amp latched' :
+                  'sense-amp partial';
+    sceneRoot.appendChild(rect(xs, saY, xe-xs, 22, saCls));
+    sceneRoot.appendChild(text(xs-50, saY+11, 'sense amps', 'label dim'));
+
+    sceneRoot.appendChild(text(500, saY + 60,
+      step <= 1 ? 'paper-term: RowCopy (intra-subarray)' :
+      step <= 3 ? 'paper-term: Multi-RowCopy (SiMRA §3.4)' :
+      'paper-term: Multi-Row Activation (SiMRA §3.3)',
+      'label dim'));
+  },
+  caption(step) {
+    const c = [
+      `<b>RowCopy.</b> Use APA with <b>t₁ ≥ tRAS</b> (sense amp fully resolves R_F) and <b>t₂ ≪ tRP</b> (the PRE is interrupted by ACT₂ before bitlines drift). The sense amp is still driving the bitlines when dst opens — dst absorbs the source value.`,
+      `<b>Result.</b> dst row = src row, byte-for-byte. <em>No data crossed the I/O bus.</em>`,
+      `<b>Multi-RowCopy.</b> Same envelope; the difference is in R_S's address. If R_F and R_S differ in particular bits, the row decoder predecoders latch overlapping signals, so the second ACT opens <b>K destination rows</b> simultaneously. <span class="ex">EXAMPLE: SiMRA reports (t₁≈36 ns, t₂≈3 ns) as the best Multi-RowCopy timing on Hynix DDR4. Our project's chips perform best at a shorter t₁ — the optimal timing is a per-chip calibration result, not a fixed constant.</span>`,
+      `<b>Result.</b> One src row → K dst rows in one APA. <span class="ex">EXAMPLE: SiMRA reports K ∈ {2, 4, 8, 16, 32} on Hynix/Micron DDR4; K is chip-dependent (Samsung does not support multi-row activation at all).</span>`,
+      `<b>Multi-Row Activation.</b> Now BOTH t₁ and t₂ are short. The sense amp does <em>not</em> fully resolve any one row before the next ACT fires. K rows open and their cells share charge on the bitlines together.`,
+      `<b>K cells per bitline charge-sharing.</b> No row dominates the bitline — instead, the bitline voltage reflects the <em>combination</em> of K cell charges. This is the substrate for MAJ (next scene).`,
+    ];
+    return c[step];
+  },
+  codeRef() {
+    return `<span class="src">paper: SiMRA §3.4 — Multi-RowCopy mechanism</span>
+<span class="cm">1. ACT R_F</span>
+<span class="cm">2. wait t₁ ≈ tRAS  (sense amp fully resolves R_F)</span>
+<span class="cm">3. PRE</span>
+<span class="cm">4. wait t₂ &lt; tRP  (bitlines don't precharge)</span>
+<span class="cm">5. ACT R_S  (K wordlines open simultaneously)</span>
+<span class="cm">6. sense amp drives all K dst rows to R_F's value</span>
+
+<span class="src">paper: SiMRA §7.1 — row decoder hypothesis</span>
+<span class="cm">Hierarchical decoder: 5 predecoders</span>
+<span class="cm">Max K = 2⁵ = 32 simultaneous wordlines</span>
+<span class="cm">(when R_F and R_S addresses force every predecoder</span>
+<span class="cm"> to latch both of its outputs)</span>
+
+<span class="src">code: test_bitnet_server.cpp:247-253</span>
+<span class="cm">// 1. RowCopy backup → Rfirst</span>
+doubleACT(t_12=<span class="hl">long</span>, t_23=<span class="hl">short</span>, backup, Rfirst);
+<span class="cm">// 2. Multi-RowCopy Rfirst → K open rows</span>
+doubleACT(t_12=<span class="hl">short</span>, t_23=<span class="hl">short</span>, Rfirst, Rsecond);`;
+  }
+};
+
+// =============================================================
+// SCENE 6 — MAJ via K-row charge share + replication
+// =============================================================
+const scene6 = {
+  title: 'Scene 6 — MAJ-of-K via K-row charge share; replication for stability',
+  steps: 6,
+  render(step) {
+    clearScene();
+    sceneRoot.appendChild(text(500, 25, 'K rows simultaneously activated → K cells per bitline share charge → sense amp resolves majority', 'label hl'));
+
+    if (step === 0) {
+      // Naive MAJ3: K=3 rows
+      const ys = [100, 130, 160];
+      for (const y of ys) sceneRoot.appendChild(line(150, y, 850, y, 'row-line'));
+      sceneRoot.appendChild(text(80, 130, 'K=3 rows', 'label hl'));
+      const N = 10, x0 = 200;
+      const dx = 60;
+      // Three inputs: A, B, C
+      const A = [1,0,1,1,0,1,0,1,1,0];
+      const B = [0,1,1,0,1,1,1,0,0,1];
+      const C = [1,1,0,1,1,0,1,0,1,1];
+      for (let i = 0; i < N; i++) {
+        const x = x0 + i*dx;
+        sceneRoot.appendChild(line(x, 80, x, 320, 'bitline partial'));
+        sceneRoot.appendChild(rect(x-7, ys[0]-7, 14, 14, A[i] ? 'cap' : 'cap empty'));
+        sceneRoot.appendChild(rect(x-7, ys[1]-7, 14, 14, B[i] ? 'cap' : 'cap empty'));
+        sceneRoot.appendChild(rect(x-7, ys[2]-7, 14, 14, C[i] ? 'cap' : 'cap empty'));
+      }
+      sceneRoot.appendChild(rect(150, 260, 700, 30, 'sense-amp partial'));
+      sceneRoot.appendChild(text(80, 275, 'sense amps', 'label dim'));
+      // Result row
+      const MAJ = A.map((a, i) => (a + B[i] + C[i]) >= 2 ? 1 : 0);
+      sceneRoot.appendChild(text(80, 360, 'MAJ3', 'label hl'));
+      for (let i = 0; i < N; i++) {
+        const x = x0 + i*dx;
+        sceneRoot.appendChild(rect(x-7, 353, 14, 14, MAJ[i] ? 'cap' : 'cap empty'));
+      }
+      sceneRoot.appendChild(text(500, 420, 'V_BL ≈ (n_ones / K) · V_DD  (negligible-bitline-cap limit)  →  sense amp → 1 iff majority', 'label hl'));
+      sceneRoot.appendChild(text(500, 450, 'this is the textbook (Ambit-style) MAJ3', 'label dim'));
+      sceneRoot.appendChild(text(500, 480, 'on real COTS chips, K=3 alone often gives unreliable resolution under process variation', 'label dim'));
+    }
+    else if (step === 1 || step === 2) {
+      // Replication: K=4 (tight) vs K=32 (replicated 10x)
+      const small = step === 1;
+      sceneRoot.appendChild(text(500, 70, small ? 'TIGHT (K = 4): one row per input + 1 neutral' : 'REPLICATED (K = 32): each input × 10 copies + 2 neutrals', 'label hl'));
+      const K = small ? 4 : 32;
+      const totalH = 280;
+      const dy = totalH / K;
+      const xs = 120, xe = 800;
+      // Show every row, colour by which input it represents
+      const groupColors = ['#ffd479', '#3a86ff', '#22c1c3', '#6b8ec9'];
+      const labels = ['A', 'B', 'C', 'neutral'];
+      for (let r = 0; r < K; r++) {
+        const y = 110 + r*dy;
+        let grp;
+        if (small) grp = r;  // A, B, C, neutral
+        else grp = r < 30 ? Math.floor(r / 10) : 3;
+        const col = groupColors[grp];
+        sceneRoot.appendChild(line(xs, y, xe, y, ''));
+        sceneRoot.appendChild(rect(xs, y - dy/2 + 1, xe-xs, dy - 2, '', { fill: col, opacity: 0.18, stroke: col, 'stroke-width': 0.5 }));
+        if (r % (small ? 1 : 10) === 0) {
+          sceneRoot.appendChild(text(xs - 60, y + dy/2, labels[grp], 'label hl'));
+        }
+      }
+      // Sense amp band
+      sceneRoot.appendChild(rect(xs, 110 + totalH + 10, xe-xs, 22, small ? 'sense-amp partial' : 'sense-amp latched'));
+      sceneRoot.appendChild(text(500, 460,
+        small ? 'small bitline perturbation → sense amp resolution sensitive to process variation' :
+                'large bitline perturbation → reliable resolution even with process variation',
+        'label hl'));
+      sceneRoot.appendChild(text(500, 488,
+        small ? '— may flip under noise / temperature / supply variation' :
+                '— SPICE (SiMRA Fig. 15): 32-row gives ~159% larger perturbation vs 4-row',
+        'label dim'));
+    }
+    else if (step === 3) {
+      // F-MAJ: neutral row via Frac
+      sceneRoot.appendChild(text(500, 70, 'How to get a "neutral" row: FracDRAM\'s Frac primitive', 'label hl'));
+      // Timing diagram
+      const tx0 = 200, dxx = 100;
+      const cmds = ['PRE', 'ACT R', 'PRE'];
+      for (let i = 0; i < 3; i++) {
+        const x = tx0 + i*dxx;
+        sceneRoot.appendChild(rect(x, 130, 70, 35, 'sense-amp'));
+        sceneRoot.appendChild(text(x + 35, 148, cmds[i], 'label hl'));
+      }
+      sceneRoot.appendChild(line(tx0+70, 220, tx0+dxx, 220, 'arrow'));
+      sceneRoot.appendChild(line(tx0+70+dxx, 220, tx0+2*dxx, 220, 'arrow'));
+      sceneRoot.appendChild(text(tx0+dxx, 245, 'back-to-back', 'label dim'));
+      sceneRoot.appendChild(text(tx0+2*dxx, 245, '(no idle)', 'label dim'));
+      // Result: cell at V_DD/2
+      sceneRoot.appendChild(rect(450, 320, 80, 40, 'cap frac'));
+      sceneRoot.appendChild(text(490, 340, '≈ V_DD/2', 'label hl'));
+      sceneRoot.appendChild(text(490, 380, '("neutral" — contributes nothing to MAJ)', 'label dim'));
+      sceneRoot.appendChild(text(500, 460, 'Frac\'s trailing PRE INTERRUPTS the activation before the sense amp resolves', 'label hl'));
+      sceneRoot.appendChild(text(500, 488, '→ cell capacitor holds the partially-shared voltage = V_DD/2', 'label dim'));
+      sceneRoot.appendChild(text(500, 512, 'paper: FracDRAM §III-A — Frac sequence and mechanism', 'label dim'));
+    }
+    else if (step === 4) {
+      // MAJ → AND
+      sceneRoot.appendChild(text(500, 70, 'MAJ(a, b, 0) = (a AND b)   /   MAJ(a, b, 1) = (a OR b)', 'label hl'));
+      // Truth table style
+      const rows = [
+        ['a', 'b', '0', 'MAJ', 'a AND b'],
+        ['0', '0', '0', '0',   '0'],
+        ['0', '1', '0', '0',   '0'],
+        ['1', '0', '0', '0',   '0'],
+        ['1', '1', '0', '1',   '1'],
+      ];
+      const tx = 280, ty = 160, cw = 80, rh = 32;
+      for (let r = 0; r < rows.length; r++) {
+        for (let c = 0; c < rows[r].length; c++) {
+          const x = tx + c*cw, y = ty + r*rh;
+          if (r === 0) sceneRoot.appendChild(rect(x, y, cw, rh, '', { fill: '#1d2230', stroke: '#5a6178' }));
+          else sceneRoot.appendChild(rect(x, y, cw, rh, '', { fill: '#131722', stroke: '#2a2f3d' }));
+          sceneRoot.appendChild(text(x + cw/2, y + rh/2, rows[r][c], r === 0 ? 'label hl' : 'label'));
+        }
+      }
+      sceneRoot.appendChild(text(500, 380, 'To compute (a AND b), pin one MAJ3 input to 0 (zero-row, or a Frac\'d cell).', 'label hl'));
+      sceneRoot.appendChild(text(500, 408, 'Or use Frac\'s F-MAJ trick: one row Frac\'d to V_DD/2 → contributes nothing → MAJ of the other 3', 'label dim'));
+      sceneRoot.appendChild(text(500, 432, 'paper: FracDRAM §VI-A (F-MAJ)', 'label dim'));
+    }
+    else if (step === 5) {
+      // "Our project's layout" annotation
+      sceneRoot.appendChild(text(500, 80, 'EXAMPLE: one layout our project uses for MAJ3 on top of 16-row activation', 'label hl cyan'));
+      sceneRoot.appendChild(text(500, 105, '(this exact pattern is calibrated for our chips — the GENERAL principle is replicate + neutralise)', 'label dim'));
+
+      const xs = 150, K = 16;
+      const dy = 22;
+      const colors = {
+        'w (weight)':     '#3a86ff',
+        'x (activation)': '#ffd479',
+        '0':              '#3a4150',
+        '1':              '#22c1c3',
+        'r[0] Frac\'d':   '#6b8ec9',
+      };
+      // 16 rows pattern: 5 w, 5 x, 5 zero, 1 one+frac
+      const pattern = [
+        'r[0] Frac\'d',
+        'x (activation)', '0',
+        'w (weight)', 'x (activation)', '0',
+        'w (weight)', 'x (activation)', '0',
+        'w (weight)', 'x (activation)', '0',
+        'w (weight)', 'x (activation)', '0',
+        'w (weight)',
+      ];
+      for (let r = 0; r < K; r++) {
+        const y = 140 + r*dy;
+        const what = pattern[r];
+        sceneRoot.appendChild(rect(xs, y, 600, dy - 2, '', { fill: colors[what], opacity: 0.25 }));
+        sceneRoot.appendChild(text(xs - 30, y + (dy-2)/2, `r${r}`, 'label dim'));
+        sceneRoot.appendChild(text(xs + 300, y + (dy-2)/2, what, 'label'));
+      }
+      sceneRoot.appendChild(text(820, 250, '5 × w', 'label hl'));
+      sceneRoot.appendChild(text(820, 285, '5 × x', 'label hl'));
+      sceneRoot.appendChild(text(820, 320, '5 × 0', 'label hl'));
+      sceneRoot.appendChild(text(820, 355, '1 × 1', 'label hl'));
+      sceneRoot.appendChild(text(820, 390, '(Frac)', 'label dim'));
+      sceneRoot.appendChild(text(500, 540, 'bitline majority of (5w + 5x + 5·0 + 1·1) → (w AND x) on success-calibrated tuples', 'label hl'));
+      sceneRoot.appendChild(text(500, 568, 'the exact (5/5/5/1) split is empirical; the principle "replicate inputs + neutralise" is general', 'label dim'));
+    }
+  },
+  caption(step) {
+    const c = [
+      `<b>Textbook MAJ-of-K.</b> Open K rows simultaneously → K cells per bitline share charge → V_BL ≈ (n_ones/K)·V_DD → sense amp resolves to 1 iff majority of cells held 1. <b>This is the substrate.</b>`,
+      `<b>Tight K (say K=4) is fragile.</b> Bitline perturbation away from V_DD/2 is small — only 1 of K cells imbalances the bitline. Sense amps have process-variation in their threshold, so this small perturbation may not cross reliably.`,
+      `<b>Replicate each input across many rows.</b> SiMRA's central result: replicating each input N/X times for MAJ-of-X gives much bigger bitline perturbation, which crosses the sense amp threshold reliably even under variation. <span class="ex">EXAMPLE: SiMRA reports 32-row vs 4-row → +159% perturbation (SPICE) → MAJ3 success ~99% vs ~68% on tested chips.</span>`,
+      `<b>Neutral rows.</b> When N is not divisible by X, the leftover rows must contribute nothing to the bitline. Solution: FracDRAM's Frac primitive sets cells to V_DD/2 by interrupting the activation before the sense amp resolves. A V_DD/2 cell perturbs the bitline by ≈ 0.`,
+      `<b>MAJ → AND, OR.</b> MAJ(a, b, 0) = (a AND b). MAJ(a, b, 1) = (a OR b). To get the AND we need ONE of the three logical inputs to be 0. Either: pin one row to all-0; or use Frac to make that cell neutral and only use 2 real inputs.`,
+      `<b>EXAMPLE layout (our project).</b> Our calibration sweep landed on a 16-row pattern: 5 rows hold the weight bit, 5 hold the activation bit, 5 hold zero, and position 0 is first written to all-ones then Frac'd three times so it ends near V_DD/2. <em>The 5/5/5/1 split and the ONE→Frac sequence on row 0 are empirically tuned for our chips.</em> The general principle — "replicate inputs, neutralise the rest" — is what's portable.`,
+    ];
+    return c[step];
+  },
+  codeRef() {
+    return `<span class="src">paper: SiMRA §2.2 (MAJ3), §3.3 (MAJX with replication)</span>
+<span class="cm">"three cells connected to each bitline share charge</span>
+<span class="cm"> simultaneously and contribute to the perturbation</span>
+<span class="cm"> of the bitline. Upon sensing the perturbation,</span>
+<span class="cm"> the sense amplifier amplifies the bitline voltage</span>
+<span class="cm"> to V_DD or 0 V if at least two of the three DRAM</span>
+<span class="cm"> cells are charged or discharged, respectively."</span>
+
+<span class="src">paper: SiMRA §7.2 — why replication helps</span>
+<span class="cm">larger perturbation → crosses sense-amp threshold</span>
+<span class="cm">scatter from process variation reliably</span>
+
+<span class="src">paper: FracDRAM §III-A — Frac primitive</span>
+<span class="cm">PRE - ACT(R) - PRE  (back-to-back, no idle)</span>
+<span class="cm">trailing PRE interrupts before sense amp resolves</span>
+<span class="cm">cell holds partially-shared voltage ≈ V_DD/2</span>
+
+<span class="src">paper: FracDRAM §VI-A — F-MAJ</span>
+<span class="cm">4-row activation, 1 Frac'd row contributes nothing</span>
+<span class="cm">→ MAJ of the other 3</span>
+
+<span class="src">code: test_bitnet_server.cpp:258-280 (our specific layout)</span>
+<span class="cm">act_pos  = {1, 4, 7, 10, 13}  // 5 rows of x</span>
+<span class="cm">zero_pos = {2, 5, 8, 11, 14}  // 5 rows of 0</span>
+<span class="cm">// rows 3,6,9,12,15 keep w from Broadcast</span>
+<span class="cm">// row 0 = ONE then Frac×3</span>`;
+  }
+};
+
+// =============================================================
+// SCENE 7 — Ternary × int8 multiply, composed from MAJ-based ANDs
+// =============================================================
+const scene7 = {
+  title: 'Scene 7 — Composing one ternary × int8 multiply from MAJ-based ANDs',
+  steps: 5,
+  render(step) {
+    clearScene();
+    sceneRoot.appendChild(text(500, 25, 'how single-bit MAJ-based ANDs reconstruct a full ternary × int8 dot product', 'label hl'));
+
+    const yW = 90, yX = 220, yMul = 360, yOut = 490;
+    const xL = 80;
+
+    // Ternary weights
+    sceneRoot.appendChild(text(60, yW, 'w', 'label hl'));
+    const w = [+1, 0, -1, +1, +1, 0, -1, +1];
+    const wColors = { '1': '#3a86ff', '0': '#3a4150', '-1': '#ff6b6b' };
+    for (let i = 0; i < w.length; i++) {
+      const x = xL + 30 + i * 110;
+      sceneRoot.appendChild(rect(x, yW - 15, 90, 30, '', { fill: wColors[String(w[i])], stroke: 'none', rx: 3 }));
+      sceneRoot.appendChild(text(x + 45, yW, String(w[i]), 'label hl'));
+    }
+
+    // Split into +/- masks
+    if (step >= 1) {
+      sceneRoot.appendChild(text(60, yW + 35, 'pos_mask', 'label'));
+      for (let i = 0; i < w.length; i++) {
+        const x = xL + 30 + i * 110;
+        const v = w[i] === 1 ? 1 : 0;
+        sceneRoot.appendChild(rect(x, yW + 22, 90, 16, v ? 'cap' : 'cap empty'));
+        sceneRoot.appendChild(text(x + 45, yW + 30, String(v), 'label dim'));
+      }
+      sceneRoot.appendChild(text(60, yW + 65, 'neg_mask', 'label'));
+      for (let i = 0; i < w.length; i++) {
+        const x = xL + 30 + i * 110;
+        const v = w[i] === -1 ? 1 : 0;
+        sceneRoot.appendChild(rect(x, yW + 52, 90, 16, v ? 'cap' : 'cap empty'));
+        sceneRoot.appendChild(text(x + 45, yW + 60, String(v), 'label dim'));
+      }
+    }
+
+    // Activations (int8)
+    if (step >= 2) {
+      sceneRoot.appendChild(text(60, yX, 'x (int8)', 'label hl'));
+      const x = [5, -2, 7, 1, -4, 3, 0, 6];
+      for (let i = 0; i < x.length; i++) {
+        const cx = xL + 30 + i * 110;
+        sceneRoot.appendChild(rect(cx, yX - 15, 90, 30, '', { fill: '#1d2230', stroke: '#ffd479', rx: 3 }));
+        sceneRoot.appendChild(text(cx + 45, yX, String(x[i]), 'label hl'));
+      }
+      if (step >= 3) {
+        const u8 = x.map(v => v < 0 ? v + 256 : v);
+        sceneRoot.appendChild(text(60, yX + 40, '8 bitplanes', 'label'));
+        for (let b = 0; b < 8; b++) {
+          for (let i = 0; i < u8.length; i++) {
+            const cx = xL + 30 + i * 110;
+            const v = (u8[i] >> b) & 1;
+            sceneRoot.appendChild(rect(cx + b*10, yX + 30, 8, 8, v ? 'cap' : 'cap empty'));
+          }
+        }
+        sceneRoot.appendChild(text(800, yX + 60, 'b0  ............  b7', 'label dim'));
+        sceneRoot.appendChild(text(800, yX + 78, '× 1, 2, 4, 8, 16, 32, 64, −128', 'label dim'));
+      }
+    }
+
+    // MAJ stream
+    if (step >= 3) {
+      sceneRoot.appendChild(text(60, yMul, 'MAJ stream', 'label hl'));
+      sceneRoot.appendChild(text(500, yMul - 5, 'per (chunk × sign × bitplane): one MAJ-based popcount of (mask_bit AND x_bit) across 32 inputs', 'label'));
+      sceneRoot.appendChild(text(500, yMul + 22, 'per output: 2 (signs) × 8 (bitplanes) × n_chunks  MAJs', 'label dim'));
+      sceneRoot.appendChild(text(500, yMul + 42, 'per projection d_in × d_out: 2 · 8 · (d_in/32) · d_out  total', 'label hl'));
+    }
+
+    // Host accumulate
+    if (step >= 4) {
+      sceneRoot.appendChild(text(60, yOut, 'host', 'label hl'));
+      sceneRoot.appendChild(rect(xL + 100, yOut - 25, 720, 60, '', { fill: '#1d2230', stroke: '#22c1c3', rx: 3 }));
+      sceneRoot.appendChild(text(xL + 460, yOut - 5, 'y_int32 = Σ_b factor[b] · (pos_pop[b] − neg_pop[b])', 'label hl'));
+      sceneRoot.appendChild(text(xL + 460, yOut + 15, 'y_bf16 = y_int32 × weight_scale  /  input_scale', 'label'));
+      sceneRoot.appendChild(text(xL + 460, yOut + 32, 'factor = [1, 2, 4, 8, 16, 32, 64, −128]  (MSB negative — two\'s complement sign)', 'label dim'));
+    }
+  },
+  caption(step) {
+    const c = [
+      `<b>Ternary weight w ∈ {−1, 0, +1}.</b> Storing one ternary value needs 2 bits.`,
+      `<b>Split into two masks.</b> <code>pos_mask</code> (1 iff w=+1), <code>neg_mask</code> (1 iff w=−1). Each MAJ-based AND operates on one of the two masks. Final result = pos_count − neg_count.`,
+      `<b>Activations are int8</b> (after BitNet's input quantizer). Stored as int8 in PyTorch.`,
+      `<b>Decompose int8 into 8 bitplanes.</b> Each MAJ operates on a single bit. Bitplane b's contribution is multiplied by 2^b on host. The MSB factor is <em>negative</em> (−128), giving correct two's-complement sign handling natively.`,
+      `<b>Host accumulates.</b> Sum bitplane popcounts with 2^b weights, subtract neg from pos → int32. Multiply by bf16 weight scale, <em>divide</em> by input scale → bf16 (input was quantised as x_int8 = round(x · input_scale), so reverse it by dividing). Hand back to PyTorch.`,
+    ];
+    return c[step];
+  },
+  codeRef() {
+    return `<span class="src">code: pim_linear.py:24, 64-65</span>
+D_OUT_SLICE = <span class="hl">2048</span>
+N_BITPLANES = <span class="hl">8</span>
+BITPLANE_FACTORS = [<span class="hl">1, 2, 4, 8, 16, 32, 64, -128</span>]
+                              <span class="cm">↑ MSB negative</span>
+
+<span class="src">code: pim_linear.py:231 (chunk = 32 inputs)</span>
+n_chunks = d_in // <span class="hl">32</span>
+
+<span class="src">code: pim_linear.py:248-254 (±mask split)</span>
+pos_mask[c, :] = (seg == <span class="hl">+1</span>)
+neg_mask[c, :] = (seg == <span class="hl">-1</span>)
+
+<span class="src">paper: textbook BitNet b1.58 ternary + int8</span>
+<span class="cm">int8 × ternary multiply ≡ sum of bit-wise ANDs</span>
+<span class="cm">with proper scaling and ± masking</span>`;
+  }
+};
+
+// =============================================================
+// SCENE 8 — Inference loop
+// =============================================================
+const scene8 = {
+  title: 'Scene 8 — Inference loop: prompt → token → next token',
+  steps: 5,
+  render(step) {
+    clearScene();
+    sceneRoot.appendChild(text(500, 25, 'end-to-end: one token through the model', 'label hl'));
+
+    sceneRoot.appendChild(rect(50, 60, 140, 50, '', { fill: '#1d2230', stroke: '#22c1c3', rx: 4 }));
+    sceneRoot.appendChild(text(120, 85, 'prompt (text)', 'label hl'));
+
+    sceneRoot.appendChild(rect(220, 60, 130, 50, '', { fill: '#1d2230', stroke: '#22c1c3', rx: 4 }));
+    sceneRoot.appendChild(text(285, 80, 'tokenizer', 'label hl'));
+    sceneRoot.appendChild(text(285, 96, '(CPU)', 'label dim'));
+
+    sceneRoot.appendChild(rect(380, 60, 130, 50, '', { fill: '#1d2230', stroke: '#22c1c3', rx: 4 }));
+    sceneRoot.appendChild(text(445, 80, 'embed', 'label hl'));
+    sceneRoot.appendChild(text(445, 96, '(CPU)', 'label dim'));
+
+    sceneRoot.appendChild(el('path', { d: 'M 190 85 L 220 85', class: 'arrow' }));
+    sceneRoot.appendChild(el('path', { d: 'M 350 85 L 380 85', class: 'arrow' }));
+    sceneRoot.appendChild(el('path', { d: 'M 510 85 L 540 85', class: 'arrow' }));
+
+    const layerStartY = 150, layerH = 280;
+    sceneRoot.appendChild(rect(540, layerStartY, 320, layerH, '', { fill: '#13161e', stroke: '#3a86ff', rx: 6 }));
+    sceneRoot.appendChild(text(700, layerStartY + 18, '× N_layers', 'label hl'));
+
+    const blocks = [
+      { y: layerStartY + 30, label: 'RMSNorm', cls: 'cpu' },
+      { y: layerStartY + 60, label: 'q / k / v / o  (4 ternary linears)', cls: 'pim' },
+      { y: layerStartY + 100, label: 'attn (Q · Kᵀ, softmax, · V)  CPU', cls: 'cpu' },
+      { y: layerStartY + 130, label: 'residual + RMSNorm', cls: 'cpu' },
+      { y: layerStartY + 165, label: 'gate / up  (2 ternary linears)', cls: 'pim' },
+      { y: layerStartY + 200, label: 'SwiGLU × down  (1 ternary linear)', cls: 'pim' },
+      { y: layerStartY + 235, label: 'residual', cls: 'cpu' },
+    ];
+    for (const b of blocks) {
+      const isPim = b.cls === 'pim';
+      const highlight = step >= 1 && isPim;
+      sceneRoot.appendChild(rect(560, b.y, 280, 25, '', { fill: highlight ? '#3a86ff' : (isPim ? '#1d2230' : '#13161e'), stroke: isPim ? '#3a86ff' : '#5a6178', rx: 3 }));
+      sceneRoot.appendChild(text(700, b.y + 13, b.label, isPim ? 'label hl' : 'label dim'));
+    }
+
+    if (step >= 2) {
+      sceneRoot.appendChild(rect(880, 200, 100, 230, '', { fill: '#13161e', stroke: '#ffd479', rx: 4 }));
+      sceneRoot.appendChild(text(930, 215, 'one PIM', 'label hl'));
+      sceneRoot.appendChild(text(930, 230, 'linear =', 'label hl'));
+      sceneRoot.appendChild(text(930, 260, '2 · 8 ·', 'label hl'));
+      sceneRoot.appendChild(text(930, 277, '(d_in/32)', 'label hl'));
+      sceneRoot.appendChild(text(930, 294, '· d_out', 'label hl'));
+      sceneRoot.appendChild(text(930, 320, 'MAJs', 'label dim'));
+      sceneRoot.appendChild(text(930, 360, '7 linears', 'label'));
+      sceneRoot.appendChild(text(930, 376, 'per layer', 'label dim'));
+      sceneRoot.appendChild(text(930, 410, '× N_layers', 'label'));
+    }
+
+    if (step >= 3) {
+      sceneRoot.appendChild(rect(360, 470, 130, 50, '', { fill: '#1d2230', stroke: '#22c1c3', rx: 4 }));
+      sceneRoot.appendChild(text(425, 488, 'unembed', 'label hl'));
+      sceneRoot.appendChild(text(425, 504, '(CPU)', 'label dim'));
+      sceneRoot.appendChild(rect(530, 470, 130, 50, '', { fill: '#1d2230', stroke: '#22c1c3', rx: 4 }));
+      sceneRoot.appendChild(text(595, 488, 'softmax + sample', 'label hl'));
+      sceneRoot.appendChild(text(595, 504, '(CPU)', 'label dim'));
+      sceneRoot.appendChild(rect(700, 470, 130, 50, '', { fill: '#1d2230', stroke: '#ffd479', rx: 4 }));
+      sceneRoot.appendChild(text(765, 488, 'next token', 'label hl'));
+
+      sceneRoot.appendChild(el('path', { d: 'M 700 360 Q 600 470 490 495', class: 'arrow' }));
+      sceneRoot.appendChild(el('path', { d: 'M 490 495 L 530 495', class: 'arrow' }));
+      sceneRoot.appendChild(el('path', { d: 'M 660 495 L 700 495', class: 'arrow' }));
+    }
+
+    if (step >= 4) {
+      sceneRoot.appendChild(el('path', { d: 'M 830 495 Q 880 495 880 230 Q 880 85 220 85', class: 'arrow', 'stroke-dasharray': '4,3' }));
+      sceneRoot.appendChild(text(890, 100, 'feed token back', 'label hl'));
+      sceneRoot.appendChild(text(890, 115, 'until EOS', 'label dim'));
+    }
+  },
+  caption(step) {
+    const c = [
+      `<b>Step 1 — prep.</b> Prompt → tokenizer → embed → first layer's input. All CPU.`,
+      `<b>Step 2 — N transformer layers.</b> Each layer: RMSNorm → attention (q/k/v/o ternary linears) → attention compute → residual → RMSNorm → MLP (gate, up, SwiGLU, down). The 7 ternary linears go to PIM. Everything else stays on CPU/GPU.`,
+      `<b>Step 3 — what's inside one PIM linear.</b> 2 · 8 · (d_in/32) · d_out MAJs. The total per token = (7 ternary linears per layer) × (N_layers). For BitNet b1.58-2B-4T the distinct projection sizes are <b>{640, 2560, 6912}</b>: q/o do 2560→2560, k/v do 2560→640 (5 KV heads × 128 head_dim), gate/up do 2560→6912, down does 6912→2560.`,
+      `<b>Step 4 — sample.</b> Final hidden state → unembed → softmax → sample one token.`,
+      `<b>Step 5 — loop.</b> Append the new token, run the stack again, until EOS or max_tokens.`,
+    ];
+    return c[step];
+  },
+  codeRef() {
+    return `<span class="src">model: microsoft/bitnet-b1.58-2B-4T</span>
+N_layers transformer layers
+7 ternary linears per layer (q,k,v,o,gate,up,down)
+distinct projection sizes: {640, 2560, 6912}
+  q/o   2560 → 2560
+  k/v   2560 → 640    (5 KV heads × 128 head_dim)
+  gate  2560 → 6912
+  up    2560 → 6912
+  down  6912 → 2560
+
+<span class="src">code: pim_linear.py PIMLinear.forward()</span>
+1. x_int8 = input_quantise(x)
+2. pack to bitplanes (cached per token)
+3. for each output slice (D_OUT_SLICE = 2048):
+     send (header, pos_mask, neg_mask, x_bp) to server
+4. accumulate int32 → bf16 × scales
+
+<span class="src">code: bitnet-proj-server (C++)</span>
+for each (chunk, sign):
+  for each bitplane:
+    build APA-based program (Scene 6 layout)
+    execute on FPGA-driven DRAM
+    receive popcount via XDMA`;
+  }
+};
+
+// =============================================================
+// SCENE 9 — Bottleneck analysis (NEW)
+// =============================================================
+const scene9 = {
+  title: 'Scene 9 — Where the time goes (per-MAJ bottleneck analysis)',
+  steps: 5,
+  render(step) {
+    clearScene();
+    sceneRoot.appendChild(text(500, 25, 'per MAJ, where does the wall time go?', 'label hl'));
+
+    // Per-MAJ phase bar
+    const phases = [
+      { label: 'RowCopy  (load weight → Rfirst)',           color: '#3a86ff' },
+      { label: 'Multi-RowCopy  (replicate weight)',        color: '#3a86ff' },
+      { label: 'per-row writes  (set up replica pattern)', color: '#6b8ec9' },
+      { label: 'Frac × K  (neutralise rows)',              color: '#6b8ec9' },
+      { label: 'MAJ APA  (the compute)',                   color: '#22c1c3' },
+      { label: 'READ row buffer  (cells → DRAM bus)',      color: '#ffd479' },
+      { label: 'XDMA transfer  (DRAM bus → host RAM)',     color: '#ffd479' },
+      { label: 'host POPCNT  (sum 1s in returned row)',    color: '#ff6b6b' },
+    ];
+
+    if (step <= 1) {
+      // Just list the phases
+      const x0 = 200, y0 = 100, dy = 38, w = 600;
+      for (let i = 0; i < phases.length; i++) {
+        const y = y0 + i * dy;
+        sceneRoot.appendChild(rect(x0, y, w, dy - 6, '', { fill: phases[i].color, opacity: step === 0 ? 0.2 : 0.6, rx: 3 }));
+        sceneRoot.appendChild(text(x0 + 20, y + (dy-6)/2, `${i+1}. ${phases[i].label}`, 'label', 'start'));
+      }
+      if (step >= 1) {
+        sceneRoot.appendChild(text(500, 530, 'phases 1-5: in-DRAM, fast and parallel across all bitlines in the subarray', 'label hl'));
+        sceneRoot.appendChild(text(500, 555, 'phases 6-8: serialised through the DDR bus and the host CPU', 'label hl cyan'));
+      }
+    }
+    else if (step === 2) {
+      // Show that READ + XDMA + popcount dominates as MAJs scale
+      sceneRoot.appendChild(text(500, 80, 'one MAJ returns one full row to the host (e.g., 8 KiB on DDR4)', 'label hl'));
+      sceneRoot.appendChild(text(500, 105, 'host runs popcount on it to produce ONE integer result', 'label dim'));
+
+      sceneRoot.appendChild(rect(150, 160, 240, 60, '', { fill: '#22c1c3', opacity: 0.3, rx: 4 }));
+      sceneRoot.appendChild(text(270, 190, 'in-DRAM MAJ', 'label hl'));
+      sceneRoot.appendChild(text(270, 208, '(fast, parallel)', 'label dim'));
+
+      sceneRoot.appendChild(el('path', { d: 'M 390 190 L 470 190', class: 'arrow' }));
+
+      sceneRoot.appendChild(rect(470, 160, 320, 60, '', { fill: '#ffd479', opacity: 0.3, rx: 4 }));
+      sceneRoot.appendChild(text(630, 180, '~8 KiB over DDR bus + XDMA', 'label hl'));
+      sceneRoot.appendChild(text(630, 200, 'serial per MAJ', 'label dim'));
+
+      sceneRoot.appendChild(el('path', { d: 'M 790 190 L 850 190', class: 'arrow' }));
+      sceneRoot.appendChild(rect(850, 160, 100, 60, '', { fill: '#ff6b6b', opacity: 0.3, rx: 4 }));
+      sceneRoot.appendChild(text(900, 180, 'CPU', 'label hl'));
+      sceneRoot.appendChild(text(900, 200, 'POPCNT', 'label hl'));
+
+      sceneRoot.appendChild(text(500, 300, 'per token: 7 ternary linears × N_layers × 2·8·(d_in/32)·d_out  →  many MAJs', 'label'));
+      sceneRoot.appendChild(text(500, 325, '→ many full-row transfers + many host-side popcounts', 'label hl'));
+      sceneRoot.appendChild(text(500, 355, 'the data-bus + host-popcount path becomes the dominant cost', 'label hl cyan'));
+      sceneRoot.appendChild(text(500, 380, 'even though the in-DRAM phase is much faster than equivalent CPU/GPU MAC ops', 'label dim'));
+    }
+    else if (step === 3) {
+      // Frame the POPCNT3 paper insight
+      sceneRoot.appendChild(text(500, 80, 'Confirmation from outside: POPCNT3 paper (NeurIPS MLNCP 2024)', 'label hl'));
+      sceneRoot.appendChild(text(500, 105, 'Kubo et al. — "Bulk Bitwise Accumulation in Commercial DRAM"', 'label dim'));
+
+      sceneRoot.appendChild(rect(100, 150, 800, 280, '', { fill: '#13161e', stroke: '#22c1c3', rx: 4 }));
+      sceneRoot.appendChild(text(500, 175, '"...accumulation is a fundamental operation in MAC computations [...]"', 'label'));
+      sceneRoot.appendChild(text(500, 200, '"Executing accumulation with many inputs necessitates a proportional number of', 'label'));
+      sceneRoot.appendChild(text(500, 218, 'logical operations, resulting in slow performance when implemented in PuD"', 'label'));
+      sceneRoot.appendChild(text(500, 250, '— POPCNT3, §1, lines 71-76', 'label dim'));
+
+      sceneRoot.appendChild(text(500, 295, 'their fix: compute the popcount INSIDE DRAM (POPCNT3 via MAJX + reference rows)', 'label hl'));
+      sceneRoot.appendChild(text(500, 320, 'then return one integer instead of one full row → bandwidth drop by row-width / log₂(K)', 'label'));
+      sceneRoot.appendChild(text(500, 355, 'measured throughput vs A100 GPU on bulk bitwise accumulation: 27× — 348× across kernel sizes', 'label hl cyan'));
+      sceneRoot.appendChild(text(500, 380, '(POPCNT3 setup: 4 DDR4 DIMMs × 64 banks = 256 parallel banks. Our project today: 1 DIMM × 4 banks.)', 'label dim'));
+    }
+    else if (step === 4) {
+      // The wider implication
+      sceneRoot.appendChild(text(500, 80, 'so where to optimise?', 'label hl'));
+      const items = [
+        ['the in-DRAM phases', 'already much faster than CPU MAC — diminishing return on further speedup'],
+        ['the DDR/XDMA transfer per MAJ', 'biggest leverage: shrink the per-MAJ payload (POPCNT inside DRAM)'],
+        ['the host popcount', 'eliminated entirely if the DRAM returns a scalar instead of a row'],
+        ['the set-up phases (RowCopy, Frac, writes)', 'amortise via persistent weights and broadcast-once-per-many-MAJs (we do this already)'],
+      ];
+      const x0 = 130, y0 = 150, dy = 70;
+      for (let i = 0; i < items.length; i++) {
+        const y = y0 + i*dy;
+        sceneRoot.appendChild(rect(x0, y, 740, dy - 10, '', { fill: '#1d2230', stroke: '#2a2f3d', rx: 3 }));
+        sceneRoot.appendChild(text(x0 + 20, y + 18, items[i][0], 'label hl', 'start'));
+        sceneRoot.appendChild(text(x0 + 20, y + 42, items[i][1], 'label', 'start'));
+      }
+      sceneRoot.appendChild(text(500, 510, 'next scene: a wishlist for AI-memory hardware, each item mapped to a bottleneck above', 'label dim'));
+    }
+  },
+  caption(step) {
+    const c = [
+      `<b>Per MAJ, eight phases run in sequence</b> in our current pipeline: setup (RowCopy, Multi-RowCopy, per-row writes, Frac) → the MAJ itself → result transfer (READ row, XDMA, host popcount). Phases 1-5 stay inside DRAM; 6-8 leave DRAM.`,
+      `<b>The two regimes have very different cost.</b> Inside DRAM, the MAJ is parallel across thousands of bitlines in the subarray. Outside, the path is serial: one row of bits leaves through the DDR bus per MAJ, then the host runs popcount.`,
+      `<b>The result-transfer phase dominates at scale.</b> Each MAJ returns a full DRAM row (e.g., 8 KiB on DDR4) that the host then collapses to one integer via popcount. Multiplied across the many MAJs a single transformer layer needs, this dominates wall time.`,
+      `<b>External confirmation.</b> The POPCNT3 paper independently identifies this as the binding constraint on PuD for accumulation workloads, and proposes computing the popcount inside DRAM. They report 27×–348× throughput vs an A100 GPU on bulk bitwise accumulation (348× at the smallest tested kernel, 27× at the largest). Their setup parallelises across 256 banks (4 DIMMs × 64); our project today uses ~4 banks on one DIMM, so absolute speedups don't translate directly.`,
+      `<b>Where to optimise.</b> The biggest leverage is shrinking what crosses the DRAM bus per MAJ. The setup phases are already amortised in our pipeline. The host popcount disappears if the chip returns a scalar.`,
+    ];
+    return c[step];
+  },
+  codeRef() {
+    return `<span class="src">code: test_bitnet_server.cpp:228-300</span>
+<span class="cm">emit_bank_combined_body — the 8 phases per MAJ:</span>
+<span class="cm">  1. RowCopy   (doubleACT)</span>
+<span class="cm">  2. Multi-RowCopy (doubleACT)</span>
+<span class="cm">  3. wrRow × K  (set up replicas)</span>
+<span class="cm">  4. Frac × K</span>
+<span class="cm">  5. MAJ APA   (doubleACT)</span>
+<span class="cm">  6. READ row buffer  → DRAM bus</span>
+
+<span class="src">code: test_bitnet_server.cpp:541 (host POPCNT)</span>
+segment_popcount(row_buf, out, n);
+<span class="cm">runs on host after each MAJ readback</span>
+
+<span class="src">paper: POPCNT3 §1 + §3</span>
+<span class="cm">"off-chip data transfer the primary performance</span>
+<span class="cm"> bottleneck" for PuD accumulation</span>
+<span class="cm">→ proposed fix: compute POPCNT3 INSIDE DRAM</span>
+<span class="cm">  using MAJX with reference rows</span>
+<span class="cm">→ measured: 27×–348× vs A100 GPU on bulk</span>
+<span class="cm">  bitwise accumulation, depending on kernel size</span>
+<span class="cm">  (348× at K=7×N=65536; 27× at K=127×N=65536)</span>
+<span class="cm">  Their setup: 256 parallel banks (4 DIMMs × 64)</span>`;
+  }
+};
+
+// =============================================================
+// SCENE 10 — AI-memory wishlist (NEW)
+// =============================================================
+const scene10 = {
+  title: 'Scene 10 — Wishlist: what AI-specific DRAM would change',
+  steps: 7,
+  render(step) {
+    clearScene();
+    sceneRoot.appendChild(text(500, 25, 'each item maps to a specific bottleneck or limitation', 'label hl'));
+
+    const wishlist = [
+      ['1. In-DRAM POPCNT + partial accumulation',
+       'addresses: DDR bus + host popcount per MAJ (Scene 9)',
+       'prior art: POPCNT3 paper — 27×–348× vs A100 GPU on bulk bitwise accumulation (depending on kernel size)'],
+      ['2. First-class MAJ-of-K instruction in the DDR command set',
+       'addresses: today\'s out-of-spec timing tricks + per-chip calibration burden',
+       'SiMRA shows Samsung supports no multi-row activation; instruction-set support would standardise across vendors'],
+      ['3. Larger guaranteed K for many-row activation',
+       'addresses: today\'s max K = 32 (row-decoder predecoder count, SiMRA §7.1)',
+       'more replication per pass → more reliable MAJ + more parallel compute per cycle'],
+      ['4. Native fractional-value cells',
+       'addresses: vendor variability of the Frac primitive (FracDRAM observes Micron/Elpida/Nanya reject it)',
+       'native V_DD/2 cell support eliminates the back-to-back-PRE workaround'],
+      ['5. Cell uniformity binning for PuD-grade DRAM',
+       'addresses: today\'s required K (replication factor) is dominated by sense-amp threshold scatter under process variation',
+       'tighter per-cell uniformity → smaller K needed for reliable MAJ → fewer setup writes per op, more compute density'],
+      ['6. Deterministic per-chip behaviour',
+       'addresses: today we run multi-million-tuple calibration sweeps per DIMM to find working (R_F, R_S, open_rows[K])',
+       'deterministic spec → calibration becomes a one-time table from the data sheet, not an empirical sweep'],
+    ];
+
+    const x0 = 80;
+    const itemH = 70;
+    const y0 = 80;
+
+    for (let i = 0; i < wishlist.length; i++) {
+      const y = y0 + i * (itemH + 10);
+      const active = step >= i + 1 || step === 0;
+      sceneRoot.appendChild(rect(x0, y, 840, itemH, '', {
+        fill: '#1d2230',
+        stroke: active ? '#22c1c3' : '#2a2f3d',
+        'stroke-width': active ? 2 : 1,
+        rx: 4,
+        opacity: step === 0 ? 0.5 : (step > i + 1 ? 0.4 : (step === i + 1 ? 1 : 0.7))
+      }));
+      sceneRoot.appendChild(text(x0 + 20, y + 18, wishlist[i][0], 'label hl', 'start'));
+      sceneRoot.appendChild(text(x0 + 20, y + 38, wishlist[i][1], 'label', 'start'));
+      sceneRoot.appendChild(text(x0 + 20, y + 56, wishlist[i][2], 'label dim', 'start'));
+    }
+  },
+  caption(step) {
+    const c = [
+      `<b>Six wishlist items.</b> Each one points at a specific bottleneck or limitation established in earlier scenes — no speculative items.`,
+      `<b>1. In-DRAM POPCNT.</b> Today every MAJ ships a full row to the host. If the chip computes POPCNT internally and returns the count itself, the bus payload per accumulation collapses to log-of-K bits per column. Already demonstrated on COTS DDR4 by POPCNT3 (NeurIPS 2024): 27×–348× throughput vs an A100 GPU across kernel sizes.`,
+      `<b>2. First-class MAJ instruction.</b> The current APA approach uses timing violations the chip wasn't designed to support — so Samsung doesn't do multi-row activation at all, and the working timing values vary across vendors. A dedicated instruction in the DDR command set removes the calibration burden and the vendor lottery.`,
+      `<b>3. Larger guaranteed K.</b> SiMRA's row-decoder hypothesis caps K at 2^(predecoders) = 32 in current chips. Increasing the predecoder count would raise K, which both raises reliability (more replication per MAJ) and parallel compute per cycle.`,
+      `<b>4. Native V_DD/2 cells.</b> Today Frac is a timing-trick that works only on some vendors. Native support (an instruction to set a cell to V_DD/2) makes the "neutral row" trick robust and portable.`,
+      `<b>5. Cell uniformity binning for PuD-grade DRAM.</b> The reason today's MAJ needs replication (Scene 6) is sense-amp threshold scatter under process variation — a small bitline perturbation might not cross the threshold reliably. Tighter per-cell uniformity (binned at manufacture) shrinks the required K, which shrinks the per-row setup work (writes + Fracs) needed before each MAJ and packs more compute into the same row width.`,
+      `<b>6. Determinism.</b> Today we run multi-million-tuple calibration sweeps per DIMM to find (R_F, R_S, K open rows) triples that produce reliable MAJs. A chip designed for PuD could specify which triples are guaranteed to work — calibration becomes a one-time table from the data sheet rather than a sweep per chip.`,
+    ];
+    return c[step];
+  },
+  codeRef() {
+    return `<span class="src">cross-refs</span>
+
+<span class="hl">1. In-DRAM POPCNT</span>
+   → Scene 9 bottleneck
+   → POPCNT3 paper §3 (demonstrated on COTS DDR4)
+
+<span class="hl">2. First-class MAJ instruction</span>
+   → SiMRA Lim. 1 (Samsung no multi-row activation)
+   → SiMRA Lim. 2 (K ∈ {2,4,8,16,32}, not user-controlled)
+
+<span class="hl">3. Larger K</span>
+   → SiMRA §7.1 (predecoder hypothesis, max 2^5 = 32)
+
+<span class="hl">4. Native fractional cells</span>
+   → FracDRAM §V-A (Micron/Elpida/Nanya reject Frac)
+
+<span class="hl">5. Cell uniformity binning</span>
+   → Scene 6: replication exists b/c of process variation
+   → SiMRA §7.2 (perturbation vs threshold scatter)
+
+<span class="hl">6. Determinism / less calibration</span>
+   → our project: FindOpenRows + MajOperations sweep
+   → SiMRA: per-chip variation throughout`;
+  }
+};
+
+// =============================================================
+// Scene registry + driver
+// =============================================================
+const SCENES = [scene1, scene2, scene3, scene4, scene5, scene6, scene7, scene8, scene9, scene10];
+let curScene = 0, curStep = 0, playTimer = null;
+
+function renderNav() {
+  nav.innerHTML = '';
+  SCENES.forEach((s, i) => {
+    const b = document.createElement('button');
+    b.textContent = `${i+1}. ${s.title.replace(/^Scene \d+ — /, '')}`;
+    if (i === curScene) b.classList.add('active');
+    b.onclick = () => { curScene = i; curStep = 0; render(); };
+    nav.appendChild(b);
+  });
+}
+
+function render() {
+  renderNav();
+  const s = SCENES[curScene];
+  titleEl.textContent = s.title;
+  s.render(curStep);
+  captionEl.innerHTML = s.caption(curStep);
+  codeEl.innerHTML = s.codeRef(curStep) || '<span class="cm">(general DRAM, no project-specific link)</span>';
+  stepNumEl.textContent = (curStep + 1);
+  stepMaxEl.textContent = s.steps;
+  sceneFoot.textContent = `Scene ${curScene+1} of ${SCENES.length}`;
+  document.getElementById('prevBtn').disabled = (curScene === 0 && curStep === 0);
+  document.getElementById('nextBtn').disabled = (curScene === SCENES.length-1 && curStep === s.steps-1);
+}
+
+document.getElementById('prevBtn').onclick = () => {
+  if (curStep > 0) curStep--;
+  else if (curScene > 0) { curScene--; curStep = SCENES[curScene].steps - 1; }
+  render();
+};
+document.getElementById('nextBtn').onclick = () => {
+  const s = SCENES[curScene];
+  if (curStep < s.steps - 1) curStep++;
+  else if (curScene < SCENES.length - 1) { curScene++; curStep = 0; }
+  render();
+};
+document.getElementById('playBtn').onclick = () => {
+  const btn = document.getElementById('playBtn');
+  if (playTimer) {
+    clearInterval(playTimer); playTimer = null; btn.textContent = '▶ Play';
+  } else {
+    btn.textContent = '⏸ Pause';
+    playTimer = setInterval(() => {
+      const s = SCENES[curScene];
+      if (curStep < s.steps - 1) curStep++;
+      else if (curScene < SCENES.length - 1) { curScene++; curStep = 0; }
+      else { clearInterval(playTimer); playTimer = null; btn.textContent = '▶ Play'; return; }
+      render();
+    }, 2800);
+  }
+};
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowRight') document.getElementById('nextBtn').click();
+  if (e.key === 'ArrowLeft') document.getElementById('prevBtn').click();
+  if (e.key === ' ') { e.preventDefault(); document.getElementById('playBtn').click(); }
+});
+
+render();
+</script>
+</body>
+</html>
