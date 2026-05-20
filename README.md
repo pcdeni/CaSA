@@ -5,6 +5,13 @@ question, and the matrix-multiplications that produce the answer
 happen *inside the DRAM cells* of a regular DDR4 memory module — via
 charge-sharing, on real silicon.
 
+> ▶ **Interactive walkthrough of how it works:**
+> **<https://pcdeni.github.io/CaSA/explainer/>** — 10 stepped scenes
+> from cell to inference loop, every claim sourced to a paper or the
+> code in this repo. Reviewed adversarially before publication; the
+> claim-to-source ledger lives next to the page in
+> [`docs/explainer/`](docs/explainer/).
+
 This repository contains the software side of that demonstration:
 
 - **`scheduler/`** — `casa_sched.c`, a discrete-event scheduler that
@@ -23,7 +30,9 @@ This repository contains the software side of that demonstration:
   of our test DIMMs. Format documented; you produce your own for new
   DIMMs.
 - **`docs/`** — hardware requirements, calibration protocol,
-  scheduler-projection methodology.
+  scheduler-projection methodology, and the
+  [interactive explainer](https://pcdeni.github.io/CaSA/explainer/)
+  (source in [`docs/explainer/`](docs/explainer/)).
 
 This builds directly on prior research from the
 [CMU SAFARI group](https://safari.ethz.ch/) — RowClone, Ambit,
