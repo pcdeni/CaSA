@@ -11,7 +11,7 @@ CC = g++
 
 .PHONY: all clean distclean
 
-BINARIES := maj3-smoke-exe matvec-smoke-exe columnwise-smoke-exe dense-matvec-smoke-exe broadcast-verify-exe dense-matvec-bcast-exe multibank-bcast-exe bitnet-e2e-v1-exe bitnet-e2e-v2-exe bitnet-e2e-v3-exe bitnet-real-exe bitnet-proj-exe bitnet-proj-server rowclone-smoke-exe persistent-smoke-exe rowclone-preserve-exe multibank-disturb-exe write-disturb-exe
+BINARIES := maj3-smoke-exe matvec-smoke-exe columnwise-smoke-exe dense-matvec-smoke-exe broadcast-verify-exe dense-matvec-bcast-exe multibank-bcast-exe bitnet-e2e-v1-exe bitnet-e2e-v2-exe bitnet-e2e-v3-exe bitnet-real-exe bitnet-proj-exe bitnet-proj-server rowclone-smoke-exe persistent-smoke-exe rowclone-preserve-exe multibank-disturb-exe write-disturb-exe spread-test-exe
 
 all: $(BINARIES)
 
@@ -68,6 +68,15 @@ broadcast-verify-exe: test_broadcast_verify.o $(SHARED_OBJS)
 	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
 
 dense-matvec-bcast-exe: test_dense_matvec_bcast.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+spread-test-exe: test_spread.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+fault-sweep-exe: test_fault_sweep.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+fanout-open-rows-exe: test_fanout_to_open_rows.o $(SHARED_OBJS)
 	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
 
 clean:

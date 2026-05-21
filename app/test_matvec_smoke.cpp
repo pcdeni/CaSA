@@ -303,10 +303,13 @@ int main(int argc, char** argv) {
     for (int k = 0; k < K; k++) {
       int gk = base_k + k;
       vector<uint32_t> patterns = build_16row_pattern(W[gk], x, /*C=*/0u);
+      // Env-overridable MAJ3 timing (default 0,0 = DIMM 0 production).
+      static int mv_t_12 = []{ const char* v = getenv("PIM_T12"); return v?atoi(v):0; }();
+      static int mv_t_23 = []{ const char* v = getenv("PIM_T23"); return v?atoi(v):0; }();
       emit_maj3_trial(prog, /*trial_index_k=*/k,
                       patterns, calib[gk].open_rows,
                       calib[gk].Rfirst, calib[gk].Rsecond,
-                      /*t_12=*/0, /*t_23=*/0,
+                      /*t_12=*/mv_t_12, /*t_23=*/mv_t_23,
                       /*n_frac_times=*/3, /*t_frac=*/0);
     }
     prog.add_inst(SMC_END());
