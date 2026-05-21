@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>The SiMRA doubleACT row-spread — a characterization</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f1116; color: #e6e8ee; height: 100%; }
+  body { display: flex; flex-direction: column; height: 100vh; }
+  header { padding: 10px 18px; background: #161922; border-bottom: 1px solid #2a2f3d; display: flex; gap: 12px; align-items: center; flex-shrink: 0; }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; color: #ffd479; }
+  header .sub { color: #8a93a8; font-size: 13px; }
+  header a { color: #4f9bff; font-size: 12px; text-decoration: none; margin-left: auto; }
+  nav { display: flex; gap: 4px; padding: 8px 18px; background: #131722; flex-wrap: wrap; flex-shrink: 0; }
+  nav button { background: #1d2230; border: 1px solid #2a2f3d; color: #c3c9d8; padding: 4px 10px; cursor: pointer; border-radius: 4px; font-size: 12px; }
+  nav button:hover { background: #262d3e; }
+  nav button.active { background: #c2410c; color: white; border-color: #c2410c; }
+  main { flex: 1; display: grid; grid-template-columns: 1fr 380px; gap: 16px; padding: 14px 18px; min-height: 0; }
+  .stage { background: #131722; border: 1px solid #2a2f3d; border-radius: 6px; display: flex; flex-direction: column; min-height: 0; }
+  .stage-title { padding: 10px 14px; border-bottom: 1px solid #2a2f3d; font-size: 14px; color: #ffd479; }
+  .canvas-wrap { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 8px; overflow: hidden; }
+  .canvas-wrap svg { max-width: 100%; max-height: 100%; }
+  .side { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+  .caption, .codepane { background: #131722; border: 1px solid #2a2f3d; border-radius: 6px; padding: 12px 14px; font-size: 13px; line-height: 1.5; }
+  .caption { color: #c3c9d8; min-height: 120px; }
+  .caption b { color: #ffd479; }
+  .caption .ex { color: #22c1c3; font-weight: 600; }
+  .caption code { background: #1f2434; padding: 1px 5px; border-radius: 3px; font-size: 12px; color: #ffd479; }
+  .codepane { font-family: ui-monospace, monospace; font-size: 11.5px; color: #8a93a8; overflow: auto; max-height: 280px; }
+  .codepane .hl { color: #ffd479; }
+  .codepane .cm { color: #5a6178; font-style: italic; }
+  .codepane .src { display: block; color: #4f9bff; margin-top: 6px; margin-bottom: 2px; font-size: 11px; font-weight: 600; }
+  .controls { padding: 10px 18px; background: #161922; border-top: 1px solid #2a2f3d; display: flex; gap: 10px; align-items: center; flex-shrink: 0; }
+  .controls button { background: #1d2230; border: 1px solid #2a2f3d; color: #e6e8ee; padding: 6px 14px; cursor: pointer; border-radius: 4px; font-size: 13px; }
+  .controls button:hover { background: #262d3e; }
+  .controls button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .controls .step { color: #8a93a8; font-size: 13px; margin-left: 8px; }
+  .controls .step b { color: #e6e8ee; }
+  .controls .scenefoot { color: #5a6178; font-size: 12px; margin-left: auto; }
+  .cap { fill: #3a86ff; stroke: #4f9bff; }
+  .cap.empty { fill: #1d2230; stroke: #4f9bff; }
+  .cap.src { fill: #c2410c; stroke: #f97316; }
+  .row-line { stroke: #ffd479; stroke-width: 1.5; }
+  .row-line.dim { stroke: #5a6178; stroke-width: 1; }
+  .bitline { stroke: #5e6678; stroke-width: 1; }
+  .bitline.hot { stroke: #3a86ff; stroke-width: 2; }
+  .label { fill: #c3c9d8; font-family: monospace; font-size: 11px; }
+  .label.dim { fill: #5a6178; }
+  .label.hl { fill: #ffd479; }
+  .label.cyan { fill: #22c1c3; }
+  .label.orange { fill: #f97316; }
+  .arrow { stroke: #f97316; stroke-width: 2; fill: none; marker-end: url(#ah); }
+</style>
+</head>
+<body>
+<header>
+  <h1>The SiMRA doubleACT row-spread</h1>
+  <span class="sub">A cross-DIMM characterization + the MAJ3 self-pollution it causes</span>
+  <a href="index.html">← BitNet PIM explainer</a>
+</header>
+<nav id="nav"></nav>
+<main>
+  <div class="stage">
+    <div class="stage-title" id="stage-title">—</div>
+    <div class="canvas-wrap"><svg id="canvas" viewBox="0 0 1000 600" preserveAspectRatio="xMidYMid meet">
+      <defs><marker id="ah" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><polygon points="0 0, 8 4, 0 8" fill="#f97316"/></marker></defs>
+      <g id="scene"></g>
+    </svg></div>
+  </div>
+  <aside class="side">
+    <div class="caption" id="caption">—</div>
+    <div class="codepane" id="codepane">—</div>
+  </aside>
+</main>
+<div class="controls">
+  <button id="prevBtn">◀ Prev</button>
+  <button id="playBtn">▶ Play</button>
+  <button id="nextBtn">Next ▶</button>
+  <span class="step">Step <b id="stepNum">1</b> / <b id="stepMax">1</b></span>
+  <span class="scenefoot" id="scenefoot">Scene 1 of 8</span>
+</div>
+<script>
+const SVG_NS='http://www.w3.org/2000/svg';
+const sceneRoot=document.getElementById('scene'), captionEl=document.getElementById('caption'),
+      codeEl=document.getElementById('codepane'), titleEl=document.getElementById('stage-title'),
+      stepNumEl=document.getElementById('stepNum'), stepMaxEl=document.getElementById('stepMax'),
+      sceneFoot=document.getElementById('scenefoot'), nav=document.getElementById('nav');
+function el(n,a={},c=[]){const e=document.createElementNS(SVG_NS,n);for(const[k,v]of Object.entries(a))e.setAttribute(k,v);for(const x of c)e.appendChild(x);return e;}
+function text(x,y,s,cls='label',anchor='middle'){const t=el('text',{x,y,class:cls,'text-anchor':anchor,'dominant-baseline':'middle'});t.textContent=s;return t;}
+function rect(x,y,w,h,cls,extra={}){return el('rect',Object.assign({x,y,width:w,height:h,class:cls,rx:1,ry:1},extra));}
+function line(x1,y1,x2,y2,cls){return el('line',{x1,y1,x2,y2,class:cls});}
+function clearScene(){sceneRoot.innerHTML='';}
+
+// SCENE 1 — what the spread is
+const s1={ title:'Scene 1 — The observation', steps:4, render(step){
+  clearScene();
+  sceneRoot.appendChild(text(500,28,'a doubleACT to a calibrated tuple ALSO writes the source row into a sibling row',(step>=2?'label hl':'label dim')));
+  // src row R and shadow R^b
+  const xs=120,xe=820,N=10,dx=(xe-xs)/(N+1);
+  const yR=160, yShadow=320;
+  const pat=[1,0,1,1,0,1,0,0,1,0];
+  // R
+  sceneRoot.appendChild(line(xs,yR,xe,yR,step>=1?'row-line':'row-line dim'));
+  sceneRoot.appendChild(text(70,yR,'row R (src)','label orange'));
+  for(let i=0;i<N;i++){const x=xs+(i+1)*dx;
+    sceneRoot.appendChild(rect(x-11,yR-9,22,18,pat[i]?'cap src':'cap empty'));}
+  // shadow
+  sceneRoot.appendChild(line(xs,yShadow,xe,yShadow,step>=3?'row-line':'row-line dim'));
+  sceneRoot.appendChild(text(70,yShadow,'row R⊕(1<<b)','label hl'));
+  for(let i=0;i<N;i++){const x=xs+(i+1)*dx;
+    let cls='cap empty';
+    if(step>=3) cls=pat[i]?'cap src':'cap empty';
+    sceneRoot.appendChild(rect(x-11,yShadow-9,22,18,cls));}
+  if(step>=2){
+    sceneRoot.appendChild(el('path',{d:`M 460 ${yR+18} Q 420 ${(yR+yShadow)/2} 460 ${yShadow-18}`,class:'arrow'}));
+    sceneRoot.appendChild(text(360,(yR+yShadow)/2,'doubleACT',(step>=3?'label hl':'label dim')));
+    sceneRoot.appendChild(text(360,(yR+yShadow)/2+18,'side-effect','label dim'));
+  }
+  const ann=['we per-column write a known fingerprint into row R',
+             'we fire doubleACT(t₁,t₂, R, Y) — with Y a member of a calibrated open-rows tuple',
+             'reading back row R⊕(1<<b) for some bit b...',
+             'it holds a BIT-EXACT copy of R — 2048/2048 32-bit segments match'];
+  sceneRoot.appendChild(text(500,460,ann[step],'label hl'));
+  if(step>=3) sceneRoot.appendChild(text(500,490,'we never wrote to R⊕(1<<b). The doubleACT deposited R there.','label dim'));
+},
+caption(step){return[
+ `<b>The setup.</b> Write a unique fingerprint into row R via normal per-column writes. R is a candidate "source" in the safe zone of a SiMRA-calibrated subarray.`,
+ `<b>Fire a doubleACT.</b> <code>doubleACT(t₁, t₂, R, Y)</code> = ACT R, wait t₁, PRE, wait t₂, ACT Y — the SiMRA primitive (RowClone / Broadcast / MAJ3 all use it). Y is a member of a calibrated open-rows tuple.`,
+ `<b>Read a sibling row.</b> Read back the row at address <code>R ⊕ (1&lt;&lt;b)</code> — i.e. R with one address bit flipped — for one or more bits b.`,
+ `<b>It holds a bit-exact copy of R.</b> 2048 of 2048 32-bit segments match R's fingerprint. We never wrote there. The doubleACT spread R's content into its address-XOR sibling. This is the phenomenon.`,
+][step];},
+codeRef(){return `<span class="src">reproducer (test_spread.cpp)</span>
+1. per-col write fingerprint F into R
+2. per-col write distinct fingerprints into
+   R⊕1, R⊕2, R⊕4, ... R⊕512
+3. doubleACT(t₁, t₂, R, Y)   // Y in tuple
+4. read each R⊕(1&lt;&lt;b); if == F → spread to bit b
+
+<span class="src">measured</span>
+<span class="cm">2048/2048 segments match — bit-exact,</span>
+<span class="cm">not a disturbance distribution.</span>`;}};
+
+// SCENE 2 — properties
+const s2={ title:'Scene 2 — Five properties', steps:5, render(step){
+  clearScene();
+  sceneRoot.appendChild(text(500,30,'what we established by sweeping every source in a subarray',(step>=0?'label hl':'label dim')));
+  const props=[
+   ['1. Bit-exact','the sibling is a perfect copy (2048/2048), not noise — a wordline-firing event, not charge leakage'],
+   ['2. Tuple-conditional','spread only fires when the doubleACT targets a row in a calibrated open-rows tuple'],
+   ['3. Timing-independent','identical fault-edge set at RowClone (t₁ long), Broadcast, and MAJ3 timings'],
+   ['4. Source-sparse','each source leaks to only 1-4 of the ~10 possible XOR-distance bits; which bits is source-specific'],
+   ['5. Bank-invariant','same calibrated tuple → byte-identical fault set across all 4 banks (matching MD5)'],
+  ];
+  const x0=110,y0=90,dy=88;
+  for(let i=0;i<props.length;i++){
+    const y=y0+i*dy; const active=step>=i;
+    sceneRoot.appendChild(rect(x0,y,800,dy-14,'',{fill:'#1d2230',stroke:active?'#f97316':'#2a2f3d','stroke-width':active?2:1,rx:4,opacity:active?1:0.45}));
+    sceneRoot.appendChild(text(x0+20,y+22,props[i][0],active?'label hl':'label dim','start'));
+    sceneRoot.appendChild(text(x0+20,y+48,props[i][1],active?'label':'label dim','start'));
+  }
+},
+caption(step){return[
+ `<b>Bit-exact.</b> The sibling row is a perfect copy of the source — 2048/2048 32-bit segments. This rules out a charge-coupling disturbance (which would be a noisy distribution) and points to a wordline-level event.`,
+ `<b>Tuple-conditional.</b> The spread only occurs when the doubleACT's destination is a member of a SiMRA-calibrated open-rows tuple. doubleACT to an arbitrary far row → no spread.`,
+ `<b>Timing-independent.</b> The same set of (source → sibling) fault edges appears at all three SiMRA timings — RowClone, Broadcast, MAJ3. The vulnerable-bit set doesn't depend on (t₁, t₂).`,
+ `<b>Source-sparse.</b> Each source row leaks to only a few of the possible single-bit-XOR distances, and <em>which</em> bits is specific to that source. The conflict graph is irregular, not a uniform stride.`,
+ `<b>Bank-invariant.</b> Run the same calibrated tuple on all 4 banks of a DIMM → the fault-edge set is byte-identical (matching MD5). This proves the spread is a property of the row-decoder hardware × tuple, not of per-bank cell physics.`,
+][step];},
+codeRef(step){return `<span class="src">measured, one DIMM, 624 sources</span>
+<span class="hl">~1066 single-bit fault edges</span>
+popcount distribution of XOR distances:
+  1 bit  : 27%
+  2 bits : 31%
+  3 bits : 23%
+  4+ bits: 19%
+
+<span class="src">bank-invariance check</span>
+md5(bank0 faults) == md5(bank1) ==
+md5(bank2) == md5(bank3)   <span class="hl">✓</span>`;}};
+
+// SCENE 3 — mechanism
+const s3={ title:'Scene 3 — The mechanism: row-decoder coupling', steps:4, render(step){
+  clearScene();
+  sceneRoot.appendChild(text(500,28,'hypothesis: predecoder coupling fires extra wordlines during the second ACT',(step>=1?'label hl':'label dim')));
+  // hierarchical decoder sketch
+  const dx0=120;
+  sceneRoot.appendChild(rect(dx0,80,180,50,'',{fill:'#1d2230',stroke:'#4f9bff',rx:4}));
+  sceneRoot.appendChild(text(dx0+90,105,'row address bits','label hl'));
+  // predecoders
+  const pdY=190;
+  for(let i=0;i<5;i++){const x=dx0+i*150;
+    const lit=step>=2 && (i==1||i==3);  // example: 2 predecoders latch both outputs
+    sceneRoot.appendChild(rect(x,pdY,120,42,'',{fill:lit?'#3a2a1a':'#1d2230',stroke:lit?'#f97316':'#4f9bff',rx:3}));
+    sceneRoot.appendChild(text(x+60,pdY+21,`predec ${i}`,lit?'label orange':'label'));
+    sceneRoot.appendChild(line(dx0+90,130,x+60,pdY,'bitline'));
+  }
+  sceneRoot.appendChild(text(500,pdY+62,'5 predecoder banks → up to 2⁵ = 32 simultaneous wordlines',(step>=1?'label':'label dim')));
+  // wordlines
+  if(step>=3){
+    const wlY=320;
+    sceneRoot.appendChild(text(500,wlY-15,'when 2 predecoders latch BOTH their outputs, 2 extra wordlines fire:','label hl'));
+    const rows=['R','R⊕(bit of predec 1)','R⊕(bit of predec 3)','R⊕(both)'];
+    for(let i=0;i<4;i++){const y=wlY+15+i*32;
+      sceneRoot.appendChild(line(200,y,800,y,i==0?'row-line':'row-line'));
+      sceneRoot.appendChild(text(140,y,rows[i],i==0?'label orange':'label hl'));}
+    sceneRoot.appendChild(text(500,wlY+15+4*32+10,'all driven to R\'s value by the sense amp → R spreads into them','label dim'));
+  }
+},
+caption(step){return[
+ `<b>The row decoder is hierarchical.</b> A global decoder selects the subarray; a local decoder splits the low address bits across several predecoder banks, each latching a predecoded signal that drives the wordlines.`,
+ `<b>Multi-row activation comes from short timing.</b> When the PRE→ACT gap is shortened, a predecoder can latch the NEXT row address without releasing the previous one. That's how SiMRA opens many rows at once (up to 2⁵ = 32).`,
+ `<b>Some predecoders latch both their outputs.</b> Depending on how the source and destination addresses differ, one or more predecoders end up driving two wordlines — the intended one plus its address-XOR sibling.`,
+ `<b>The sibling wordlines fire too — and absorb the source.</b> While they're open, the sense amp drives them to the source row's value. So R's content is deposited into R⊕(1&lt;&lt;b) for exactly the bits whose predecoder doubly-latched. Source-sparsity and bit-specificity follow directly; bank-invariance follows because it's all decoder hardware.`,
+][step];},
+codeRef(){return `<span class="src">hypothesis (not silicon-validated)</span>
+<span class="cm">Local-wordline-driver coupling: the 2nd ACT</span>
+<span class="cm">asserts a subarray-wide multi-WL signal while</span>
+<span class="cm">the source LWD is still in restore. For bits</span>
+<span class="cm">where a decoder transistor sits near its</span>
+<span class="cm">metastability boundary, the signal drives the</span>
+<span class="cm">source's data into both R and R⊕(1&lt;&lt;b).</span>
+
+<span class="src">supporting evidence</span>
+<span class="cm">- per-die "gap bit" differs (next scene)</span>
+<span class="cm">- bank-invariant (decoder, not cells)</span>
+<span class="cm">- timing-independent (wordline, not charge)</span>`;}};
+
+// SCENE 4 — cross-DIMM
+const s4={ title:'Scene 4 — Universal across DIMMs, chip-specific bits', steps:4, render(step){
+  clearScene();
+  sceneRoot.appendChild(text(500,30,'measured on 4 DDR4 DIMMs — same phenomenon, different vulnerable-bit fingerprint','label hl'));
+  // grid: bits 0..9 per DIMM
+  const dimms=[['DIMM A',[1,1,1,1,1,1,1,1,1,0]],['DIMM B',[1,1,1,1,1,1,1,1,0,1]]];
+  const x0=180,y0=120,cw=58,ch=40;
+  sceneRoot.appendChild(text(x0-60,y0-20,'bit:','label dim'));
+  for(let b=0;b<10;b++) sceneRoot.appendChild(text(x0+b*cw+cw/2,y0-20,`${b}`,'label dim'));
+  for(let d=0;d<dimms.length;d++){
+    const [name,bits]=dimms[d]; const y=y0+d*(ch+18);
+    sceneRoot.appendChild(text(x0-60,y+ch/2,name,'label hl'));
+    for(let b=0;b<10;b++){const x=x0+b*cw;
+      const couples=bits[b]===1;
+      const show=step>=1;
+      sceneRoot.appendChild(rect(x,y,cw-6,ch,'',{fill:show?(couples?'#3a2a1a':'#10241a'):'#1d2230',stroke:show?(couples?'#f97316':'#22c1c3'):'#2a2f3d',rx:3}));
+      if(show) sceneRoot.appendChild(text(x+(cw-6)/2,y+ch/2,couples?'×2^'+b:'gap',couples?'label orange':'label cyan'));
+    }
+  }
+  if(step>=2){
+    sceneRoot.appendChild(text(500,300,'every DIMM has a single "gap bit" that does NOT couple — at a DIFFERENT position','label hl'));
+    sceneRoot.appendChild(text(500,324,'DIMM A: bit 9 is the gap.   DIMM B: bit 8 is the gap.','label orange'));
+  }
+  if(step>=3){
+    sceneRoot.appendChild(text(500,380,'the gap-bit position is a die-level signature — exactly what the','label dim'));
+    sceneRoot.appendChild(text(500,402,'predecoder-coupling hypothesis predicts (one predecoder gates a','label dim'));
+    sceneRoot.appendChild(text(500,424,'wordline but does not couple the write, or vice-versa)','label dim'));
+    sceneRoot.appendChild(text(500,470,'exhaustive sweep (DIMM B): 1066 single-bit edges, ~3933 disturbed rows / 624 sources','label cyan'));
+  }
+},
+caption(step){return[
+ `<b>Four DIMMs, same rig.</b> We ran the single-bit fault sweep on four DDR4 DIMMs behind the same FPGA. All four exhibit the spread — bit-exact, deterministic, tuple-conditional.`,
+ `<b>The vulnerable-bit set is chip-specific.</b> Each chip couples a different subset of address bits. <span class="ex">EXAMPLE: DIMM A couples bits 0-8; DIMM B couples bits 0-7 and 9.</span>`,
+ `<b>Every chip has a "gap bit"</b> that doesn't couple — but at a <em>different</em> position per die. DIMM A's gap is bit 9; DIMM B's is bit 8. This is the diagnostic feature.`,
+ `<b>The gap is a die signature.</b> It's exactly what predecoder coupling predicts: one predecoder gates a wordline without coupling the write. On the one DIMM we swept exhaustively, the coupling is dense: 1066 single-bit fault edges and ~3933 disturbed rows across 624 sources. The phenomenon generalises across all four DIMMs; only the vulnerable-bit fingerprint varies.`,
+][step];},
+codeRef(){return `<span class="src">cross-DIMM (single-bit XOR sweep)</span>
+<span class="cm">DIMM A: bits 0..8 couple, bit 9 gap</span>
+<span class="cm">DIMM B: bits 0..7,9 couple, bit 8 gap</span>
+<span class="cm">DIMM B full sweep: 1066 single-bit edges,</span>
+<span class="cm">  3933 total disturbed rows, 624 sources</span>
+
+<span class="src">implication</span>
+<span class="cm">a "less reliable for PuD" chip may just</span>
+<span class="cm">have a different coupling fingerprint —</span>
+<span class="cm">not worse cells.</span>`;}};
+
+// SCENE 5 — MAJ3 self-pollution
+const s5={ title:'Scene 5 — The trap: MAJ3 pollutes its own inputs', steps:5, render(step){
+  clearScene();
+  sceneRoot.appendChild(text(500,26,'the MAJ3 doubleACT itself spreads Rfirst into other rows of its OWN tuple','label hl'));
+  // tuple of K open rows; Rfirst at top; show some becoming Rfirst-colored
+  const xs=160,xe=760,N=8,dx=(xe-xs)/(N+1);
+  const K=6, y0=90, dyr=42;
+  const labels=['open[0] = Rfirst','open[1]','open[2]','open[3]','open[4]','open[5]'];
+  // which opens are shadows of Rfirst (example: open[1], open[2])
+  const shadow=[false,true,true,false,false,false];
+  const inputPat=[[1,0,1,1,0,1,0,1],[0,1,1,0,1,0,1,0],[1,1,0,1,0,1,1,0],[0,0,1,1,1,0,0,1],[1,0,0,1,0,1,1,1],[0,1,1,0,0,1,0,0]];
+  for(let r=0;r<K;r++){const y=y0+r*dyr;
+    sceneRoot.appendChild(line(xs,y,xe,y, r==0?'row-line':'row-line dim'));
+    const isShadow=shadow[r];
+    sceneRoot.appendChild(text(80,y,labels[r], r==0?'label orange':(isShadow&&step>=3?'label orange':'label')));
+    for(let i=0;i<N;i++){const x=xs+(i+1)*dx;
+      let bit=inputPat[r][i];
+      let cls=bit?'cap':'cap empty';
+      // step 3: shadows overwritten with Rfirst pattern (row 0)
+      if(step>=3 && isShadow){ bit=inputPat[0][i]; cls=bit?'cap src':'cap empty'; }
+      if(r==0) cls=bit?'cap src':'cap empty';
+      sceneRoot.appendChild(rect(x-9,y-8,18,16,cls));}
+  }
+  const ann=['a calibrated tuple: Rfirst + K open rows, each loaded with a different MAJ3 input',
+             'MajX tests write one input pattern per open row, then fire MAJ3',
+             'but the MAJ3 doubleACT spreads Rfirst into open[1], open[2] (its XOR-siblings)...',
+             'those rows now hold COPIES of Rfirst — not the inputs we loaded',
+             'so MAJ-of-K computes over a corrupted operand set'];
+  sceneRoot.appendChild(text(500,y0+K*dyr+25,ann[Math.min(step,4)],'label hl'));
+  if(step>=4) sceneRoot.appendChild(text(500,y0+K*dyr+50,'the apparent "MAJ-of-K" is biased toward Rfirst, by the shadow-overlap count','label dim'));
+},
+caption(step){return[
+ `<b>A calibrated MAJ tuple.</b> Rfirst plus K open rows. To test MAJ-of-K, the characterization loads a distinct input pattern into each open row, fires the MAJ3 doubleACT, and reads the result.`,
+ `<b>The inputs are written cleanly.</b> Per-column writes don't spread (only doubleACT does), so all K open rows start with their intended patterns.`,
+ `<b>Then the MAJ3 doubleACT fires — and spreads.</b> <code>doubleACT(MAJ3 timing, Rfirst, Rsecond)</code> deposits Rfirst's content into Rfirst⊕(vulnerable bits). When those siblings are themselves open rows of the tuple, they get overwritten <em>during the operation</em>.`,
+ `<b>The operands are corrupted mid-compute.</b> The open rows that are Rfirst's XOR-siblings now hold copies of Rfirst, not the inputs we loaded. <span class="ex">EXAMPLE: on a fanout-16 tuple typically 2 of 16 are hit; on small fanout-4 tuples 1-2 of 4.</span>`,
+ `<b>So "MAJ-of-K" is really MAJ-of-(corrupted set).</b> The result is biased toward Rfirst in proportion to how many open rows are shadows. The more overlap, the more the majority is skewed.`,
+][step];},
+codeRef(){return `<span class="src">measured (MAJ3-timing doubleACT, src=Rfirst)</span>
+<span class="cm">read back open rows after the MAJ3:</span>
+<span class="cm">  the ones at Rfirst⊕(vuln bit) hold</span>
+<span class="cm">  Rfirst's pattern (2048/2048), not theirs</span>
+
+<span class="src">overlap by fanout (example tuples)</span>
+<span class="cm">fanout-16 tuple: 2 of 16 open rows hit</span>
+<span class="cm">fanout-8  tuple: 3 of 8  hit</span>
+<span class="cm">fanout-4  tuple: 1 of 4  hit</span>`;}};
+
+// SCENE 6 — signature in data
+const s6={ title:'Scene 6 — The signature in the MAJ success-rate data', steps:4, render(step){
+  clearScene();
+  sceneRoot.appendChild(text(500,30,'cross-tab MAJ3 stability against shadow-overlap count, on a fanout-4 chip','label hl'));
+  // bar chart: overlap 0,1,2 vs stability
+  const data=[['overlap 0',9.8,5440],['overlap 1',13.5,896],['overlap 2',0.7,64]];
+  const x0=220,baseY=420,barW=120,gap=80,scale=4.2;
+  for(let i=0;i<data.length;i++){
+    const [lbl,val,n]=data[i]; const x=x0+i*(barW+gap);
+    const show=step>=i+1 || step===0;
+    const h=val*scale;
+    const isCollapse=(i===2);
+    sceneRoot.appendChild(rect(x,baseY-h,barW,h,'',{fill:isCollapse?'#7f1d1d':'#1d4ed8',opacity:show?0.85:0.2,rx:2}));
+    sceneRoot.appendChild(text(x+barW/2,baseY-h-14,show?`${val}%`:'',isCollapse?'label orange':'label hl'));
+    sceneRoot.appendChild(text(x+barW/2,baseY+18,lbl,'label'));
+    sceneRoot.appendChild(text(x+barW/2,baseY+36,`n=${n}`,'label dim'));
+  }
+  sceneRoot.appendChild(line(x0-20,baseY,x0+3*(barW+gap),baseY,'bitline'));
+  sceneRoot.appendChild(text(120,baseY-100,'mean MAJ3','label dim'));
+  sceneRoot.appendChild(text(120,baseY-84,'stability','label dim'));
+  if(step>=3){
+    sceneRoot.appendChild(text(500,480,'at overlap=2 on a fanout-4 tuple, 2 of 4 operands become Rfirst-copies','label hl'));
+    sceneRoot.appendChild(text(500,504,'→ a 2-vs-2 tie → the sense amp resolves arbitrarily → stability collapses to noise','label orange'));
+  }
+},
+caption(step){return[
+ `<b>Take a chip where cell quality is decent but not perfect</b> (a fanout-4 DIMM with ~70% best-case MAJ3 stability). Group every tested tuple by how many of its open rows are single-bit XOR shadows of Rfirst.`,
+ `<b>Overlap 0 and 1 behave similarly</b> — mean stability ~10-14%, reflecting the chip's underlying cell quality. One corrupted operand of four still leaves a clear 3-vs-1 or 1-vs-3 decision in most columns.`,
+ `<b>Overlap 2 collapses to 0.7%.</b> When two of four operands are overwritten with copies of Rfirst, the MAJ-of-4 becomes a 2-vs-2 split — a tie. The sense amp resolves arbitrarily, so the measured per-cell success rate falls to noise.`,
+ `<b>This is the smoking gun.</b> The collapse happens <em>exactly</em> at the overlap count that crosses the K/2 majority boundary — predicted by the self-pollution mechanism, observed in the characterization's own data. A chip good enough that pollution (not cell variation) becomes the limit will show this signature.`,
+][step];},
+codeRef(){return `<span class="src">fanout-4 chip, MAJ3 stability vs overlap</span>
+overlap=0 : n=5440  mean  9.8%  max 70.3%
+overlap=1 : n= 896  mean 13.5%  max 71.9%
+<span class="hl">overlap=2 : n=  64  mean  0.7%  max  2.2%</span>
+
+<span class="src">prediction</span>
+<span class="cm">collapse at overlap = ceil(K/2) minus the</span>
+<span class="cm">Rfirst copies already present. For K=4: 2.</span>`;}};
+
+// SCENE 7 — why it matters
+const s7={ title:'Scene 7 — Why it matters for PuD characterization', steps:3, render(step){
+  clearScene();
+  sceneRoot.appendChild(text(500,40,'the reported MAJX success rate conflates two different things','label hl'));
+  const boxes=[
+   ['what the chip CAN do','intrinsic MAJ-of-K cell reliability — the thing you want to measure','#1d4ed8'],
+   ['what the test DID','operand corruption from the MAJ3 doubleACT\'s own spread (geometry-dependent)','#7f1d1d'],
+  ];
+  for(let i=0;i<2;i++){const [t,d,c]=boxes[i]; const y=120+i*120;
+    const show=step>=i+1||step===0;
+    sceneRoot.appendChild(rect(180,y,640,90,'',{fill:'#1d2230',stroke:c,'stroke-width':2,rx:5,opacity:show?1:0.4}));
+    sceneRoot.appendChild(text(200,y+28,t,'label hl','start'));
+    sceneRoot.appendChild(text(200,y+58,d,'label','start'));}
+  if(step>=2){
+    sceneRoot.appendChild(text(500,400,'the pollution is deterministic + geometry-dependent → it does NOT average out','label hl'));
+    sceneRoot.appendChild(text(500,428,'a chip flagged "worse at MAJX" may just have a tuple population with more shadow overlap','label orange'));
+    sceneRoot.appendChild(text(500,470,'the fix: stratify reported success rate by shadow-overlap → the two effects separate','label cyan'));
+  }
+},
+caption(step){return[
+ `<b>A standard MAJX characterization measures a polluted operation</b> on any tuple whose geometry has shadow overlap. The reported per-tuple success rate mixes (1) the chip's intrinsic MAJ reliability and (2) the operand corruption from the doubleACT's own spread.`,
+ `<b>The pollution doesn't average out.</b> It's deterministic and depends only on tuple geometry, so it systematically depresses the reported success rate for the affected subset of tuples — and more severely as fanout shrinks (the K/2 tie boundary is reached with fewer corrupted operands).`,
+ `<b>The two effects are separable.</b> Stratify the reported MAJX success rate by shadow-overlap count. The pollution component appears as a distinct degradation at the overlap value that crosses K/2; the rest reflects true cell quality. Without this, a chip with unlucky tuple geometry looks like a chip with worse cells.`,
+][step];},
+codeRef(){return `<span class="src">recommendation</span>
+<span class="cm">report MAJX success rate stratified by</span>
+<span class="cm">shadow_overlap = #(open rows that equal</span>
+<span class="cm">  Rfirst ⊕ (1&lt;&lt;b) for a vulnerable bit b)</span>
+
+<span class="cm">the self-pollution shows as a step-down at</span>
+<span class="cm">the overlap crossing K/2; the residual is</span>
+<span class="cm">the chip's real MAJX capability.</span>`;}};
+
+// SCENE 8 — two responses
+const s8={ title:'Scene 8 — Two responses: avoid it, or use it', steps:3, render(step){
+  clearScene();
+  sceneRoot.appendChild(text(500,36,'once characterized, the spread is a tool — not just a hazard','label hl'));
+  // left: engineer around; right: exploit
+  if(step>=1){
+    sceneRoot.appendChild(rect(90,90,400,180,'',{fill:'#10241a',stroke:'#22c1c3',rx:5}));
+    sceneRoot.appendChild(text(290,118,'ENGINEER AROUND','label cyan'));
+    sceneRoot.appendChild(text(110,150,'Build the conflict graph (u→v if u','label','start'));
+    sceneRoot.appendChild(text(110,170,'spreads into v). Take a max independent','label','start'));
+    sceneRoot.appendChild(text(110,190,'set → a fault-free row pool where no','label','start'));
+    sceneRoot.appendChild(text(110,210,'two rows are mutual shadows.','label','start'));
+    sceneRoot.appendChild(text(110,240,'Used as the persistent-weight pool.','label hl','start'));
+    sceneRoot.appendChild(text(110,258,'276 rows (DIMM A) / 294 (DIMM B) of 624.','label dim','start'));
+  }
+  if(step>=2){
+    sceneRoot.appendChild(rect(510,90,400,180,'',{fill:'#3a2a1a',stroke:'#f97316',rx:5}));
+    sceneRoot.appendChild(text(710,118,'EXPLOIT IT','label orange'));
+    sceneRoot.appendChild(text(530,150,'The spread is a bit-exact, deterministic','label','start'));
+    sceneRoot.appendChild(text(530,170,'free copy. One doubleACT deposits the','label','start'));
+    sceneRoot.appendChild(text(530,190,'source into several siblings at once.','label','start'));
+    sceneRoot.appendChild(text(530,220,'A free fan-out / row-replication','label hl','start'));
+    sceneRoot.appendChild(text(530,238,'primitive — populate a backup pool in','label hl','start'));
+    sceneRoot.appendChild(text(530,256,'one write instead of many.','label hl','start'));
+  }
+  if(step>=2){
+    sceneRoot.appendChild(text(500,330,'"Using something in the way it was not intended is not a security risk —','label hl'));
+    sceneRoot.appendChild(text(500,356,'it is creativity."','label hl'));
+    sceneRoot.appendChild(text(500,400,'The same charge-sharing physics that makes DRAM compute possible','label dim'));
+    sceneRoot.appendChild(text(500,422,'also produces this spread. Characterize it, and it cuts both ways.','label dim'));
+  }
+},
+caption(step){return[
+ `<b>Two ways to respond</b> to a deterministic, characterized side-effect: design around it, or turn it into a feature.`,
+ `<b>Engineer around it.</b> Treat the (source → sibling) edges as a conflict graph and take a maximum independent set — a pool of rows where writing any one never corrupts another. <span class="ex">EXAMPLE: 276 of 624 rows on one DIMM, 294 on another.</span> This is the fault-free persistent-weight pool that lets the in-DRAM LLM run correctly.`,
+ `<b>Or exploit it.</b> The spread is a bit-exact, deterministic copy. A single doubleACT deposits the source into several sibling rows at once — a free fan-out / row-replication primitive. Instead of writing N backup rows individually, write one and let the spread populate its siblings. The same physics that makes the hazard makes the tool.`,
+][step];},
+codeRef(){return `<span class="src">engineer-around: independent-set pool</span>
+build undirected conflict graph from the
+fault edges → greedy max-IS → pool rows
+with zero pairwise spread.
+<span class="cm">verified: 0 conflict violations in the IS.</span>
+
+<span class="src">exploit: free fan-out</span>
+<span class="cm">one per-col write + one doubleACT →</span>
+<span class="cm">source pattern at R and at R⊕(vuln bits),</span>
+<span class="cm">bit-exact. Amortizes pool population.</span>`;}};
+
+const SCENES=[s1,s2,s3,s4,s5,s6,s7,s8];
+let curScene=0,curStep=0,playTimer=null;
+function renderNav(){nav.innerHTML='';SCENES.forEach((s,i)=>{const b=document.createElement('button');b.textContent=`${i+1}. ${s.title.replace(/^Scene \d+ — /,'')}`;if(i===curScene)b.classList.add('active');b.onclick=()=>{curScene=i;curStep=0;render();};nav.appendChild(b);});}
+function render(){renderNav();const s=SCENES[curScene];titleEl.textContent=s.title;s.render(curStep);captionEl.innerHTML=s.caption(curStep);codeEl.innerHTML=(s.codeRef?s.codeRef(curStep):'')||'<span class="cm">—</span>';stepNumEl.textContent=curStep+1;stepMaxEl.textContent=s.steps;sceneFoot.textContent=`Scene ${curScene+1} of ${SCENES.length}`;document.getElementById('prevBtn').disabled=(curScene===0&&curStep===0);document.getElementById('nextBtn').disabled=(curScene===SCENES.length-1&&curStep===s.steps-1);}
+document.getElementById('prevBtn').onclick=()=>{if(curStep>0)curStep--;else if(curScene>0){curScene--;curStep=SCENES[curScene].steps-1;}render();};
+document.getElementById('nextBtn').onclick=()=>{const s=SCENES[curScene];if(curStep<s.steps-1)curStep++;else if(curScene<SCENES.length-1){curScene++;curStep=0;}render();};
+document.getElementById('playBtn').onclick=()=>{const btn=document.getElementById('playBtn');if(playTimer){clearInterval(playTimer);playTimer=null;btn.textContent='▶ Play';}else{btn.textContent='⏸ Pause';playTimer=setInterval(()=>{const s=SCENES[curScene];if(curStep<s.steps-1)curStep++;else if(curScene<SCENES.length-1){curScene++;curStep=0;}else{clearInterval(playTimer);playTimer=null;btn.textContent='▶ Play';return;}render();},2800);}};
+document.addEventListener('keydown',e=>{if(e.key==='ArrowRight')document.getElementById('nextBtn').click();if(e.key==='ArrowLeft')document.getElementById('prevBtn').click();if(e.key===' '){e.preventDefault();document.getElementById('playBtn').click();}});
+render();
+</script>
+</body>
+</html>

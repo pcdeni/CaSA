@@ -6,11 +6,16 @@ happen *inside the DRAM cells* of a regular DDR4 memory module — via
 charge-sharing, on real silicon.
 
 > ▶ **Interactive walkthrough of how it works:**
-> **<https://pcdeni.github.io/CaSA/explainer/>** — 10 stepped scenes
+> **<https://pcdeni.github.io/CaSA/explainer/>** — 11 stepped scenes
 > from cell to inference loop, every claim sourced to a paper or the
 > code in this repo. Reviewed adversarially before publication; the
 > claim-to-source ledger lives next to the page in
 > [`docs/explainer/`](docs/explainer/).
+>
+> ▶ **Companion:** **<https://pcdeni.github.io/CaSA/explainer/xor-spread.html>**
+> — the `doubleACT` row-spread we found during calibration: a bit-exact
+> copy deposited into address-XOR sibling rows, the MAJ3 self-pollution
+> it causes, and how we engineer around it (or exploit it).
 
 This repository contains the software side of that demonstration:
 

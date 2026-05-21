@@ -20,6 +20,14 @@ An interactive, step-by-step explainer of how a ternary LLM (BitNet b1.58) is co
 10. Wishlist: what AI-specific DRAM would change
 11. Closing thought: using something in the way it was not intended
 
+## Companion: the doubleACT row-spread
+
+A second, standalone explainer characterizes a side-effect we found while calibrating the hardware — the SiMRA `doubleACT` primitive deposits a bit-exact copy of its source row into address-XOR sibling rows, and that same effect silently pollutes the operands of a MAJ3 during multi-row-init characterization.
+
+**▶ View it:** [https://pcdeni.github.io/CaSA/explainer/xor-spread.html](https://pcdeni.github.io/CaSA/explainer/xor-spread.html)
+
+8 scenes: the observation (bit-exact spread to `R ⊕ (1<<b)`), its five properties, the row-decoder predecoder-coupling mechanism, cross-DIMM universality (each die has a different "gap bit"), the MAJ3 self-pollution it causes, the signature it leaves in MAJ success-rate data (a collapse to 0.7% at the K/2 tie boundary), why this confounds PuD characterization, and two responses (engineer around it with an independent-set pool, or exploit it as a free fan-out primitive). Chip-specific numbers are labelled as examples; the full-sweep figures (1066 single-bit edges, the overlap cross-tab) are this project's own measurements.
+
 ## How it was built
 
 This is meant to read at research-conference quality. Every factual claim was sourced and adversarially reviewed before publication. The supporting documents in this folder are the evidence trail:
