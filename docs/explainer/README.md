@@ -44,6 +44,12 @@ This is meant to read at research-conference quality. Every factual claim was so
 - **POPCNT3** — Kubo et al., *Bulk Bitwise Accumulation in Commercial DRAM*, NeurIPS MLNCP 2024.
 - **BitNet b1.58** — `microsoft/bitnet-b1.58-2B-4T` on HuggingFace.
 
+Related systems (context, not mechanism sources for the scenes):
+
+- **MVDRAM** — Kubo et al., *MVDRAM: Enabling GeMV Execution in Unmodified DRAM for Low-Bit LLM Acceleration*, arXiv:2503.23817 (2025). https://arxiv.org/abs/2503.23817 — the closest peer system: throughput-oriented GeMV in unmodified DDR4 on the same testbed family. Mechanics comparison with this project: [`../MVDRAM_COMPARISON.md`](../MVDRAM_COMPARISON.md).
+- **SiTe CiM** — Thakuria et al., *SiTe CiM: Signed Ternary Computing-in-Memory for Ultra-Low Precision DNNs*, arXiv:2408.13617 (2024) — custom-cell signed-ternary CiM (simulation); the modified-silicon end of the design space.
+- **PARBOR** — Khan, Lee, Mutlu, *PARBOR: An Efficient System-Level Technique to Detect Data-Dependent Failures in DRAM*, DSN 2016 — chip-specific bitline-neighbor coupling characterization at JEDEC timing; the bitline-side sibling of our [XOR-spread findings](xor-spread.html) on the row-decoder side.
+
 ## Repo this lives in
 
 This explainer is part of the [CaSA project](https://github.com/pcdeni/CaSA) — DRAM-as-compute experimental work building toward in-memory inference of ternary LLMs on commodity DDR4 hardware.

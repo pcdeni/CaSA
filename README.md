@@ -129,6 +129,35 @@ The point of the work is not to beat a GPU on speed. The point is to
 scheduler-bounded numbers on what would change with two specific
 DRAM-vendor improvements (in-DRAM popcount, LISA).
 
+## Related work — where this sits
+
+- **[MVDRAM](https://arxiv.org/abs/2503.23817)** (Kubo et al., 2025) is the
+  closest peer: GeMV for low-bit LLMs in unmodified DDR4 on the same
+  DRAM-Bender testbed family, weights resident in DRAM, **measured faster
+  than a CPU** (2.18× end-to-end for 2-bit Llama2-13B). It optimizes
+  throughput via selective-RowClone partial products and in-DRAM MAJ-adder
+  accumulation; its error model is per-column screening on a module chosen
+  from 16 candidates, and the paper reports no output-accuracy evaluation.
+  CaSA occupies the complementary lane: a native-ternary production model
+  end-to-end with **bit-exact verification**, on unscreened silicon that
+  only supports MAJ3 (MVDRAM's adder tree requires MAJ5+), plus the
+  failure-mechanism characterization (XOR row-spread, MAJ self-pollution)
+  that column-static profiling cannot see. Full mechanics comparison:
+  [`docs/MVDRAM_COMPARISON.md`](docs/MVDRAM_COMPARISON.md).
+- **[SiTe CiM](https://arxiv.org/abs/2408.13617)** (Thakuria et al., Purdue,
+  2024) is the custom-silicon end of the same goal: signed-ternary
+  compute-in-memory via modified bit cells (8T-SRAM / 3T-eDRAM / FEMFET,
+  simulation only). Useful as the measure of what a redesigned cell buys;
+  our angle is the opposite — exploit the cell exactly as manufactured.
+- **[PARBOR](https://users.ece.cmu.edu/~omutlu/pub/parbor-efficient-system-level-test-for-DRAM-failures_dsn16.pdf)**
+  (Khan, Lee, Mutlu, DSN 2016) characterizes chip-specific *bitline*-side
+  neighbor coupling at JEDEC timing; our XOR-spread work is the sibling
+  result on the *row-decoder* side under PuD timing, which JEDEC-timing
+  tests cannot reach.
+- The enabling canon — RowClone, Ambit, SiMRA, FracDRAM, FCDRAM, POPCNT3,
+  DRAM-Bender — is credited in [Acknowledgments](#acknowledgments) and
+  cited throughout the [explainer](https://pcdeni.github.io/CaSA/explainer/).
+
 ## Quick start (assuming you already have DRAM-Bender silicon)
 
 ```bash
@@ -189,11 +218,15 @@ Full details in `docs/HARDWARE.md`.
   uses multiple calibrated tuples, each with its own flaky-cell
   pattern. Output stays sensible but is not bit-exact across runs.
   For deterministic demos, pin to one bank.
-- **Multi-DIMM scaling** is not yet integrated: characterization on
-  the additional DIMMs (1, 2, 3) is in progress at the time of
-  release. The scheduler projections that include 4-DIMM parallelism
-  assume the calibration completes; the pure single-DIMM numbers do
-  not.
+- **Multi-DIMM scaling** is integrated for 2 of 4 DIMMs
+  (`run_bitnet_pim.py --dimms "0,2"` splits each projection's input
+  dimension across two concurrently-driven DIMMs; measured 1.47× on a
+  1-layer A/B, short of 2× due to uneven sub-handle balance). The other
+  two DIMMs were characterized and **rejected on silicon grounds** —
+  one is cell-uniformity-limited, one collapses at the MAJ tie boundary
+  exactly as the self-pollution mechanism predicts; see the
+  [XOR-spread explainer](https://pcdeni.github.io/CaSA/explainer/xor-spread.html).
+  The 4-DIMM scheduler projections assume four DIMM-0-class chips.
 - **The simulator was written before the silicon implementation**.
   Its hardcoded charge-sharing latencies were patched against
   measured DIMM 0 values; numbers shift by <2% because the
