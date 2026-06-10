@@ -125,7 +125,7 @@ into identifiable, mostly architectural causes, not physics:
 | Gap source | MVDRAM | CaSA today | CaSA's counter (status) |
 |---|---|---|---|
 | Weight residency | RowClone sources, restored for free by every ACT | per-MAJ3 weight reload from backup pool (dominant cost) | adopt selective-RowClone products (§3.1) |
-| Error tax | column screening + Frac margin, 1× compute | 16-row replication = 16× op tax for bit-exactness | Frac experiment; tuple-width reduction (planned) |
+| Error tax | column screening + Frac margin; ~1 RowClone per partial product | replicated 16-row tuples — the MAJ3 itself is **one** simultaneous 16-row activation (no op multiplication); the tax is ~6 row-scale setup ops per MAJ3 (broadcast + 5 activation-slot writes + frac) plus a 16-row footprint per logical op | Frac experiment; tuple-width reduction (planned) |
 | Parallelism per op | q·M across ~60 k reliable columns | 2 048-column output slice × 4 banks | layout work; multi-subarray |
 | Controller path | streamed commands, encoding overlapped, near line-rate | program-per-execute, 2 048-instruction IMEM, c2h drain per body (~2 % bus util measured) | seq_engine.v reaches 100 % PHY in Verilator (awaits bitstream) |
 | Accumulation | in-DRAM MAJ adders; read q×r rows only | drain raw rows, popcount on host | FPGA popcount accumulator HDL staged |
@@ -153,10 +153,13 @@ changes the architectural picture.
    accumulator in the readback path (a sibling of our staged popcount
    accumulator HDL).
 2. **Frac conditioning.** They use Frac operations to *increase the number
-   of reliable columns*. We have never applied Frac as a margin-widening
-   step on our modules. If it raises per-cell MAJ3 stability, the 16-row
-   replication width drops — a multiplicative speedup on the entire MAJ3
-   path — and marginal chips (our DIMM 3 class) may become usable.
+   of reliable columns*. If targeted Frac tuning raises per-cell MAJ3
+   stability on our modules, the replication width can shrink — cutting the
+   per-MAJ3 setup writes that dominate our bus-bound ceiling and freeing
+   tuple capacity — and marginal chips (our DIMM 3 class) may become
+   usable. If it lifts logical MAJ5 to whole-row-perfect on even a few
+   tuples, MVDRAM-style in-DRAM adders open up *under our bit-exactness
+   criterion* (§4).
 3. **Streaming command generation.** Their encoding-overlapped-with-
    execution model is the software twin of our sequence-engine HDL work;
    it confirms that program-per-execute (not DRAM physics) is the
