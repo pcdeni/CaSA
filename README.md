@@ -139,10 +139,12 @@ DRAM-vendor improvements (in-DRAM popcount, LISA).
   accumulation; its error model is per-column screening on a module chosen
   from 16 candidates, and the paper reports no output-accuracy evaluation.
   CaSA occupies the complementary lane: a native-ternary production model
-  end-to-end with **bit-exact verification**, on unscreened silicon that
-  only supports MAJ3 (MVDRAM's adder tree requires MAJ5+), plus the
-  failure-mechanism characterization (XOR row-spread, MAJ self-pollution)
-  that column-static profiling cannot see. Full mechanics comparison:
+  end-to-end with **whole-row bit-exact verification** on unscreened
+  silicon — a criterion under which logical MAJ5 (which MVDRAM's in-DRAM
+  adders use) yields zero perfect configurations on our modules while
+  16-row-replicated MAJ3 yields hundreds — plus the failure-mechanism
+  characterization (XOR row-spread, MAJ self-pollution) that column-static
+  profiling cannot see. Full mechanics comparison:
   [`docs/MVDRAM_COMPARISON.md`](docs/MVDRAM_COMPARISON.md).
 - **[SiTe CiM](https://arxiv.org/abs/2408.13617)** (Thakuria et al., Purdue,
   2024) is the custom-silicon end of the same goal: signed-ternary

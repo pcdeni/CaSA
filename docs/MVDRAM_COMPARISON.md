@@ -24,14 +24,17 @@ is measured on our silicon and documented in this repo.
 | Error handling | per-column profiling + Frac margin; use reliable columns only (83–94 %/module) | per-tuple calibration, 16-row replication, fault-aware pool layouts, mechanism analysis |
 | Headline | up to 7.29× GeMV speedup vs CPU; 2.18× end-to-end (2-bit Llama2-13B, measured) | BitNet b1.58-2B-4T end-to-end on silicon, 99.98 % bit-exact outputs, correct answer |
 | Accuracy evaluation | **none reported** (latency/energy only) | bit-exact per-projection verification vs PyTorch reference |
-| Silicon requirement | reliable MAJ5 (and up to MAJ15) on most columns — they screened 16 module models to find one | RowClone + broadcast + MAJ3 only — runs on chips where MAJ5 fails entirely |
+| Correctness criterion | screened **column subset** (83–94 % of columns; part does MAJX up to 15) | **whole-row bit-exact** — under which logical MAJ5 yields zero perfect configs on our modules (best 99.98–99.99 % stability) while 16-row-replicated MAJ3 yields hundreds |
 
-The punchline of the comparison: **MVDRAM as published would not run on our
-DIMMs** (no reliable MAJ5 at any timing we tested, on any of our four
-modules), and **CaSA's correctness discipline addresses exactly what MVDRAM's
-evaluation leaves open** (no accuracy numbers, column-static error model).
-The two systems are complementary evidence for the same thesis: commodity
-DRAM is secretly a compute substrate.
+The punchline of the comparison: the two systems demand different things
+from the silicon, so neither hot path transplants directly. MVDRAM's MAJ5
+adders have zero whole-row-perfect configurations on our modules — best
+cases reach 99.98–99.99 % per-cell stability, which is fine for per-column
+screening and fatal for bit-exactness — while **CaSA's correctness
+discipline addresses exactly what MVDRAM's evaluation leaves open** (no
+accuracy numbers, column-static error model). The two systems are
+complementary evidence for the same thesis: commodity DRAM is secretly a
+compute substrate.
 
 ## 1. MVDRAM's three mechanisms, precisely
 
@@ -144,9 +147,11 @@ changes the architectural picture.
    *and* the per-MAJ3 weight reload from the product step — on our silicon,
    RowClone is the one primitive that works everywhere (100 % across all
    banks at the (30,1) timing). The missing piece on our chips is the
-   accumulation: we cannot run their MAJ5 adder tree (see §4), so the
-   reduction must happen FPGA-side — a per-column vector accumulator in the
-   readback path (a sibling of our staged popcount accumulator HDL).
+   accumulation: their MAJ5 adder tree has no whole-row-perfect
+   configuration on our modules (see §4), so under our bit-exactness
+   requirement the reduction must happen FPGA-side — a per-column vector
+   accumulator in the readback path (a sibling of our staged popcount
+   accumulator HDL).
 2. **Frac conditioning.** They use Frac operations to *increase the number
    of reliable columns*. We have never applied Frac as a margin-widening
    step on our modules. If it raises per-cell MAJ3 stability, the 16-row
@@ -157,19 +162,41 @@ changes the architectural picture.
    it confirms that program-per-execute (not DRAM physics) is the
    controller-path ceiling on this testbed family.
 
-## 4. What MVDRAM cannot do on our silicon — the capability asymmetry
+## 4. The real asymmetry — correctness requirement, not row count
 
-MVDRAM's accumulation hard-requires **MAJ5** (sum bit), and their selected
-module does MAJX up to 15. None of our four modules execute MAJ5 usefully at
-any (t1, t2) we swept — MAJ3 itself is only production-grade on 2 of 4
-modules, and only with 16-row replication. Conversely, CaSA's pipeline needs
-nothing beyond RowClone + broadcast + MAJ3, which is why it runs at all on
-ordinary, unscreened silicon.
+This is easy to misread, so precisely: CaSA co-activates **16 rows in every
+production MAJ3** (and characterized 4/8/16/32-row simultaneous activation) —
+more rows at once than MVDRAM's MAJ5 ever opens. The difference is not how
+many rows the silicon activates; it is what each system demands from the
+result:
 
-This asymmetry is the field's central unsolved problem stated twice: **the
-chip lottery**. MVDRAM answers it by *screening* (16 models → 1 winner);
-CaSA answers it by *characterizing the mechanism* on whatever silicon is in
-the slot. Which leads to:
+- MVDRAM runs logical MAJ5 with **one copy per operand** and needs
+  correctness only on the **screened column subset** (83–94 % of columns on
+  their part, which supports MAJX up to 15).
+- CaSA requires **bit-exact results across the full row**. Under that
+  criterion, on both of our production modules (6 400 timing/tuple
+  configurations per rows×majX point): logical MAJ3 with 16-row replication
+  yields hundreds of perfect tuples (363 on one module, 505 on the other),
+  while logical MAJ5 yields **zero** — its best configurations reach
+  99.98–99.99 % per-cell stability, almost but never exactly
+  whole-row-perfect.
+
+Two corollaries. First, MVDRAM's adder tree would plausibly run on our
+modules **under MVDRAM's own error model** — a 99.98 %-stable MAJ5 is
+exactly the regime per-column screening exists for. Untested, but not
+excluded by our data. Second, the converse stands: a bit-exact pipeline
+cannot use MAJ5 adders on this silicon, so our reduction stays outside the
+array (host today, FPGA accumulator next). The "chip lottery" framing
+remains — their screening (16 module models → 1 winner) vs our
+characterization of whatever is in the slot — but it is a lottery over
+*margins under your correctness criterion*, not over raw multi-row-activation
+capability.
+
+(Honesty note: these MAJX ratings come from the standard MajOps
+methodology, which our self-pollution finding shows is geometry-confounded —
+see the [XOR-spread explainer](https://pcdeni.github.io/CaSA/explainer/xor-spread.html).
+The zero-perfect-MAJ5 verdict could in principle improve with spread-aware
+tuple selection; we have not re-screened.)
 
 ## 5. What CaSA offers MVDRAM-class systems
 
@@ -195,8 +222,9 @@ the slot. Which leads to:
    against a PyTorch reference, per-cell stability calibration, and an
    end-to-end correctness demonstration on a production ternary model —
    the evaluation dimension their paper leaves entirely open.
-3. **A ternary-native path for non-cooperative silicon** (MAJ3-only chips),
-   per §4.
+3. **A ternary-native path for stricter correctness targets** — chips (or
+   requirements) where only replicated MAJ3 survives a whole-row bit-exact
+   criterion, per §4.
 
 ## 6. Bottom line
 
