@@ -156,6 +156,17 @@ DRAM-vendor improvements (in-DRAM popcount, LISA).
   neighbor coupling at JEDEC timing; our XOR-spread work is the sibling
   result on the *row-decoder* side under PuD timing, which JEDEC-timing
   tests cannot reach.
+- **[hifidram-ocsa-spice](https://github.com/pcdeni/hifidram-ocsa-spice)**
+  (this author) is the *sense-amplifier-level* companion to this repo: an
+  LTSpice study, built on the topologies reverse-engineered in HiFi-DRAM
+  (ISCA 2024), of why charge-sharing PUD survives on some DIMMs and not
+  others. It shows charge sharing is identical across the classic and the
+  offset-cancellation (OCSA) sense amps, but the OCSA's boosted reference
+  slides the majority decision threshold off the tie point — breaking MAJ
+  out of the box and recovering it only under a Frac/precharge calibration.
+  A circuit-level account of the reliability variation we hit empirically,
+  and a prediction that COTS charge-sharing degrades as vendors migrate to
+  OCSA (2 of 3 majors already have).
 - The enabling canon — RowClone, Ambit, SiMRA, FracDRAM, FCDRAM, POPCNT3,
   DRAM-Bender — is credited in [Acknowledgments](#acknowledgments) and
   cited throughout the [explainer](https://pcdeni.github.io/CaSA/explainer/).
