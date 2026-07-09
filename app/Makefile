@@ -84,3 +84,13 @@ clean:
 	@- $(RM) test_maj3_smoke.o test_matvec_smoke.o test_columnwise_smoke.o test_dense_matvec_smoke.o test_broadcast_verify.o test_dense_matvec_bcast.o test_multibank_bcast.o test_bitnet_e2e_v1.o test_bitnet_e2e_v2.o test_bitnet_e2e_v3.o test_bitnet_real.o test_bitnet_proj.o test_bitnet_server.o
 
 distclean: clean
+
+# --- MVDRAM reproduction study (docs/MVDRAM_REPRODUCTION.md) ---
+mvdram-rcrand-exe: test_rowclone_random.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+mvdram-compute-rows-exe: test_mvdram_compute_rows.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+mvdram-gemv-inplace-exe: test_mvdram_gemv_inplace.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)

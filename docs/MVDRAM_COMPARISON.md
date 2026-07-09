@@ -1,5 +1,14 @@
 # MVDRAM vs CaSA — a mechanics comparison
 
+> **Update (July 2026):** we have since attempted a full hardware
+> reproduction of MVDRAM, including on two new units of the exact DRAM part
+> number the paper names (SK Hynix HMA851U6CJR6N-UHN0). **Negative result —
+> the named part performs no PUD at all in our hands, and the paper's chained
+> dataflow breaks on every PUD-capable module we own.** See
+> **[MVDRAM_REPRODUCTION.md](MVDRAM_REPRODUCTION.md)** for methods, numbers,
+> reproducer code, and raw logs. The comparison below predates that study and
+> takes the paper's claims at face value.
+
 [MVDRAM (arXiv:2503.23817)](https://arxiv.org/abs/2503.23817) — Kubo, Tokuda,
 Nagatani, Usui (U Tokyo), Qu (Microsoft Research), Cao (Tsinghua AIR),
 Takamaeda-Yamazaki (U Tokyo) — is the closest published peer to this project:

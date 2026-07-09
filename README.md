@@ -16,6 +16,16 @@ charge-sharing, on real silicon.
 > — the `doubleACT` row-spread we found during calibration: a bit-exact
 > copy deposited into address-XOR sibling rows, the MAJ3 self-pollution
 > it causes, and how we engineer around it (or exploit it).
+>
+> ▶ **[MVDRAM reproduction study — negative result](docs/MVDRAM_REPRODUCTION.md)**
+> — we bought two new units of the exact DRAM part the MVDRAM paper
+> (arXiv:2503.23817) names and attempted a full reproduction. The part
+> performs **no processing-using-DRAM at all** in our hands (0 charge-share
+> copies in 60,000 random row pairs, while working perfectly as ordinary
+> memory), and on modules where PUD *does* work, the paper's chained
+> dataflow collapses to 6–11% correct because of the XOR-spread row-decoder
+> artifact above. Six modules tested, zero reproductions. Reproducer code
+> and raw logs included.
 
 This repository contains the software side of that demonstration:
 
@@ -48,13 +58,12 @@ apps from `app/` into the right path. See `app/README.md`.
 
 ## Headline result — three regimes
 
-**What we are running today** is BitNet b1.58-2B-4T with **1 of its
-30 transformer layers' matrix-multiplies executing in DRAM** (the
-seven projections of layer 0). The other 29 layers run in PyTorch
-on the CPU. This is enough to demonstrate the mechanism end-to-end
-on a real published model — running all 30 layers in DRAM is
-straightforward engineering, not a science question, and the
-scheduler projects what that would look like.
+**What we are running today** is BitNet b1.58-2B-4T with **all 30
+transformer layers' projection matrix-multiplies executing in DRAM**
+(7 projections per layer — q/k/v/o/gate/up/down — ternary weights
+resident in the DIMM, MAJ3-based multiply-accumulate), producing the
+model's correct output. Attention softmax, norms, and sampling run in
+PyTorch on the CPU, as in every PUD system.
 
 The current measurement is **dominated by orchestration overhead**
 (per-call PCIe round-trips, per-column weight writes, Python +

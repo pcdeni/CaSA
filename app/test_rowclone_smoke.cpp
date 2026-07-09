@@ -92,7 +92,10 @@ static int try_rowclone(SoftMCPlatform& platform, int bank_id,
   p.add_inst(SMC_SLEEP(6));
   // RowClone: high t_12 lets SAs lock to src content, then short t_23
   // before the second ACT lets dst row latch the SA's content.
-  p.add_below(doubleACT(/*t_12=*/30, /*t_23=*/t_23, src_row, dst_row));
+  // PIM_T12 env overrides the charge-share dwell (default 30) — used to
+  // calibrate RowClone timing on a new DRAM part.
+  int t12 = getenv("PIM_T12") ? atoi(getenv("PIM_T12")) : 30;
+  p.add_below(doubleACT(/*t_12=*/t12, /*t_23=*/t_23, src_row, dst_row));
   p.add_inst(SMC_SLEEP(6));
   p.add_below(PRE(BAR, 0, 0));
   p.add_inst(SMC_SLEEP(6));
