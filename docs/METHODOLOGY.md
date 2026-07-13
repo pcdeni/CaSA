@@ -17,37 +17,50 @@ by orders of magnitude — see "Estimation vs. measurement" below.
 
 ## What we are running today (and what we are not)
 
-The current measurement runs **one of BitNet's 30 transformer
-layers' matrix-multiplies in DRAM** — specifically the seven
-projections of layer 0 (Q, K, V, O, gate, up, down). The other 29
-layers run in PyTorch on the CPU. This is enough to demonstrate the
-mechanism end-to-end on a real published model. Running all 30
-layers in DRAM is engineering — make all weights persistent in their
-calibrated rows, never page them in over PCIe, route activations
-between layers — not a science question.
+The production configuration runs **all 30 of BitNet's transformer
+layers' matrix-multiplies in DRAM** — the seven projections of every
+layer (Q, K, V, O, gate, up, down), i.e. 210 of the model's 210
+BitLinear modules. What stays in PyTorch on the CPU is the
+irreducible non-BitLinear remainder — attention softmax, layernorms,
+sampling, embeddings and the LM head — the same split every
+processing-in-DRAM system makes. Measured end-to-end on DIMM 2
+(2026-05-21; multi-bank `0,1,2,3`, LOAD-mode persistent weight pool,
+per-bank fault-aware layouts; prompt `"What is the capital of
+France?"`, answered `"Answer: Paris"`): **5 057 s for 8 tokens =
+632 s/token ≈ 10.5 minutes/token**, ~21 s/token per layer. DIMM 0
+runs the same configuration at comparable per-layer cost. Earlier
+revisions ran only layer 0's projections in DRAM; those
+configurations are kept in the table below as the optimization
+ladder that led here.
 
-All measurements below use the same prompt
+All 1-layer ladder measurements below use the same prompt
 (`"What is the capital of Hungary? Answer in one sentence."`), the
 same model (`microsoft/bitnet-b1.58-2B-4T`), `do_sample=False` so
-generation is deterministic, and 8 generated tokens unless noted.
+generation is deterministic, and 8 generated tokens unless noted;
+the full-model row used the France prompt as stated above.
 Per-token times include the full Python + PyTorch + PCIe + DRAM
 loop, not just FPGA compute.
 
-| Configuration | 8 tok | per token (1 layer in DRAM) |
+| Configuration | 8 tok | per token |
 |---|---|---|
 | Pure PyTorch (no PIM) | ~3.0 s | 0.4 s/tok |
 | 1 layer's `q_proj` only, no persistent weights | 70.0 s | 8.75 s/tok |
 | 1 layer's `q_proj` only, persistent weights | 41.8 s | 5.23 s/tok |
 | 1 layer's `q_proj` only, persistent + combined program | 27.4 s | 3.43 s/tok |
 | All 7 layer-0 projections, single bank | 303.7 s | 38.0 s/tok |
-| All 7 layer-0 projections, multi-bank `0,1,2,3` | **238.1 s** | **29.76 s/tok** |
+| All 7 layer-0 projections, multi-bank `0,1,2,3` | 238.1 s | 29.76 s/tok |
+| **All 7 projections × all 30 layers, multi-bank, persistent pool (DIMM 2)** | **5 057 s** | **632 s/tok** |
 
 The **measured today** number in the README headline is the bottom
-row: ~30 s/tok for one BitNet layer's full set of seven projections
-on PIM, multi-bank. Extrapolated linearly to all 30 layers in DRAM
-at this same orchestration overhead: ~900 s/tok ≈ 15 minutes/token.
+row: 632 s/token ≈ 10.5 minutes/token for the full model, all 210
+projections on PIM. (The linear extrapolation this document
+previously quoted from the 1-layer configuration was ~900 s/tok ≈
+15 minutes/token; the measured full run came in ~30 % better because
+per-layer cost had dropped from 29.8 to ~21 s/token — LOAD-mode
+weight loading and per-bank fault-aware layouts — before the
+full-model run.)
 
-That extrapolation is **not what the silicon does** — it is what
+That number is **not what the silicon does** — it is what
 our current orchestration does. The same hardware running the same
 operations, with no per-call subprocess and no per-column writes
 mid-loop, would land on the bus-bound projection below — ~500 ms/tok
@@ -71,7 +84,7 @@ scheduler says the silicon does once orchestration overhead is gone.
 | Misc DRAM bookkeeping (PRE / SLEEP / frac) | ~10 ms / matmul | ~10 % |
 | Popcount (CPU-side adds of 8 KB row) | ~5 ms / matmul | ~2 % |
 | **Per matrix-multiply step (≈ 1 BitNet projection)** | **~3 sec** | **~3 ms** |
-| **Per token, all 30 layers in DRAM** | **~15 min** (extrapolated) | **~500 ms** (scheduler) |
+| **Per token, all 30 layers in DRAM** | **~10.5 min** (measured) | **~500 ms** (scheduler) |
 | **Bus utilization** | **~2 %** (almost idle) | **~98 %** (bus-bound, the wall) |
 
 The TODAY column is dominated by per-column writes (we copy the

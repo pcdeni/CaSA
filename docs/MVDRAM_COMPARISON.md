@@ -126,7 +126,7 @@ screening.
 
 ## 2. Why MVDRAM's throughput is orders of magnitude above CaSA's measured number
 
-Our measured full-model number is ~30 s/token (README); MVDRAM generates
+Our measured full-model number is ~630 s/token (README); MVDRAM generates
 2-bit Llama2-13B tokens 2.18× *faster* than a desktop CPU running llama.cpp.
 The gap — several orders of magnitude in per-token wall time — decomposes
 into identifiable, mostly architectural causes, not physics:

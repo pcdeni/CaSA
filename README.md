@@ -92,7 +92,7 @@ hypothetical-future projections.
 
 | Regime | Per-token | tok/s | Bus % | Source |
 |---|---|---|---|---|
-| **MEASURED today** — full 30 BitNet layers, multi-bank, ~30 s/tok dominated by orchestration overhead per MAJ3 | ~30 s | ~0.034 | ~2 % | this hardware, today |
+| **MEASURED today** — full 30 BitNet layers, multi-bank, 632 s/tok (~10.5 min) dominated by orchestration overhead per MAJ3 | ~630 s | ~0.0016 | ~2 % | this hardware, today |
 | **Bus-bound ceiling** — all 30 layers in DRAM, 1 DIMM, current silicon path | 3.0 s | **0.33** | 97 % | `casa_sched --dimms 1` |
 | + bank-group-parallel bus | 2.4 s | 0.40 | 96 % | `... --bg-parallel` |
 | + 4 DIMMs in parallel | 0.61 s | 1.57 | 96 % | `--dimms 4 --bg-parallel` |
