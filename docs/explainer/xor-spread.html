@@ -50,6 +50,8 @@
   .label.cyan { fill: #22c1c3; }
   .label.orange { fill: #f97316; }
   .arrow { stroke: #f97316; stroke-width: 2; fill: none; marker-end: url(#ah); }
+  .banner { padding: 7px 18px; background: #12291b; border-bottom: 1px solid #1f4d33; color: #9ae6b4; font-size: 12.5px; flex-shrink: 0; }
+  .banner a { color: #4f9bff; text-decoration: none; }
 </style>
 </head>
 <body>
@@ -58,6 +60,7 @@
   <span class="sub">A cross-DIMM characterization + the MAJ3 self-pollution it causes</span>
   <a href="index.html">← BitNet PIM explainer</a>
 </header>
+<div class="banner"><b>Update, July 2026:</b> a SiMRA co-author confirmed the mechanism — the spread is Multi-RowCopy's co-activation lattice seen from the source side (latched predecoders), and assessed our XOR address-algebra as new; nearest prior art is FracDRAM (MICRO'22). We verified the mapping on our own data: all 696 production tuples are exact (R<sub>F</sub>,R<sub>S</sub>) lattices; 3,941/3,941 fault records contained. Scene 2's "source-specific" property is reinterpreted as pair algebra. Exchange: <a href="https://github.com/CMU-SAFARI/DRAM-Bender/issues/12">DRAM-Bender#12</a> · <a href="https://github.com/CMU-SAFARI/SiMRA-DRAM/issues/1">our verification + open questions</a>.</div>
 <nav id="nav"></nav>
 <main>
   <div class="stage">
@@ -148,7 +151,7 @@ const s2={ title:'Scene 2 — Five properties', steps:5, render(step){
    ['1. Bit-exact','the sibling is a perfect copy (2048/2048), not noise — a wordline-firing event, not charge leakage'],
    ['2. Tuple-conditional','spread only fires when the doubleACT targets a row in a calibrated open-rows tuple'],
    ['3. Timing-independent','identical fault-edge set at RowClone (t₁ long), Broadcast, and MAJ3 timings'],
-   ['4. Source-sparse','each source leaks to only 1-4 of the ~10 possible XOR-distance bits; which bits is source-specific'],
+   ['4. Pair-determined','faults land only inside the XOR-lattice of the (src,dst) address pair - 3941/3941 contained; which lattice points fire is deterministic per pair'],
    ['5. Bank-invariant','same calibrated tuple → byte-identical fault set across all 4 banks (matching MD5)'],
   ];
   const x0=110,y0=90,dy=88;
@@ -163,7 +166,7 @@ caption(step){return[
  `<b>Bit-exact.</b> The sibling row is a perfect copy of the source — 2048/2048 32-bit segments. This rules out a charge-coupling disturbance (which would be a noisy distribution) and points to a wordline-level event.`,
  `<b>Tuple-conditional.</b> The spread only occurs when the doubleACT's destination is a member of a SiMRA-calibrated open-rows tuple. doubleACT to an arbitrary far row → no spread.`,
  `<b>Timing-independent.</b> The same set of (source → sibling) fault edges appears at all three SiMRA timings — RowClone, Broadcast, MAJ3. The vulnerable-bit set doesn't depend on (t₁, t₂).`,
- `<b>Source-sparse.</b> Each source row leaks to only a few of the possible single-bit-XOR distances, and <em>which</em> bits is specific to that source. The conflict graph is irregular, not a uniform stride.`,
+ `<b>Pair-determined.</b> Re-analysis after the SiMRA authors' reply: every recorded fault (3,941/3,941) lies inside the XOR-lattice of the (source, destination) address pair — what looked \"source-specific\" was pair algebra with our fixed destination. The graph stays irregular (which lattice points fire is only partially predicted; bit 8 never fires on this die), so independent-set placement stays necessary.`,
  `<b>Bank-invariant.</b> Run the same calibrated tuple on all 4 banks of a DIMM → the fault-edge set is byte-identical (matching MD5). This proves the spread is a property of the row-decoder hardware × tuple, not of per-bank cell physics.`,
 ][step];},
 codeRef(step){return `<span class="src">measured, one DIMM, 624 sources</span>
@@ -181,7 +184,7 @@ md5(bank2) == md5(bank3)   <span class="hl">✓</span>`;}};
 // SCENE 3 — mechanism
 const s3={ title:'Scene 3 — The mechanism: row-decoder coupling', steps:4, render(step){
   clearScene();
-  sceneRoot.appendChild(text(500,28,'hypothesis: predecoder coupling fires extra wordlines during the second ACT',(step>=1?'label hl':'label dim')));
+  sceneRoot.appendChild(text(500,28,'confirmed: latched predecoders co-assert extra wordlines during the second ACT',(step>=1?'label hl':'label dim')));
   // hierarchical decoder sketch
   const dx0=120;
   sceneRoot.appendChild(rect(dx0,80,180,50,'',{fill:'#1d2230',stroke:'#4f9bff',rx:4}));
@@ -212,7 +215,7 @@ caption(step){return[
  `<b>Some predecoders latch both their outputs.</b> Depending on how the source and destination addresses differ, one or more predecoders end up driving two wordlines — the intended one plus its address-XOR sibling.`,
  `<b>The sibling wordlines fire too — and absorb the source.</b> While they're open, the sense amp drives them to the source row's value. So R's content is deposited into R⊕(1&lt;&lt;b) for exactly the bits whose predecoder doubly-latched. Source-sparsity and bit-specificity follow directly; bank-invariance follows because it's all decoder hardware.`,
 ][step];},
-codeRef(){return `<span class="src">hypothesis (not silicon-validated)</span>
+codeRef(){return `<span class="src">model confirmed by the SiMRA authors — DRAM-Bender#12 (July 2026)</span>
 <span class="cm">Local-wordline-driver coupling: the 2nd ACT</span>
 <span class="cm">asserts a subarray-wide multi-WL signal while</span>
 <span class="cm">the source LWD is still in restore. For bits</span>
@@ -250,7 +253,7 @@ const s4={ title:'Scene 4 — Universal across DIMMs, chip-specific bits', steps
   }
   if(step>=3){
     sceneRoot.appendChild(text(500,380,'the gap-bit position is a die-level signature — exactly what the','label dim'));
-    sceneRoot.appendChild(text(500,402,'predecoder-coupling hypothesis predicts (one predecoder gates a','label dim'));
+    sceneRoot.appendChild(text(500,402,'latched-predecoder model predicts (one predecoder gates a','label dim'));
     sceneRoot.appendChild(text(500,424,'wordline but does not couple the write, or vice-versa)','label dim'));
     sceneRoot.appendChild(text(500,470,'exhaustive sweep (DIMM B): 1066 single-bit edges, ~3933 disturbed rows / 624 sources','label cyan'));
   }

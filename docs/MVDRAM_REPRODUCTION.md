@@ -106,7 +106,7 @@ PUD-capable module we own, that step is destructive:
 | Same, minimal 4-row tuple | 75% |
 | Mitigations (full-restore after each copy; non-shadow source selection) | no improvement |
 
-The mechanism is the **XOR-spread**, a finding of this project
+The mechanism is the **XOR-spread**, characterized by this project
 ([interactive explainer](https://pcdeni.github.io/CaSA/explainer/xor-spread.html),
 reproducers [`app/test_spread.cpp`](../app/test_spread.cpp),
 [`app/test_fault_sweep.cpp`](../app/test_fault_sweep.cpp)): a `doubleACT`
@@ -117,7 +117,23 @@ timing-independent (fires at RowClone, broadcast, and MAJ timings alike), and
 **bank-invariant** — the fault map is byte-identical (matching MD5) across
 all four banks of a module, which places its origin in the **row-decoder
 structure**, not cell physics. It is present on all four of our PUD-capable
-modules, with chip-specific vulnerable-bit fingerprints. The MAJ operation
+modules, with chip-specific vulnerable-bit fingerprints.
+
+> **Provenance (July 2026).** A SiMRA co-author confirmed the mechanism:
+> the spread is Multi-RowCopy's simultaneous many-row activation seen from
+> the *source* side — one co-activation lattice, `{src XOR S : S ⊆
+> bits(src XOR dst)}` in subarray-local coordinates, whose far corner is
+> the calibrated tuple ([DRAM-Bender#12](https://github.com/CMU-SAFARI/DRAM-Bender/issues/12)).
+> We verified the mapping on our data — all 696 production-DIMM tuples are
+> exact (R_F, R_S) lattices; 3,941/3,941 fault records contained — and the
+> XOR address-algebra itself was assessed as new (nearest prior:
+> [FracDRAM, MICRO'22](https://parallel.princeton.edu/papers/micro22-gao.pdf)).
+> The identification cuts both ways: our open questions — which lattice
+> points assert (only ~1 in 6 sources yields a complete lattice), collateral
+> deposits outside the pair lattice, and the copy/vote timing mixture — are
+> now open questions about **Multi-RowCopy's own reliability envelope**, on
+> which MVDRAM-style weight residency depends. Follow-up with data:
+> [SiMRA-DRAM#1](https://github.com/CMU-SAFARI/SiMRA-DRAM/issues/1). The MAJ operation
 itself pollutes its own operands the same way (on one module, a tuple rated
 "100% reliable" by standard characterization has 2 of its 16 open rows
 silently overwritten during every MAJ — the result survives only because a

@@ -15,7 +15,12 @@ charge-sharing, on real silicon.
 > ▶ **Companion:** **<https://pcdeni.github.io/CaSA/explainer/xor-spread.html>**
 > — the `doubleACT` row-spread we found during calibration: a bit-exact
 > copy deposited into address-XOR sibling rows, the MAJ3 self-pollution
-> it causes, and how we engineer around it (or exploit it).
+> it causes, and how we engineer around it (or exploit it). *Update, July
+> 2026:* a SiMRA co-author confirmed the mechanism (the source-side view of
+> Multi-RowCopy's co-activation lattice) and assessed our address-algebra
+> as new — see [DRAM-Bender#12](https://github.com/CMU-SAFARI/DRAM-Bender/issues/12)
+> and [our verification + open questions](https://github.com/CMU-SAFARI/SiMRA-DRAM/issues/1),
+> which now also bound Multi-RowCopy's own reliability envelope.
 >
 > ▶ **[MVDRAM reproduction study — negative result](docs/MVDRAM_REPRODUCTION.md)**
 > — we bought two new units of the exact DRAM part the MVDRAM paper
