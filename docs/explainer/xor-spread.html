@@ -151,7 +151,7 @@ const s2={ title:'Scene 2 — Five properties', steps:5, render(step){
    ['1. Bit-exact','the sibling is a perfect copy (2048/2048), not noise — a wordline-firing event, not charge leakage'],
    ['2. Tuple-conditional','spread only fires when the doubleACT targets a row in a calibrated open-rows tuple'],
    ['3. Timing-independent','identical fault-edge set at RowClone (t₁ long), Broadcast, and MAJ3 timings'],
-   ['4. Pair-determined','faults land only inside the XOR-lattice of the (src,dst) address pair - 3941/3941 contained; which lattice points fire is deterministic per pair'],
+   ['4. Pair-determined','every fault lands inside the XOR-lattice of the (src,dst) address pair — 3941/3941 recorded faults'],
    ['5. Bank-invariant','same calibrated tuple → byte-identical fault set across all 4 banks (matching MD5)'],
   ];
   const x0=110,y0=90,dy=88;
