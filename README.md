@@ -37,6 +37,13 @@ charge-sharing, on real silicon.
 > commodity spread-afflicted silicon — but only with spread-aware
 > addressing the paper does not discuss. Reproducer code and raw logs
 > included.
+>
+> ▶ **Companion:** **<https://pcdeni.github.io/CaSA/explainer/mvdram.html>**
+> — the reproduction study as an interactive 9-scene deck: what the paper
+> claims (and what its baselines are), Result A, the June→July Result B
+> reversal, the mechanism scoreboard, and what remains open — every scene
+> tied to the paper (§/Fig/Table), a reproducer, a data file, or an issue
+> (claim ledger in [`docs/explainer/`](docs/explainer/)).
 
 This repository contains the software side of that demonstration:
 

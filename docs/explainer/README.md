@@ -28,6 +28,14 @@ A second, standalone explainer characterizes a side-effect we found while calibr
 
 9 scenes: the observation (bit-exact spread to `R ⊕ (1<<b)`), its five properties, the mechanism (settled July 2026: Multi-RowCopy's co-activation lattice seen from the source side — confirmed by a SiMRA co-author in [DRAM-Bender#12](https://github.com/CMU-SAFARI/DRAM-Bender/issues/12), verified on our data in [SiMRA-DRAM#1](https://github.com/CMU-SAFARI/SiMRA-DRAM/issues/1)), cross-DIMM universality (each die has a different "gap bit"), the selection law (which lattice members fire — 1691/1691 member-observations explained on each of two dies, zero exceptions; `app/test_selection_timing.cpp` + `docs/data/selection-law/`), the MAJ3 self-pollution it causes, the signature it leaves in MAJ success-rate data (a collapse to 0.7% at the K/2 tie boundary), why this confounds PuD characterization, and two responses (engineer around it with an independent-set pool, or use the lattice as an addressing system — safe-by-construction loads, the fused coset production path, and the MVDRAM fastpath kernel). Chip-specific numbers are labelled as examples; the full-sweep figures (1066 single-bit edges, the overlap cross-tab) are this project's own measurements.
 
+## Companion: the MVDRAM reproduction
+
+A third deck presents the [MVDRAM reproduction study](../MVDRAM_REPRODUCTION.md) interactively.
+
+**▶ View it:** [https://pcdeni.github.io/CaSA/explainer/mvdram.html](https://pcdeni.github.io/CaSA/explainer/mvdram.html)
+
+9 scenes: what MVDRAM claims (headline numbers and what its baselines actually are), its two techniques, what "reproduce" means for a paper with no released source, Result A (the paper's named DRAM part performs no PUD in our hands — 0 charge-share events in 60,000 random pairs on two new units), the Result B journey (June's 6.1% collapse honestly presented as our own corrected error → July's 99.98% with spread-aware placement → the 2.2–2.3×/gate fused fast path), a mechanism-by-mechanism scoreboard, what we have NOT done (Frac/calibration, their llama.cpp benchmark, streaming-scale execution), what our silicon adds beyond the paper, and the verdict with the paper's own caveats stated plainly. Claim-to-source ledger: [`mvdram_explainer_ledger.md`](mvdram_explainer_ledger.md); the July-update scenes of the row-spread deck are covered by [`xor_spread_ledger.md`](xor_spread_ledger.md).
+
 ## How it was built
 
 This is meant to read at research-conference quality. Every factual claim was sourced and adversarially reviewed before publication. The supporting documents in this folder are the evidence trail:
