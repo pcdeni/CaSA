@@ -57,6 +57,7 @@
   .caption b { color: #ffd479; }
   .caption .ex { color: #22c1c3; font-weight: 600; }
   .caption code { background: #1f2434; padding: 1px 5px; border-radius: 3px; font-size: 12px; color: #ffd479; }
+  .caption a, .codepane a { color: #4f9bff; text-decoration: none; }
   .codepane { font-family: ui-monospace, monospace; font-size: 11.5px; color: #8a93a8; overflow: auto; max-height: 280px; }
   .codepane .hl { color: #ffd479; }
   .codepane .cm { color: #5a6178; font-style: italic; }
@@ -129,7 +130,7 @@
   <button id="playBtn">▶ Play</button>
   <button id="nextBtn">Next ▶</button>
   <span class="step">Step <b id="stepNum">1</b> / <b id="stepMax">1</b></span>
-  <span class="scenefoot" id="scenefoot">Scene 1 of 10</span>
+  <span class="scenefoot" id="scenefoot">Scene 1 of 11</span>
 </div>
 
 <script>
@@ -1010,10 +1011,10 @@ for each (chunk, sign):
 // =============================================================
 const scene9 = {
   title: 'Scene 9 — Where the time goes (per-MAJ bottleneck analysis)',
-  steps: 5,
+  steps: 7,
   render(step) {
     clearScene();
-    sceneRoot.appendChild(text(500, 25, 'per MAJ, where does the wall time go?', 'label hl'));
+    if (step <= 4) sceneRoot.appendChild(text(500, 25, 'per MAJ, where does the wall time go? (production pipeline as of May 2026)', 'label hl'));
 
     // Per-MAJ phase bar
     const phases = [
@@ -1099,18 +1100,96 @@ const scene9 = {
       }
       sceneRoot.appendChild(text(500, 510, 'next scene: a wishlist for AI-memory hardware, each item mapped to a bottleneck above', 'label dim'));
     }
+    else if (step === 5) {
+      // July 2026: the two write-side levers, tool-level A/B
+      sceneRoot.appendChild(text(500, 25, 'July 2026: two levers landed on the write-side phases', 'label hl'));
+      const levers = [
+        ['1. persistent weights', 'W stays resident in its pool row; the per-MAJ weight reload (per-column write, 3 host round-trips) becomes ONE in-DRAM clone from a backup row'],
+        ['2. coset activation update', 'the 10 activation wrRows (5×x + 5×zero) become 4 wrRows + 2 in-tuple coset doubleACTs — same 5/5/5 vote balance (the unbalanced 7W/4x/4z variant is wrong: 99.7%/97.9% bad)'],
+      ];
+      for (let i = 0; i < 2; i++) {
+        const y = 60 + i * 78;
+        sceneRoot.appendChild(rect(90, y, 820, 68, '', { fill: '#1d2230', stroke: '#22c1c3', 'stroke-width': 2, rx: 4 }));
+        sceneRoot.appendChild(text(110, y + 20, levers[i][0], 'label hl', 'start'));
+        // wrap the description over two lines
+        const words = levers[i][1].split(' ');
+        const mid = Math.ceil(words.length / 2);
+        sceneRoot.appendChild(text(110, y + 40, words.slice(0, mid).join(' '), 'label', 'start'));
+        sceneRoot.appendChild(text(110, y + 56, words.slice(mid).join(' '), 'label', 'start'));
+      }
+      // A/B bars (die A): A=0.357, B2=0.089 ms/MAJ; die B: 0.556 -> 0.085
+      const bars = [
+        ['die A: production shape', 0.357, '#6b8ec9'], ['die A: both levers fused (B2)', 0.089, '#22c1c3'],
+        ['die B: production shape', 0.556, '#6b8ec9'], ['die B: both levers fused (B2)', 0.085, '#22c1c3'],
+      ];
+      const bx = 330, by0 = 250, bh = 30, scale = 900;
+      sceneRoot.appendChild(text(500, by0 - 18, 'steady-state tool A/B, iters=100, one process — verified every iteration', 'label dim'));
+      for (let i = 0; i < 4; i++) {
+        const y = by0 + i * (bh + 14);
+        const w = Math.max(4, bars[i][1] * scale);
+        sceneRoot.appendChild(text(bx - 12, y + bh / 2, bars[i][0], 'label', 'end'));
+        sceneRoot.appendChild(rect(bx, y, w, bh, '', { fill: bars[i][2], opacity: 0.8, rx: 2 }));
+        sceneRoot.appendChild(text(bx + w + 12, y + bh / 2, `${bars[i][1].toFixed(3)} ms/MAJ`, 'label hl', 'start'));
+      }
+      sceneRoot.appendChild(text(500, by0 + 4 * (bh + 14) + 18, '3.99× (die A) · 6.53× (die B) — bit-exact: 0/204,800 bad segments per die', 'label hl cyan'));
+    }
+    else if (step === 6) {
+      // July 2026: production server + real-model numbers
+      sceneRoot.appendChild(text(500, 25, 'July 2026: the same levers in the production server (PIM_FUSED_COSET=1)', 'label hl'));
+      sceneRoot.appendChild(rect(110, 70, 780, 120, '', { fill: '#1d2230', stroke: '#22c1c3', 'stroke-width': 2, rx: 4 }));
+      sceneRoot.appendChild(text(130, 94, 'per matmul (bitnet-proj-server, synthetic A/B, byte-identical requests)', 'label hl', 'start'));
+      sceneRoot.appendChild(text(130, 122, 'bank 0:   9.7–9.8  →  6.4–6.9 ms/matmul', 'label', 'start'));
+      sceneRoot.appendChild(text(130, 146, '4-bank:   9.5–9.7  →  6.1 ms/matmul', 'label', 'start'));
+      sceneRoot.appendChild(text(130, 170, '= 1.45–1.6× — every returned y bit-exact vs the host reference, both arms', 'label hl', 'start'));
+      // real model bars
+      const bars = [['baseline', 117.2, '#6b8ec9'], ['PIM_FUSED_COSET=1', 71.8, '#22c1c3']];
+      const bx = 330, by0 = 260, bh = 34, scale = 4.2;
+      sceneRoot.appendChild(text(500, by0 - 20, 'real model: BitNet b1.58-2B, layer 0 × 7 projections in DRAM, 4-bank, 8 tokens', 'label hl'));
+      for (let i = 0; i < 2; i++) {
+        const y = by0 + i * (bh + 16);
+        const w = bars[i][1] * scale;
+        sceneRoot.appendChild(text(bx - 12, y + bh / 2, bars[i][0], 'label', 'end'));
+        sceneRoot.appendChild(rect(bx, y, w, bh, '', { fill: bars[i][2], opacity: 0.8, rx: 2 }));
+        sceneRoot.appendChild(text(bx + w + 12, y + bh / 2, `${bars[i][1]} s wall`, 'label hl', 'start'));
+      }
+      sceneRoot.appendChild(text(500, by0 + 2 * (bh + 16) + 16, '1.63× wall (PIM request time 112.5 → 70.2 s) — both arms answer "Paris"', 'label hl cyan'));
+      sceneRoot.appendChild(text(500, 460, 'the write-side phases shrank; the READ + bus + host-popcount path is untouched', 'label'));
+      sceneRoot.appendChild(text(500, 484, 'so the accumulation bottleneck (steps 3-5 of this scene) now weighs even more', 'label dim'));
+    }
   },
   caption(step) {
     const c = [
-      `<b>Per MAJ, eight phases run in sequence</b> in our current pipeline: setup (RowCopy, Multi-RowCopy, per-row writes, Frac) → the MAJ itself → result transfer (READ row, XDMA, host popcount). Phases 1-5 stay inside DRAM; 6-8 leave DRAM.`,
+      `<b>Per MAJ, eight phases run in sequence</b> in the production pipeline as of May 2026: setup (RowCopy, Multi-RowCopy, per-row writes, Frac) → the MAJ itself → result transfer (READ row, XDMA, host popcount). Phases 1-5 stay inside DRAM; 6-8 leave DRAM. (Steps 6-7 of this scene: what changed in July 2026.)`,
       `<b>The two regimes have very different cost.</b> Inside DRAM, the MAJ is parallel across thousands of bitlines in the subarray. Outside, the path is serial: one row of bits leaves through the DDR bus per MAJ, then the host runs popcount.`,
       `<b>The result-transfer phase dominates at scale.</b> Each MAJ returns a full DRAM row (e.g., 8 KiB on DDR4) that the host then collapses to one integer via popcount. Multiplied across the many MAJs a single transformer layer needs, this dominates wall time.`,
       `<b>External confirmation.</b> The POPCNT3 paper independently identifies this as the binding constraint on PuD for accumulation workloads, and proposes computing the popcount inside DRAM. They report 27×–348× throughput vs an A100 GPU on bulk bitwise accumulation (348× at the smallest tested kernel, 27× at the largest). Their setup parallelises across 256 banks (4 DIMMs × 64); our project today uses ~4 banks on one DIMM, so absolute speedups don't translate directly.`,
       `<b>Where to optimise.</b> The biggest leverage is shrinking what crosses the DRAM bus per MAJ. The setup phases are already amortised in our pipeline. The host popcount disappears if the chip returns a scalar.`,
+      `<b>July 2026: two levers landed</b> — both on the write-side phases (1-3 of the May breakdown), both enabled by the co-activation-lattice addressing characterized in the <a href="xor-spread.html">companion explainer</a>. (1) <b>Persistent weights</b>: W stays resident, and the per-MAJ weight reload (per-column write, 3 host round-trips) becomes one in-DRAM clone from a backup row at a safe pair offset. (2) <b>Coset activation update</b>: the 10 activation wrRows (5×x + 5×zero) collapse to 4 wrRows + 2 in-tuple coset doubleACTs with the same 5/5/5 vote balance — the balance is a hard rule (the unbalanced 7W/4x/4z variant returns 99.7%/97.9% bad segments). Fused into one per-MAJ program: <b>0.357→0.089 ms/MAJ (3.99×, die A)</b>, 0.556→0.085 (6.53×, die B), verified bit-exact every iteration (0/204,800 bad segments per die, iters=100).`,
+      `<b>July 2026 in production.</b> The same two levers behind <code>PIM_FUSED_COSET=1</code> in the long-running server: <b>9.7–9.8→6.4–6.9 ms/matmul</b> (bank 0) and 9.5–9.7→6.1 (4-bank) = <b>1.45–1.6×</b>, with every returned result bit-exact against the host reference. On the real model (BitNet b1.58-2B, layer 0's seven projections in DRAM, 4-bank, 8 tokens): <b>117.2→71.8 s wall = 1.63×</b> (PIM request time 112.5→70.2 s); both arms answer "Paris". The read-side path (READ, bus, host popcount) is untouched — the May bottleneck analysis still stands, with even more of the remaining time now on the bus.`,
     ];
     return c[step];
   },
-  codeRef() {
+  codeRef(step) {
+    if (step >= 5) {
+      return `<span class="src">code: app/test_fused_maj.cpp (tool A/B)</span>
+<span class="cm">A  = production shape: per-col write W +</span>
+<span class="cm">     [broadcast, 11 uniform wrRows, frac×3,</span>
+<span class="cm">      MAJ3, read]</span>
+<span class="cm">B2 = fused: clone backup→Rfirst + [broadcast,</span>
+<span class="cm">     5 wrRows + 2 coset doubleACTs, frac×3,</span>
+<span class="cm">     MAJ3, read] — 5/5/5 balance kept</span>
+<span class="hl">iters=100: 0.357/0.556 → 0.089/0.085 ms/MAJ</span>
+<span class="hl">= 3.99× / 6.53×; 0/204,800 bad per die</span>
+
+<span class="src">code: app/test_bitnet_server.cpp (PIM_FUSED_COSET)</span>
+<span class="cm">coset activation update in the MAJ3 body;</span>
+<span class="cm">x on {1,5,9,13}+{4}, zeros on {2,6,10,14}+{8}</span>
+
+<span class="src">code: python/ab_fused_server.py</span>
+<span class="cm">same --seed → byte-identical requests;</span>
+<span class="cm">baseline vs PIM_FUSED_COSET=1 arm:</span>
+<span class="hl">1.45–1.6×/matmul; real model 1.63×/8-tok run</span>`;
+    }
     return `<span class="src">code: test_bitnet_server.cpp:228-300</span>
 <span class="cm">emit_bank_combined_body — the 8 phases per MAJ:</span>
 <span class="cm">  1. RowCopy   (doubleACT)</span>
