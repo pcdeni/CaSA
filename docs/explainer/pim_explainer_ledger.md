@@ -110,3 +110,20 @@ Each wishlist item maps to a specific bottleneck or limitation established earli
 | **4. Direct support for fractional-value cells** — eliminate the Frac sequence's vendor variability | FracDRAM observes Micron/Elpida/Nanya reject the Frac sequence | [paper:FracDRAM §V-A lines 348-354] |
 | **5. Cross-subarray compute via shared sense amps** — bigger compute fabric than one subarray | Today's PuD ops are confined to one subarray (SiMRA) or neighbor pairs (FCDRAM); extending across the whole bank would scale parallelism | [paper:FCDRAM §1, §2.1]; SiMRA acknowledges this as a limit |
 | **6. Smaller calibration burden** via deterministic per-chip behaviour | Today we sweep millions of `(R_F, R_S, open_rows[K])` combos per DIMM to find usable tuples (per our project's FindOpenRows / MajOperations sweep) | [paper:SiMRA Limitation: per-chip variation]; [code: our project's calibration sweep] |
+
+---
+
+## Scene 9 addendum — "July 2026: two levers landed" (steps 6–7, added 2026-07-17)
+
+Steps 1–5 of Scene 9 are unchanged and now carry an explicit "as of
+May 2026" dating (their claim rows above still apply). The two new steps:
+
+| Claim | Source |
+|---|---|
+| Lever 1 (persistent weights): the per-MAJ weight reload — a per-column write of W taking 3 host round-trips — becomes one in-DRAM clone from a backup row at a safe pair offset | [code:app/test_fused_maj.cpp] (header: "A (production shape): per-column write W → Rfirst (3 execs)"; "B: clone backup→Rfirst"); safe offset rule from [code:app/test_safe_load.cpp] |
+| Lever 2 (coset activation update): the 11 uniform wrRows (ONE + 5×x + 5×zero) become 5 wrRows + 2 in-tuple coset doubleACTs — i.e. the 10 activation-slot writes collapse to 4 wrRows + 2 doubleACTs, x on positions {1,5,9,13}+{4}, zeros on {2,6,10,14}+{8}, same 5/5/5 vote balance | [code:app/test_bitnet_server.cpp:258-296] (the `PIM_FUSED_COSET` block and its comment) |
+| The 5/5/5 vote balance is a hard rule; the unbalanced 7W/4x/4z variant is WRONG (99.7%/97.9% bad segments per die in the tool A/B) | [code:app/test_fused_maj.cpp] (B1 variant, iters=100 campaign 2026-07-17); the server comment independently marks the variant KNOWN WRONG [code:app/test_bitnet_server.cpp:270-272] |
+| Fused tool A/B, steady-state, iters=100, one process, verified every iteration: 0.357 → 0.089 ms/MAJ = 3.99× (die A = bender 2); 0.556 → 0.085 ms/MAJ = 6.53× (die B = bender 0); bit-exact 0/204,800 bad segments per die | [code:app/test_fused_maj.cpp] (checks `result == W & x` per iteration; run 2026-07-17) |
+| Production server, `PIM_FUSED_COSET=1`: 9.7–9.8 → 6.4–6.9 ms/matmul (bank 0) and 9.5–9.7 → 6.1 ms/matmul (4-bank) = 1.45–1.6×, every returned y bit-exact vs the exact host-side reference, both arms | [code:app/test_bitnet_server.cpp]; [code:python/ab_fused_server.py] (same `--seed` → byte-identical requests; per-request exact reference check) |
+| Real model: BitNet b1.58-2B, layer 0 × 7 projections in DRAM, 4-bank, 8 tokens — 117.2 → 71.8 s wall = 1.63× (PIM request time 112.5 → 70.2 s); both arms answer "Paris" | [code:python/run_bitnet_pim.py] + [code:app/test_bitnet_server.cpp] (A/B identical except the env flag; run 2026-07-17) |
+| The read-side path (READ, DDR bus, XDMA, host popcount) is untouched by both levers; the May bottleneck analysis stands, with a larger share of remaining time on the bus | [code:app/test_bitnet_server.cpp] (the fused path edits only the write-side program body — steps 1–3 of the May phase list); [editorial consequence] |
