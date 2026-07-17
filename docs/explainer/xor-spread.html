@@ -60,6 +60,7 @@
   <h1>The SiMRA doubleACT row-spread</h1>
   <span class="sub">A cross-DIMM characterization + the MAJ3 self-pollution it causes</span>
   <a href="index.html">← BitNet PIM explainer</a>
+  <a href="mvdram.html" style="margin-left:16px">The MVDRAM reproduction →</a>
 </header>
 <div class="banner"><b>Update, July 2026:</b> a SiMRA co-author confirmed the mechanism — the spread is Multi-RowCopy's co-activation lattice seen from the source side (latched predecoders), and assessed our XOR address-algebra as new; nearest prior art is FracDRAM (MICRO'22). We verified the mapping on our own data: all 696 production tuples are exact (R<sub>F</sub>,R<sub>S</sub>) lattices; 3,941/3,941 fault records contained. Scene 2's "source-specific" property is reinterpreted as pair algebra. Exchange: <a href="https://github.com/CMU-SAFARI/DRAM-Bender/issues/12">DRAM-Bender#12</a> · <a href="https://github.com/CMU-SAFARI/SiMRA-DRAM/issues/1">our verification + open questions</a>.</div>
 <nav id="nav"></nav>

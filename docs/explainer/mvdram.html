@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>The MVDRAM reproduction — what held, what reversed</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f1116; color: #e6e8ee; height: 100%; }
+  body { display: flex; flex-direction: column; height: 100vh; }
+  header { padding: 10px 18px; background: #161922; border-bottom: 1px solid #2a2f3d; display: flex; gap: 12px; align-items: center; flex-shrink: 0; }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; color: #ffd479; }
+  header .sub { color: #8a93a8; font-size: 13px; }
+  header .links { margin-left: auto; display: flex; gap: 16px; }
+  header .links a { color: #4f9bff; font-size: 12px; text-decoration: none; }
+  nav { display: flex; gap: 4px; padding: 8px 18px; background: #131722; flex-wrap: wrap; flex-shrink: 0; }
+  nav button { background: #1d2230; border: 1px solid #2a2f3d; color: #c3c9d8; padding: 4px 10px; cursor: pointer; border-radius: 4px; font-size: 12px; }
+  nav button:hover { background: #262d3e; }
+  nav button.active { background: #1d4ed8; color: white; border-color: #1d4ed8; }
+  main { flex: 1; display: grid; grid-template-columns: 1fr 380px; gap: 16px; padding: 14px 18px; min-height: 0; }
+  .stage { background: #131722; border: 1px solid #2a2f3d; border-radius: 6px; display: flex; flex-direction: column; min-height: 0; }
+  .stage-title { padding: 10px 14px; border-bottom: 1px solid #2a2f3d; font-size: 14px; color: #ffd479; }
+  .canvas-wrap { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 8px; overflow: hidden; }
+  .canvas-wrap svg { max-width: 100%; max-height: 100%; }
+  .side { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+  .caption, .codepane { background: #131722; border: 1px solid #2a2f3d; border-radius: 6px; padding: 12px 14px; font-size: 13px; line-height: 1.5; }
+  .caption { color: #c3c9d8; min-height: 120px; }
+  .caption b { color: #ffd479; }
+  .caption .ex { color: #22c1c3; font-weight: 600; }
+  .caption code { background: #1f2434; padding: 1px 5px; border-radius: 3px; font-size: 12px; color: #ffd479; }
+  .caption a, .codepane a { color: #4f9bff; text-decoration: none; }
+  .codepane { font-family: ui-monospace, monospace; font-size: 11.5px; color: #8a93a8; overflow: auto; max-height: 280px; }
+  .codepane .hl { color: #ffd479; }
+  .codepane .cm { color: #5a6178; font-style: italic; }
+  .codepane .src { display: block; color: #4f9bff; margin-top: 6px; margin-bottom: 2px; font-size: 11px; font-weight: 600; }
+  .controls { padding: 10px 18px; background: #161922; border-top: 1px solid #2a2f3d; display: flex; gap: 10px; align-items: center; flex-shrink: 0; }
+  .controls button { background: #1d2230; border: 1px solid #2a2f3d; color: #e6e8ee; padding: 6px 14px; cursor: pointer; border-radius: 4px; font-size: 13px; }
+  .controls button:hover { background: #262d3e; }
+  .controls button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .controls .step { color: #8a93a8; font-size: 13px; margin-left: 8px; }
+  .controls .step b { color: #e6e8ee; }
+  .controls .scenefoot { color: #5a6178; font-size: 12px; margin-left: auto; }
+  .cap { fill: #3a86ff; stroke: #4f9bff; }
+  .cap.empty { fill: #1d2230; stroke: #4f9bff; }
+  .cap.src { fill: #c2410c; stroke: #f97316; }
+  .row-line { stroke: #ffd479; stroke-width: 1.5; }
+  .row-line.dim { stroke: #5a6178; stroke-width: 1; }
+  .bitline { stroke: #5e6678; stroke-width: 1; }
+  .bitline.hot { stroke: #3a86ff; stroke-width: 2; }
+  .label { fill: #c3c9d8; font-family: monospace; font-size: 11px; }
+  .label.dim { fill: #5a6178; }
+  .label.hl { fill: #ffd479; }
+  .label.cyan { fill: #22c1c3; }
+  .label.orange { fill: #f97316; }
+  .arrow { stroke: #f97316; stroke-width: 2; fill: none; marker-end: url(#ah); }
+  .banner { padding: 7px 18px; background: #12291b; border-bottom: 1px solid #1f4d33; color: #9ae6b4; font-size: 12.5px; flex-shrink: 0; }
+  .banner a { color: #4f9bff; text-decoration: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>The MVDRAM reproduction</h1>
+  <span class="sub">What the paper claims, what reproduced on our silicon, and the June→July reversal</span>
+  <span class="links"><a href="index.html">← BitNet PIM explainer</a><a href="xor-spread.html">The doubleACT row-spread →</a></span>
+</header>
+<div class="banner">Interactive companion to the written study <a href="https://github.com/pcdeni/CaSA/blob/main/docs/MVDRAM_REPRODUCTION.md">docs/MVDRAM_REPRODUCTION.md</a> (updated 2026-07-17: <b>Result A stands, Result B reversed</b> — §8). Paper: <a href="https://arxiv.org/abs/2503.23817">MVDRAM, arXiv:2503.23817</a>. Every claim cites the paper (§/Fig/Table), a reproducer in <a href="https://github.com/pcdeni/CaSA">this repo</a>, a data file in <code>docs/data/</code>, or a linked issue — see the <a href="https://github.com/pcdeni/CaSA/blob/main/docs/explainer/mvdram_explainer_ledger.md">claim ledger</a>.</div>
+<nav id="nav"></nav>
+<main>
+  <div class="stage">
+    <div class="stage-title" id="stage-title">—</div>
+    <div class="canvas-wrap"><svg id="canvas" viewBox="0 0 1000 600" preserveAspectRatio="xMidYMid meet">
+      <defs><marker id="ah" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><polygon points="0 0, 8 4, 0 8" fill="#f97316"/></marker></defs>
+      <g id="scene"></g>
+    </svg></div>
+  </div>
+  <aside class="side">
+    <div class="caption" id="caption">—</div>
+    <div class="codepane" id="codepane">—</div>
+  </aside>
+</main>
+<div class="controls">
+  <button id="prevBtn">◀ Prev</button>
+  <button id="playBtn">▶ Play</button>
+  <button id="nextBtn">Next ▶</button>
+  <span class="step">Step <b id="stepNum">1</b> / <b id="stepMax">1</b></span>
+  <span class="scenefoot" id="scenefoot">Scene 1 of 9</span>
+</div>
+<script>
+const SVG_NS='http://www.w3.org/2000/svg';
+const sceneRoot=document.getElementById('scene'), captionEl=document.getElementById('caption'),
+      codeEl=document.getElementById('codepane'), titleEl=document.getElementById('stage-title'),
+      stepNumEl=document.getElementById('stepNum'), stepMaxEl=document.getElementById('stepMax'),
+      sceneFoot=document.getElementById('scenefoot'), nav=document.getElementById('nav');
+function el(n,a={},c=[]){const e=document.createElementNS(SVG_NS,n);for(const[k,v]of Object.entries(a))e.setAttribute(k,v);for(const x of c)e.appendChild(x);return e;}
+function text(x,y,s,cls='label',anchor='middle'){const t=el('text',{x,y,class:cls,'text-anchor':anchor,'dominant-baseline':'middle'});t.textContent=s;return t;}
+function rect(x,y,w,h,cls,extra={}){return el('rect',Object.assign({x,y,width:w,height:h,class:cls,rx:1,ry:1},extra));}
+function line(x1,y1,x2,y2,cls){return el('line',{x1,y1,x2,y2,class:cls});}
+function clearScene(){sceneRoot.innerHTML='';}
+
+// SCENE 1 — what MVDRAM claims
+const m1={ title:'Scene 1 — What MVDRAM claims', steps:4, render(step){
+  clearScene();
+  const heads=['GeMV for low-bit LLMs executed inside unmodified DDR4, operands moving in-DRAM',
+               'headline kernel: 32000×4096 GeMV, 1-bit vector × 2-bit matrix (paper §VIII-B)',
+               'headline end-to-end: real llama.cpp runs with mulmat_op replaced (§VIII-A, Fig 16)',
+               'what the baselines actually are (paper Table II; energy method: Fig 14/17)'];
+  sceneRoot.appendChild(text(500,26,heads[step],'label hl'));
+  if(step===0){
+    const boxes=[['matrix resident in DRAM','weight rows preloaded once (both polarities — dual-track)'],
+                 ['per inference: RowCopy + MAJX chains','operands move row-to-row INSIDE the array, avoiding the memory bus'],
+                 ['small result readout','row-wise aggregated sums are all that crosses the bus']];
+    for(let i=0;i<3;i++){const y=80+i*130;
+      sceneRoot.appendChild(rect(200,y,600,90,'',{fill:'#1d2230',stroke:'#4f9bff','stroke-width':2,rx:5}));
+      sceneRoot.appendChild(text(500,y+32,boxes[i][0],'label hl'));
+      sceneRoot.appendChild(text(500,y+60,boxes[i][1],'label'));
+      if(i<2) sceneRoot.appendChild(el('path',{d:'M 500 '+(y+90)+' L 500 '+(y+128),class:'arrow'}));}
+    sceneRoot.appendChild(text(500,490,'two PUD primitives: RowCopy (APA copy) + MAJX (majority over X co-activated rows)','label dim'));
+    sceneRoot.appendChild(text(500,514,'the performance claim rests on that chain being executable in-DRAM (its Fig 3 profile)','label dim'));
+  }
+  if(step===1){
+    const bars=[['CPU (i7-9700K)',1.44,'#6b8ec9'],['GPU (Jetson Orin Nano)',1.70,'#6b8ec9'],['MVDRAM total',0.19,'#22c1c3']];
+    const bx=310,by0=110,bh=46,scale=330;
+    for(let i=0;i<3;i++){const y=by0+i*(bh+26);const w=Math.max(4,bars[i][1]*scale);
+      sceneRoot.appendChild(text(bx-14,y+bh/2,bars[i][0],'label','end'));
+      sceneRoot.appendChild(rect(bx,y,w,bh,'',{fill:bars[i][2],opacity:0.8,rx:2}));
+      sceneRoot.appendChild(text(bx+w+12,y+bh/2,bars[i][1].toFixed(2)+' ms','label hl','start'));}
+    // MVDRAM split
+    const y2=by0+2*(bh+26);
+    sceneRoot.appendChild(line(bx+0.14*scale,y2-6,bx+0.14*scale,y2+bh+6,'bitline hot'));
+    sceneRoot.appendChild(text(bx+120,y2+bh+22,'0.14 in-DRAM + 0.05 aggregation','label cyan','start'));
+    sceneRoot.appendChild(text(500,400,'→ 7.29× vs CPU, 8.55× vs GPU (their measurement, their rig)','label hl'));
+    sceneRoot.appendChild(text(500,428,'scaling to 32768×32768 (2-bit): 3.38× / 3.74×','label dim'));
+    sceneRoot.appendChild(text(500,466,'benchmark convention: 1,000-iteration averages, inputs at 50% bit sparsity (§VIII-A)','label dim'));
+  }
+  if(step===2){
+    sceneRoot.appendChild(rect(150,80,700,180,'',{fill:'#1d2230',stroke:'#4f9bff','stroke-width':2,rx:5}));
+    sceneRoot.appendChild(text(500,108,'four models: Llama2-7B · Llama2-13B · Llama3-8B · Phi-4','label hl'));
+    sceneRoot.appendChild(text(500,136,'llama.cpp, with mulmat_op operations replaced by the MVDRAM implementation','label'));
+    sceneRoot.appendChild(text(500,164,'256 generated tokens, averaged over 10 runs','label'));
+    sceneRoot.appendChild(text(500,196,'a REAL end-to-end run through DRAM — not a projection','label cyan'));
+    sceneRoot.appendChild(text(500,228,'(this matters: it is the strongest part of the paper\'s evidence)','label dim'));
+    const bars=[['2-bit Llama2-13B vs CPU',2.18],['same, vs GPU',3.33],['4-bit vs CPU',1.31]];
+    const bx=380,by0=300,bh=34,scale=130;
+    for(let i=0;i<3;i++){const y=by0+i*(bh+18);const w=bars[i][1]*scale;
+      sceneRoot.appendChild(text(bx-14,y+bh/2,bars[i][0],'label','end'));
+      sceneRoot.appendChild(rect(bx,y,w,bh,'',{fill:'#1d4ed8',opacity:0.8,rx:2}));
+      sceneRoot.appendChild(text(bx+w+12,y+bh/2,bars[i][1].toFixed(2)+'×','label hl','start'));}
+  }
+  if(step===3){
+    const cards=[
+      ['CPU baseline','Intel i7-9700K — running on the SAME DDR4-2400 modules (77 GB/s)','a fair memory-technology match'],
+      ['GPU baseline','NVIDIA Jetson Orin Nano — LPDDR5, 68 GB/s','an edge part, not a datacenter GPU'],
+      ['energy numbers (30.5× GeMV / 3.04× per-token vs CPU)','MVDRAM power is CACTI-ESTIMATED [their ref 56]','baselines are measured (RAPL / tegrastats) — asymmetric methods'],
+    ];
+    for(let i=0;i<3;i++){const y=70+i*130;
+      sceneRoot.appendChild(rect(120,y,760,110,'',{fill:'#1d2230',stroke:i===2?'#f97316':'#4f9bff','stroke-width':2,rx:5}));
+      sceneRoot.appendChild(text(140,y+26,cards[i][0],'label hl','start'));
+      sceneRoot.appendChild(text(140,y+56,cards[i][1],'label','start'));
+      sceneRoot.appendChild(text(140,y+84,cards[i][2],i===2?'label orange':'label dim','start'));}
+    sceneRoot.appendChild(text(500,490,'robustness to temperature/voltage (§IX) is cited from prior work [36], not measured by them','label dim'));
+  }
+},
+caption(step){return[
+ `<b>The claim.</b> MVDRAM (arXiv:2503.23817) executes GeMV for low-bit LLMs inside unmodified DDR4 using two PUD primitives — RowCopy and MAJX — <em>chained</em> so operands move between rows inside the DRAM, avoiding the memory bus. Matrix rows are preloaded once; per inference, in-DRAM traffic is RowCopy + MAJX sequences plus a small readout. The performance claim rests entirely on that chainability (its Fig 3 latency profile).`,
+ `<b>Headline kernel numbers (§VIII-B).</b> For a 32000×4096 GeMV at llama2-7B dimensions, 1-bit vector × 2-bit matrix: CPU 1.44 ms, GPU 1.70 ms, MVDRAM 0.14 ms in-DRAM + 0.05 ms aggregation = 0.19 ms — <b>7.29× vs CPU, 8.55× vs GPU</b>. At 32768×32768 (2-bit) the gain is 3.38×/3.74×. Benchmark method (§VIII-A): 1,000-iteration averages, inputs at 50% bit sparsity (their "typical LLM distribution").`,
+ `<b>Headline end-to-end (§VIII-A, Fig 16).</b> Four models — Llama2-7B, Llama2-13B, Llama3-8B, Phi-4 — on llama.cpp with mulmat_op replaced by MVDRAM; 256 generated tokens averaged over 10 runs. Result: <b>2.18×</b> vs CPU for 2-bit Llama2-13B (3.33× vs GPU), <b>1.31×</b> vs CPU at 4-bit. This is a real measured run through DRAM, not a projection — the strongest part of the paper's evidence.`,
+ `<b>What the baselines are (Table II).</b> CPU: i7-9700K using the <em>same</em> DDR4-2400 modules (77 GB/s) — a fair match. GPU: Jetson Orin Nano (LPDDR5, 68 GB/s) — an edge part, not a datacenter GPU; the 8.55×/3.33× figures should be read with that in mind. Energy (Fig 14/17: 30.5× GeMV, 3.04× per-token): MVDRAM's power is <b>CACTI-estimated</b> [56] while both baselines are measured — an asymmetric method the paper states and we restate.`,
+][step];},
+codeRef(){return `<span class="src">paper: MVDRAM, arXiv:2503.23817 (v2)</span>
+<span class="cm">§VIII-B  GeMV numbers (1.44/1.70/0.19 ms;</span>
+<span class="cm">         7.29×/8.55×; 3.38×/3.74× scaling)</span>
+<span class="cm">§VIII-A  method: llama.cpp + mulmat_op</span>
+<span class="cm">         replacement; 256 tok × 10 runs;</span>
+<span class="cm">         1,000-iter GeMV avgs; 50% sparsity</span>
+<span class="cm">Fig 16   end-to-end 2.18× (2-bit) / 1.31× (4-bit)</span>
+<span class="cm">Table II CPU i7-9700K (same DDR4 modules);</span>
+<span class="cm">         GPU Jetson Orin Nano</span>
+<span class="cm">Fig 14/17 energy — MVDRAM side CACTI [56],</span>
+<span class="cm">         baselines measured</span>
+<span class="cm">§IX      temp/voltage robustness cited from [36]</span>
+
+<span class="src">context in this repo</span>
+<span class="cm">docs/MVDRAM_REPRODUCTION.md §1 "What MVDRAM claims"</span>`;}};
+
+// SCENE 2 — their two techniques
+const m2={ title:'Scene 2 — Their two techniques', steps:4, render(step){
+  clearScene();
+  const heads=['technique 1: on-the-fly vector encoding — products by selective RowCopy (§V, Fig 6)',
+               'technique 1b: bit-sparsity skip — a=0 needs no operation at all (§V-D)',
+               'technique 2: horizontal layout — bitline = output, row-wise aggregation (§VI, Fig 7–10)',
+               'the accumulator: dual-track full adder — carry MAJ3, sum MAJ5 (§II-C1, §VII)'];
+  sceneRoot.appendChild(text(500,26,heads[step],'label hl'));
+  if(step<=1){
+    // W row and zero row, activation-bit mux into compute region
+    sceneRoot.appendChild(rect(160,120,280,44,'',{fill:'#1d2230',stroke:'#f97316',rx:4}));
+    sceneRoot.appendChild(text(300,142,'matrix row  W (preloaded)','label orange'));
+    sceneRoot.appendChild(rect(160,220,280,44,'',{fill:'#1d2230',stroke:'#4f9bff',rx:4}));
+    sceneRoot.appendChild(text(300,242,'zero row  (preloaded)','label'));
+    sceneRoot.appendChild(rect(560,160,300,64,'',{fill:'#10241a',stroke:'#22c1c3','stroke-width':2,rx:4}));
+    sceneRoot.appendChild(text(710,182,'computation region row','label cyan'));
+    sceneRoot.appendChild(text(710,206,'(the product a·W lands here)','label dim'));
+    sceneRoot.appendChild(el('path',{d:'M 440 142 Q 500 150 558 178',class:'arrow'}));
+    sceneRoot.appendChild(el('path',{d:'M 440 242 Q 500 232 558 206',class:'arrow'}));
+    sceneRoot.appendChild(text(492,120,'a=1: RowCopy W','label hl'));
+    sceneRoot.appendChild(text(492,268,'a=0: RowCopy zero row','label'));
+    sceneRoot.appendChild(text(500,330,'the activation bit a SELECTS the RowCopy source — the multiply is an addressing decision','label hl'));
+    if(step===1){
+      sceneRoot.appendChild(rect(200,380,600,90,'',{fill:'#1d2230',stroke:'#22c1c3','stroke-width':2,rx:5}));
+      sceneRoot.appendChild(text(500,408,'better still (§V-D): when a=0, SKIP the operation entirely','label cyan'));
+      sceneRoot.appendChild(text(500,436,'their GeMV inputs follow a 50% bit-sparsity convention (§VIII-A),','label'));
+      sceneRoot.appendChild(text(500,456,'so roughly half the product operations vanish','label'));
+    }
+  }
+  if(step===2){
+    // horizontal layout grid: columns = outputs, rows = partial products
+    const x0=250,y0=90,cw=64,ch=40,NC=7,NR=5;
+    for(let c=0;c<NC;c++){const hot=(c===2);
+      for(let r=0;r<NR;r++){
+        sceneRoot.appendChild(rect(x0+c*cw,y0+r*ch,cw-6,ch-6,'',{fill:hot?'#10241a':'#1d2230',stroke:hot?'#22c1c3':'#2a2f3d',rx:2}));}
+      sceneRoot.appendChild(line(x0+c*cw+(cw-6)/2,y0-14,x0+c*cw+(cw-6)/2,y0+NR*ch+4,hot?'bitline hot':'bitline'));}
+    for(let r=0;r<NR;r++) sceneRoot.appendChild(text(x0-24,y0+r*ch+(ch-6)/2,r<4?('product '+r):'…','label dim','end'));
+    sceneRoot.appendChild(text(x0+2*cw+(cw-6)/2,y0-28,'one bitline = one output element','label cyan'));
+    sceneRoot.appendChild(rect(x0,y0+NR*ch+16,NC*cw-6,ch-6,'',{fill:'#3a2a1a',stroke:'#f97316',rx:2}));
+    sceneRoot.appendChild(text(x0+(NC*cw-6)/2,y0+NR*ch+16+(ch-6)/2,'aggregated result row — read out row-wise','label orange'));
+    sceneRoot.appendChild(text(500,420,'partial-product rows stack in the subarray; MAJ-based adders reduce them','label'));
+    sceneRoot.appendChild(text(500,444,'down each bitline; the whole output vector leaves in row-major reads','label'));
+    sceneRoot.appendChild(text(500,480,'their partitioning: N ≤ 128 rows per subarray, spread over subarrays + 4 modules (§VII)','label dim'));
+  }
+  if(step===3){
+    sceneRoot.appendChild(rect(130,90,360,150,'',{fill:'#1d2230',stroke:'#4f9bff','stroke-width':2,rx:5}));
+    sceneRoot.appendChild(text(310,116,'dual-track data (§VII, Fig 15)','label hl'));
+    sceneRoot.appendChild(text(150,146,'every value stored in BOTH','label','start'));
+    sceneRoot.appendChild(text(150,166,'polarities (x and ¬x) —','label','start'));
+    sceneRoot.appendChild(text(150,186,'matrix rows + inverted matrix','label','start'));
+    sceneRoot.appendChild(text(150,206,'rows ≈ 2× matrix storage','label','start'));
+    sceneRoot.appendChild(rect(510,90,360,150,'',{fill:'#1d2230',stroke:'#f97316','stroke-width':2,rx:5}));
+    sceneRoot.appendChild(text(690,116,'full adder (§II-C1)','label hl'));
+    sceneRoot.appendChild(text(530,150,'carry  s₁ = MAJ3(x₀,x₁,x₂)','label orange','start'));
+    sceneRoot.appendChild(text(530,176,'sum    s₀ = MAJ5(x₀,x₁,x₂,¬s₁,¬s₁)','label orange','start'));
+    sceneRoot.appendChild(text(530,206,'→ the sum bit NEEDS reliable MAJ5','label','start'));
+    sceneRoot.appendChild(text(500,300,'"error-free" MAJX on their module rests on Frac operations [34] and','label'));
+    sceneRoot.appendChild(text(500,324,'calibration techniques [48] on top of reliable-column screening (§VII)','label'));
+    sceneRoot.appendChild(text(500,362,'remember this box — it returns in Scene 7 (we have not implemented [34]/[48])','label dim'));
+  }
+},
+caption(step){return[
+ `<b>On-the-fly vector encoding (§V, Fig 6).</b> The product of an activation bit and a preloaded matrix row is computed by <em>selecting the RowCopy source</em>: a=1 → copy the W row into the computation region; a=0 → copy a zero row. The multiply is an addressing decision, executed by the same RowCopy primitive that moves everything else.`,
+ `<b>Bit-sparsity skip (§V-D).</b> When a=0 the operation can simply be skipped — the computation region is prepared so that absent products contribute nothing. Their benchmark inputs follow a 50% bit-sparsity convention (§VIII-A, citing typical LLM activation distributions), so about half the product ops vanish.`,
+ `<b>Horizontal layout (§VI, Fig 7–10).</b> Each bitline position is one output element; partial-product rows stack in the subarray and MAJ-based adders reduce them down each bitline. The aggregated result leaves in row-major reads. Partitioning (§VII): N ≤ 128 rows per subarray, work spread across subarrays and 4 modules.`,
+ `<b>The accumulator (§II-C1, §VII, Fig 15).</b> Everything is stored dual-track (both polarities), roughly doubling matrix storage. The full adder computes carry s₁ = MAJ3(x₀,x₁,x₂) and sum s₀ = MAJ5(x₀,x₁,x₂,¬s₁,¬s₁) — so the sum bit needs reliable MAJ5. Their "error-free" MAJX rests on reliable-column screening plus Frac operations [34] and calibration [48]. Keep that dependency in mind for Scenes 6–8.`,
+][step];},
+codeRef(){return `<span class="src">paper: MVDRAM, arXiv:2503.23817 (v2)</span>
+<span class="cm">§V / Fig 6   on-the-fly encoding (RowCopy</span>
+<span class="cm">             source selected by a-bit)</span>
+<span class="cm">§V-D         skip op when a=0</span>
+<span class="cm">§VI / Fig 7–10  horizontal layout, row-wise</span>
+<span class="cm">             aggregation</span>
+<span class="cm">§VII         dual-track; N≤128/subarray;</span>
+<span class="cm">             Frac [34] + calibration [48]</span>
+<span class="cm">Fig 15       ≈2× matrix storage</span>
+<span class="cm">§II-C1       adder: carry MAJ3, sum MAJ5</span>
+
+<span class="src">our reproducers of these techniques (Scene 6)</span>
+<span class="cm">app/test_mvdram_gemv_inplace.cpp — encoding</span>
+<span class="cm">  (select-source RowClone) + PIM_SKIP (§V-D)</span>`;}};
+
+// SCENE 3 — what "reproduce" means here
+const m3={ title:'Scene 3 — What "reproduce" means here', steps:4, render(step){
+  clearScene();
+  const heads=['the paper released no source code — reproduction = re-derive from the text',
+               'their rig vs ours',
+               'their part selection: a 16-module screening (paper footnote 3, Table I)',
+               'so the questions our study can answer'];
+  sceneRoot.appendChild(text(500,26,heads[step],'label hl'));
+  if(step===0){
+    sceneRoot.appendChild(rect(200,120,600,140,'',{fill:'#1d2230',stroke:'#f97316','stroke-width':2,rx:5}));
+    sceneRoot.appendChild(text(500,152,'no artifact, no code, no module date codes published','label orange'));
+    sceneRoot.appendChild(text(500,182,'every mechanism below was re-implemented from the paper\'s','label'));
+    sceneRoot.appendChild(text(500,204,'own §/Fig descriptions on the DRAM-Bender platform','label'));
+    sceneRoot.appendChild(text(500,236,'our reproducers ARE public and run on any DRAM-Bender setup','label cyan'));
+    sceneRoot.appendChild(text(500,320,'(the study\'s falsifiability list — date codes, a runnable reproducer, a loaner','label dim'));
+    sceneRoot.appendChild(text(500,342,'module, temperature retest — is §6 of docs/MVDRAM_REPRODUCTION.md)','label dim'));
+  }
+  if(step===1){
+    const cards=[
+      ['THEIRS (§VII, Fig 11)','host PC + DRAM Bender on Xilinx Alveo U200','4× SK Hynix DDR4-2400, part HMA851U6CJR6N-UHN0','#4f9bff'],
+      ['OURS (study §2)','DRAM-Bender on Xilinx BCU1525, quad-controller bitstream','6 modules: 2× NEW units of their exact named part + 4 commodity DDR4 UDIMMs','#22c1c3'],
+    ];
+    for(let i=0;i<2;i++){const y=90+i*160;
+      sceneRoot.appendChild(rect(120,y,760,130,'',{fill:'#1d2230',stroke:cards[i][3],'stroke-width':2,rx:5}));
+      sceneRoot.appendChild(text(140,y+28,cards[i][0],'label hl','start'));
+      sceneRoot.appendChild(text(140,y+62,cards[i][1],'label','start'));
+      sceneRoot.appendChild(text(140,y+94,cards[i][2],'label','start'));}
+    sceneRoot.appendChild(text(500,430,'same command primitives (doubleACT timing envelopes), same controller family','label dim'));
+    sceneRoot.appendChild(text(500,454,'our tests at ambient temperature (heated retest planned — study §6)','label dim'));
+  }
+  if(step===2){
+    sceneRoot.appendChild(rect(140,80,720,200,'',{fill:'#1d2230',stroke:'#f97316','stroke-width':2,rx:5}));
+    sceneRoot.appendChild(text(500,108,'footnote 3: they characterized 16 SK Hynix modules and picked this part as','label'));
+    sceneRoot.appendChild(text(500,134,'"the most reliable one that supports both strict RowCopy and MAJX operations"','label orange'));
+    sceneRoot.appendChild(text(500,160,'(up to MAJ15)','label dim'));
+    sceneRoot.appendChild(text(500,192,'Table I: 54,365–61,727 of 65,536 columns reliable per module = 82.9–95.1%','label hl'));
+    sceneRoot.appendChild(text(500,218,'compute restricted to consecutive runs of q reliable columns (§VII)','label'));
+    sceneRoot.appendChild(text(500,244,'+ Frac [34] and calibration [48] to reach error-free MAJX','label'));
+    sceneRoot.appendChild(text(500,330,'the screening is disclosed — but 15 of 16 modules did NOT make the cut,','label hl'));
+    sceneRoot.appendChild(text(500,354,'and nothing tells a reader which purchasable modules would','label hl'));
+  }
+  if(step===3){
+    const qs=[['Q1  does the named part, bought today, do PUD at all?','→ Scene 4 (Result A)'],
+              ['Q2  do the paper\'s mechanisms reproduce on PUD-capable silicon?','→ Scene 6 (scoreboard)'],
+              ['Q3  does the chained in-DRAM dataflow actually run?','→ Scene 5 (Result B: June no → July yes)'],
+              ['Q4  what did we NOT attempt?','→ Scene 7 (open work, stated plainly)']];
+    for(let i=0;i<4;i++){const y=90+i*100;
+      sceneRoot.appendChild(rect(130,y,740,80,'',{fill:'#1d2230',stroke:'#4f9bff','stroke-width':2,rx:5}));
+      sceneRoot.appendChild(text(150,y+30,qs[i][0],'label hl','start'));
+      sceneRoot.appendChild(text(150,y+56,qs[i][1],'label cyan','start'));}
+  }
+},
+caption(step){return[
+ `<b>Paper-only reproduction.</b> MVDRAM published no source code, no artifact, and no module date codes — so "reproduce" means re-deriving every mechanism from the paper's own §/Fig descriptions on the same open platform family (DRAM-Bender). Our reproducers are public and run on any DRAM-Bender setup; the study's falsifiability conditions (date codes, loaner module, temperature retest) are listed in <code>docs/MVDRAM_REPRODUCTION.md</code> §6.`,
+ `<b>The rigs.</b> Theirs (§VII, Fig 11): DRAM Bender on a Xilinx Alveo U200 with four SK Hynix DDR4-2400 modules, part HMA851U6CJR6N-UHN0. Ours (study §2): DRAM-Bender on a Xilinx BCU1525 with a quad-controller bitstream, six modules — including <b>two brand-new units of their exact named part</b> — driven by the same doubleACT timing-envelope primitives. Our tests ran at ambient temperature (a heated retest is planned, study §6).`,
+ `<b>Their part is one survivor of a 16-module screening.</b> Footnote 3: they characterized 16 SK Hynix modules and selected this part as "the most reliable one that supports both strict RowCopy and MAJX operations" (up to MAJ15). Table I: 82.9–95.1% reliable columns per module; computation restricted to consecutive runs of reliable columns, with Frac [34] + calibration [48] closing the gap to error-free. The screening is disclosed — but 15 of 16 modules did not make the cut, and nothing tells a reader which purchasable modules would.`,
+ `<b>What our study can and cannot answer.</b> It answers: does the named part, bought today, do PUD (Scene 4); do the individual mechanisms reproduce (Scene 6); does the chained dataflow run on spread-afflicted commodity silicon (Scene 5). It does not run their exact llama.cpp benchmark or their Frac/calibration stack — those are stated as open work in Scene 7, not silently skipped.`,
+][step];},
+codeRef(){return `<span class="src">paper: MVDRAM, arXiv:2503.23817 (v2)</span>
+<span class="cm">§VII / Fig 11  system: U200 + DRAM Bender +</span>
+<span class="cm">               HMA851U6CJR6N-UHN0 ×4</span>
+<span class="cm">footnote 3     16-module screening</span>
+<span class="cm">Table I        82.9–95.1% reliable columns</span>
+<span class="cm">§VII           consecutive reliable runs;</span>
+<span class="cm">               Frac [34] + calibration [48]</span>
+
+<span class="src">this repo</span>
+<span class="cm">docs/MVDRAM_REPRODUCTION.md §2 (our setup),</span>
+<span class="cm">§6 (falsifiability conditions)</span>
+<span class="cm">reproducers: app/test_rowclone_random.cpp,</span>
+<span class="cm">app/test_rowclone_smoke.cpp, app/test_spread.cpp,</span>
+<span class="cm">app/test_mvdram_*.cpp</span>`;}};
+
+// SCENE 4 — Result A
+const m4={ title:'Scene 4 — Result A: the named part performs no PUD in our hands', steps:4, render(step){
+  clearScene();
+  const heads=['we bought the paper\'s exact part number, new, twice',
+               'zero charge-sharing operations — across every timing and 60,000 random pairs',
+               'the control: a commodity PUD-capable module, same tool, same day',
+               'what this does and does not mean'];
+  sceneRoot.appendChild(text(500,26,heads[step],'label hl'));
+  if(step===0){
+    for(let i=0;i<2;i++){const x=150+i*380;
+      sceneRoot.appendChild(rect(x,100,320,150,'',{fill:'#1d2230',stroke:'#4f9bff','stroke-width':2,rx:5}));
+      sceneRoot.appendChild(text(x+160,130,'SK Hynix HMA851U6CJR6N-UHN0','label hl'));
+      sceneRoot.appendChild(text(x+160,158,'new unit '+(i?'B':'A')+' (June 2026)','label'));
+      sceneRoot.appendChild(text(x+160,192,'works PERFECTLY as memory','label cyan'));
+      sceneRoot.appendChild(text(x+160,216,'(full row write/readback verified)','label dim'));}
+    sceneRoot.appendChild(text(500,320,'the exact DDR4-2400 part the paper names in §VII — purchased new, two units','label'));
+    sceneRoot.appendChild(text(500,352,'baseline sanity: 25/25 constellation rows verify in the spread-test harness','label dim'));
+  }
+  if(step===1){
+    const rows=[['RowClone, fixed pairs, t₁₂ swept 5→150 (14 values), t₂₃ 1→4','best 41/8192 bytes = noise floor, every timing'],
+                ['RowClone, 30,000 RANDOM pairs per module (rows uniform in [0,65536))','0 clones, 0 partials; best 45 and 47 of 8192'],
+                ['SiMRA characterization sweep (RowClone stage), 9.3M attempts','max match 0; zero co-activatable row groups']];
+    for(let i=0;i<3;i++){const y=80+i*120;
+      sceneRoot.appendChild(rect(110,y,780,100,'',{fill:'#2a1a1a',stroke:'#7f1d1d','stroke-width':2,rx:5}));
+      sceneRoot.appendChild(text(130,y+30,rows[i][0],'label','start'));
+      sceneRoot.appendChild(text(130,y+64,rows[i][1],'label orange','start'));}
+    sceneRoot.appendChild(text(500,480,'both units, identical outcome: not one charge-share event in 60,000 random pairs','label hl'));
+  }
+  if(step===2){
+    sceneRoot.appendChild(rect(110,90,780,130,'',{fill:'#10241a',stroke:'#22c1c3','stroke-width':2,rx:5}));
+    sceneRoot.appendChild(text(130,120,'control module (commodity DDR4, PUD-capable): same random-pair tool →','label','start'));
+    sceneRoot.appendChild(text(130,152,'6 full clones in 500 pairs (1.2%) — the expected same-subarray hit rate','label cyan','start'));
+    sceneRoot.appendChild(text(130,184,'SiMRA sweep on the control: 640-row subarray structure found within minutes','label cyan','start'));
+    sceneRoot.appendChild(text(500,290,'why random pairs matter: row addresses are scrambled vs physical location,','label'));
+    sceneRoot.appendChild(text(500,314,'so fixed-stride pairs can straddle physical subarrays — random pairs land','label'));
+    sceneRoot.appendChild(text(500,338,'same-subarray at ~1% and would show clones if the effect existed at all','label'));
+    sceneRoot.appendChild(text(500,378,'this rules out: address scrambling, timing choice, row choice, dead modules','label hl'));
+  }
+  if(step===3){
+    const pts=[['what it means','a part that performs no PUD operations cannot execute any part of MVDRAM\'s method — as purchased today','#f97316'],
+               ['what it does NOT mean','that the paper\'s measurements are wrong — their footnote-3 screening (1 of 16 modules) is consistent with severe inter-module variance within one part number','#4f9bff'],
+               ['open with the authors','date codes / SPD dumps of their four modules would make batch differences checkable (study §6.1)','#22c1c3']];
+    for(let i=0;i<3;i++){const y=80+i*140;
+      sceneRoot.appendChild(rect(110,y,780,116,'',{fill:'#1d2230',stroke:pts[i][2],'stroke-width':2,rx:5}));
+      sceneRoot.appendChild(text(130,y+26,pts[i][0],'label hl','start'));
+      const words=pts[i][1].split(' ');const mid=Math.ceil(words.length/2);
+      sceneRoot.appendChild(text(130,y+58,words.slice(0,mid).join(' '),'label','start'));
+      sceneRoot.appendChild(text(130,y+82,words.slice(mid).join(' '),'label','start'));}
+  }
+},
+caption(step){return[
+ `<b>Result A setup.</b> We bought two brand-new units of SK Hynix HMA851U6CJR6N-UHN0 — the exact DDR4-2400 part number the paper names (§VII) — in June 2026. Both work perfectly as ordinary memory: per-column writes and reads of fingerprint patterns verify 100% across rows and banks (25/25 constellation rows in the spread-test baseline).`,
+ `<b>Zero PUD.</b> Fixed-pair RowClone with t₁₂ swept 5→150 over 14 values (t₂₃ 1→4): best 41/8192 bytes — the noise floor — at every timing. 30,000 <em>random</em> pairs per module (rows uniform over the whole address space): <b>0 clones</b>, best 45 and 47 of 8192 bytes. A full SiMRA characterization sweep (9.3M attempts): max match 0, zero co-activatable row groups — every "subarray" is a singleton.`,
+ `<b>The control says the tool works.</b> A commodity PUD-capable module, same tool: 6 full clones in 500 random pairs (1.2% — the expected same-physical-subarray rate), and the SiMRA sweep finds its 640-row subarray structure within minutes. Random pairs are the key: address scrambling means fixed-stride pairs can straddle physical subarrays, but random pairs land in-subarray at ~1% — on the new units, not one pair in 60,000 interacted. That rules out scrambling, timing choice, row choice, and dead modules.`,
+ `<b>Interpretation, stated carefully.</b> A part that performs no PUD operations cannot execute any part of MVDRAM's method — as purchasable today. This does <em>not</em> claim their measurements are wrong: their own footnote 3 says they screened 16 modules and kept one, which is consistent with severe inter-module variance inside one part number. The study's ask (§6): date codes / SPD dumps of their four modules, so batch-level differences become checkable. Result A is unaffected by the Result B reversal.`,
+][step];},
+codeRef(){return `<span class="src">reproducers</span>
+<span class="cm">app/test_rowclone_random.cpp — 30,000</span>
+<span class="cm">  random pairs/module scanner</span>
+<span class="cm">app/test_rowclone_smoke.cpp — fixed pairs,</span>
+<span class="cm">  PIM_T12 timing override</span>
+
+<span class="src">raw logs (docs/data/mvdram-repro/)</span>
+<span class="cm">rcrand_b0.log / rcrand_b3.log:</span>
+<span class="hl">0 clones / 30,000 pairs each;</span>
+<span class="hl">best 45/8192 and 47/8192</span>
+<span class="cm">control: 6 full clones in 500 pairs</span>
+
+<span class="src">study</span>
+<span class="cm">docs/MVDRAM_REPRODUCTION.md §3 (Result A),</span>
+<span class="cm">§6 (falsifiability); paper §VII + footnote 3</span>`;}};
+
+// SCENE 5 — Result B journey
+const m5={ title:'Scene 5 — Result B: June\'s collapse, July\'s reversal', steps:5, render(step){
+  clearScene();
+  const heads=['June 2026: on PUD-capable modules, the paper\'s dataflow collapses',
+               'the cause is real — but June\'s model of it was wrong',
+               'July 2026: the pair-offset law makes in-DRAM loading clean BY CONSTRUCTION',
+               'same DAG, only the placement changed: 6.1% → 99.98%',
+               'and fusing the gate makes the faithful shape FASTER than host-mediated'];
+  sceneRoot.appendChild(text(500,26,heads[step],'label hl'));
+  // timeline
+  const ty=70;
+  sceneRoot.appendChild(line(150,ty,850,ty,'bitline'));
+  sceneRoot.appendChild(el('circle',{cx:250,cy:ty,r:7,fill:step<2?'#f97316':'#5a6178'}));
+  sceneRoot.appendChild(text(250,ty-18,'June 2026','label '+(step<2?'orange':'dim')));
+  sceneRoot.appendChild(el('circle',{cx:750,cy:ty,r:7,fill:step>=2?'#22c1c3':'#2a2f3d'}));
+  sceneRoot.appendChild(text(750,ty-18,'July 2026','label '+(step>=2?'cyan':'dim')));
+  if(step===0){
+    const rows=[['computation-rows dataflow (RowCopy in → MAJ → RowCopy out), full popcount','6.1% end-to-end; per-op MAJ 50.3% = coin flip'],
+                ['on-the-fly encoding (products by selective RowCopy)','11.3% — vs 99.9% for the IDENTICAL GeMV with host-written products'],
+                ['RowClone-loading a calibrated 16-row MAJ tuple','50.1% (operands destroyed); minimal 4-row tuple: 75%']];
+    for(let i=0;i<3;i++){const y=110+i*120;
+      sceneRoot.appendChild(rect(110,y,780,100,'',{fill:'#2a1a1a',stroke:'#7f1d1d','stroke-width':2,rx:5}));
+      sceneRoot.appendChild(text(130,y+30,rows[i][0],'label','start'));
+      sceneRoot.appendChild(text(130,y+64,rows[i][1],'label orange','start'));}
+    sceneRoot.appendChild(text(500,500,'every MVDRAM mechanism worked in isolation — chaining them through DRAM did not','label hl'));
+  }
+  if(step===1){
+    sceneRoot.appendChild(rect(110,110,780,150,'',{fill:'#1d2230',stroke:'#f97316','stroke-width':2,rx:5}));
+    sceneRoot.appendChild(text(130,140,'the cause: the XOR-spread — a doubleACT into a co-activated group also','label','start'));
+    sceneRoot.appendChild(text(130,164,'deposits the source into lattice siblings, corrupting the group','label','start'));
+    sceneRoot.appendChild(text(130,196,'June\'s model: "source-specific vulnerability" → mitigations (full-restore,','label dim','start'));
+    sceneRoot.appendChild(text(130,220,'non-shadow source selection) did not help → verdict: "not achievable"','label dim','start'));
+    sceneRoot.appendChild(text(500,320,'the spread is real and the paper never mentions it — that part held up','label hl'));
+    sceneRoot.appendChild(text(500,352,'but "copies into co-activated groups are inherently destructive" did not','label orange'));
+    sceneRoot.appendChild(text(500,390,'(the correction came from the settled mechanism: the co-activation lattice','label dim'));
+    sceneRoot.appendChild(text(500,412,'and its selection law — see the row-spread explainer, Scenes 3 + 5)','label dim'));
+  }
+  if(step===2){
+    sceneRoot.appendChild(rect(110,110,780,130,'',{fill:'#10241a',stroke:'#22c1c3','stroke-width':2,rx:5}));
+    sceneRoot.appendChild(text(130,140,'corruption during a RowClone into a co-activated group is a function of','label','start'));
+    sceneRoot.appendChild(text(130,164,'the PAIR OFFSET src⊕dst — not of the source row','label','start'));
+    sceneRoot.appendChild(text(130,196,'offsets free of tuple-generator subsets → the load is tuple-clean BY CONSTRUCTION','label cyan','start'));
+    sceneRoot.appendChild(text(500,300,'measured (app/test_safe_load.cpp): 20/20 safe external loads clean;','label hl'));
+    sceneRoot.appendChild(text(500,324,'unsafe-offset controls corrupt EXACTLY the predicted rows;','label'));
+    sceneRoot.appendChild(text(500,348,'full 16-row tuple loaded with 8 doubleACTs: 16/16 (June\'s attempt: 5/16)','label hl'));
+  }
+  if(step===3){
+    const rows=[['June: operands per-column written (host-mediated)','1.59 ms/gate','99.99%','#6b8ec9'],
+                ['July: operands RowCloned in-DRAM, safe placement, unfused','0.89 ms/gate','99.87%','#22c1c3'],
+                ['July: safe placement, whole gate fused into 1 program','0.68 ms/gate','99.81%','#22c1c3']];
+    sceneRoot.appendChild(text(500,110,'the SAME popcount-4 carry-save DAG (18 MAJ3 gates), re-run with placement changed','label'));
+    for(let i=0;i<3;i++){const y=140+i*90;
+      sceneRoot.appendChild(rect(110,y,780,72,'',{fill:'#1d2230',stroke:rows[i][3],'stroke-width':2,rx:5}));
+      sceneRoot.appendChild(text(130,y+24,rows[i][0],'label','start'));
+      sceneRoot.appendChild(text(130,y+50,rows[i][1]+'   ·   e2e '+rows[i][2],'label hl','start'));}
+    sceneRoot.appendChild(text(500,440,'June\'s 6.1% was OUR addressing artifact — corrected in public, dated (study §8)','label orange'));
+    sceneRoot.appendChild(text(500,468,'faithful dataflow with safe placement: 99.98% end-to-end on the A/B reproducer','label cyan'));
+  }
+  if(step===4){
+    const bars=[['die A: write-load (June shape)',1.585],['die A: clone-load, fused',0.683],['die B: write-load',1.574],['die B: clone-load, fused',0.705]];
+    const bx=380,by0=110,bh=34,scale=280;
+    for(let i=0;i<4;i++){const y=by0+i*(bh+18);const w=bars[i][1]*scale;
+      sceneRoot.appendChild(text(bx-14,y+bh/2,bars[i][0],'label','end'));
+      sceneRoot.appendChild(rect(bx,y,w,bh,'',{fill:i%2?'#22c1c3':'#6b8ec9',opacity:0.8,rx:2}));
+      sceneRoot.appendChild(text(bx+w+12,y+bh/2,bars[i][1].toFixed(3)+' ms/gate','label hl','start'));}
+    sceneRoot.appendChild(text(500,340,'= 2.32× (die A) and 2.23× (die B) per gate for the fused clone-loaded kernel','label hl'));
+    sceneRoot.appendChild(text(500,372,'accuracy: 99.990%/99.974% (write-load) vs 99.808%/99.814% (fused clone-load)','label'));
+    sceneRoot.appendChild(text(500,398,'→ fast in-DRAM loading costs ~0.17% end-to-end; fusing itself costs nothing','label cyan'));
+    sceneRoot.appendChild(text(500,440,'this is the shape MVDRAM\'s Fig 3 profile assumes — measured working on commodity dies','label dim'));
+  }
+},
+caption(step){return[
+ `<b>June 2026.</b> On our four PUD-capable commodity modules, every MVDRAM mechanism reproduced in isolation — but the paper's <em>chained</em> dataflow collapsed: the faithful computation-rows dataflow (its Fig 2) ran at <b>6.1%</b> end-to-end with per-op MAJ at 50.3% (a coin flip); on-the-fly encoding scored 11.3% vs 99.9% for the identical GeMV with host-written products; RowClone-loading a calibrated 16-row tuple left 50.1% intact. (Study §4.)`,
+ `<b>The cause was real; the June model of it was wrong.</b> The XOR-spread is real: a doubleACT whose destination is in a co-activated group also deposits the source into lattice siblings. June modelled it as source-specific vulnerability; mitigations built on that model (full-restore, non-shadow source selection) didn't help, and we published "the general copy-based dataflow is not achievable." The spread's existence — unmentioned by the paper — held up. The verdict built on the wrong model did not.`,
+ `<b>July 2026: placement by construction.</b> With the settled mechanism (the co-activation lattice and its selection law — <a href="xor-spread.html">row-spread explainer</a>, Scenes 3+5), corruption during a RowClone into a co-activated group is a function of the <em>pair offset</em> src⊕dst. Offsets free of tuple-generator subsets are clean by construction. Measured: <b>20/20</b> safe loads clean, unsafe-offset controls corrupt exactly the predicted rows, and the full 16-row tuple loads with 8 doubleACTs at <b>16/16</b> (June: 5/16).`,
+ `<b>The reversal, in one A/B.</b> The same popcount-4 carry-save DAG (18 MAJ3 gates), re-run with only the placement changed: June's host-mediated shape 1.59 ms/gate at 99.99%; safe in-DRAM operand movement 0.89 ms/gate at 99.87%; whole gate fused into one program 0.68 ms/gate at 99.81%. The faithful dataflow reaches <b>99.98%</b> end-to-end on the safe-placement reproducer. June's 6.1% was our own addressing artifact — corrected in public, with dated supersession banners (study §8). Result A is unaffected.`,
+ `<b>Faster, not just correct.</b> The definitive two-die A/B: write-load (June shape) 1.585/1.574 ms/gate at 99.990%/99.974% e2e; fused clone-load <b>0.683/0.705 ms/gate</b> at 99.808%/99.814% — <b>2.32×/2.23×</b> per gate. Fast in-DRAM loading costs ~0.17% end-to-end accuracy; fusing costs nothing. This is the fast-operand-movement shape MVDRAM's Fig 3 profile assumes, measured working on commodity, spread-afflicted dies.`,
+][step];},
+codeRef(step){if(step<=1)return `<span class="src">June results (study §4, table)</span>
+<span class="cm">computation-rows dataflow: 6.1% e2e</span>
+<span class="cm">on-the-fly encoding: 11.3% vs 99.9%</span>
+<span class="cm">16-row tuple RowClone-load: 50.1%</span>
+<span class="cm">mitigations: no improvement</span>
+
+<span class="src">spread reproducers</span>
+<span class="cm">app/test_spread.cpp, app/test_fault_sweep.cpp</span>
+<span class="cm">provenance: CMU-SAFARI/DRAM-Bender#12 +</span>
+<span class="cm">CMU-SAFARI/SiMRA-DRAM#1 (see study §4 note)</span>`;
+if(step===2)return `<span class="src">reproducer (app/test_safe_load.cpp)</span>
+<span class="cm">phase 1: 20/20 safe external loads clean</span>
+<span class="cm">phase 2: unsafe offsets corrupt exactly</span>
+<span class="cm">  the predicted rows</span>
+<span class="cm">phase 4: 16/16 fast tuple load,</span>
+<span class="hl">  8 doubleACTs replace 16 loads</span>
+
+<span class="src">law behind it</span>
+<span class="cm">app/test_selection_timing.cpp +</span>
+<span class="cm">docs/data/selection-law/ (1691/1691 ×2 dies)</span>`;
+return `<span class="src">reproducers</span>
+<span class="cm">app/test_mvdram_compute_rows_safe.cpp —</span>
+<span class="hl">  same DAG as June, 99.98% e2e</span>
+<span class="cm">app/test_mvdram_fastpath_ab.cpp — A/B/C:</span>
+
+<span class="src">logs (docs/data/mvdram-repro/)</span>
+<span class="cm">fastpath_ab_b2.log (die A):</span>
+<span class="cm">  C write-load 1.585 ms/gate, e2e 99.990%</span>
+<span class="cm">  B fused clone-load 0.683, e2e 99.808%</span>
+<span class="cm">fastpath_ab_b0.log (die B):</span>
+<span class="cm">  C 1.574 / 99.974% → B 0.705 / 99.814%</span>
+
+<span class="src">study: docs/MVDRAM_REPRODUCTION.md §8</span>`;}};
+
+// SCENE 6 — mechanism scoreboard
+const m6={ title:'Scene 6 — The mechanism scoreboard', steps:3, render(step){
+  clearScene();
+  sceneRoot.appendChild(text(500,24,'their number (paper §/Fig/Table) vs our measurement (reproducer in this repo)','label hl'));
+  const rows=[
+   ['reliable-column fraction','83–95% (Table I)','87–88% MAJ5-reliable columns',0],
+   ['RowCopy','strict, on the screened part (fn. 3)','8192/8192 deterministic (commodity)',0],
+   ['dual-track adder','error-free after Frac[34]+calib[48] (§VII)','99.94% (MAJ5 sum) · all-MAJ3 variant 99.98%',0],
+   ['on-the-fly encoding','§V / Fig 6 (source-select RowCopy)','reproduced (select-source RowClone)',1],
+   ['bit-sparsity skip','§V-D (skip op when a=0)','implemented (PIM_SKIP); not benchmarked at scale',1],
+   ['horizontal layout + row-wise agg.','§VI / Fig 7–10','reproduced (bitline=output, row-major readout)',1],
+   ['computation-rows dataflow','their normal operation (Fig 2)','99.98% e2e with safe placement (June 6.1%)',2],
+   ['fast in-DRAM operand movement','assumed by their Fig 3 profile','measured: 2.2–2.3×/gate vs host-write shape',2],
+  ];
+  const y0=60,rh=52;
+  sceneRoot.appendChild(text(80,y0-8,'mechanism','label dim','start'));
+  sceneRoot.appendChild(text(390,y0-8,'paper','label dim','start'));
+  sceneRoot.appendChild(text(660,y0-8,'our silicon','label dim','start'));
+  for(let i=0;i<rows.length;i++){const y=y0+6+i*rh;const active=rows[i][3]<=step;
+    sceneRoot.appendChild(rect(70,y,860,rh-8,'',{fill:'#1d2230',stroke:active?'#22c1c3':'#2a2f3d','stroke-width':active?1.5:1,rx:3,opacity:active?1:0.35}));
+    sceneRoot.appendChild(text(80,y+15,rows[i][0],active?'label hl':'label dim','start'));
+    sceneRoot.appendChild(text(390,y+15,rows[i][1],active?'label':'label dim','start'));
+    sceneRoot.appendChild(text(660,y+15,rows[i][2],active?'label cyan':'label dim','start'));
+    if(i>=6&&active) sceneRoot.appendChild(text(80,y+33,'(July 2026 — the Result B reversal)','label orange','start'));}
+  const foot=['step 1/3: the primitives — each one reproduces in isolation on PUD-capable silicon',
+              'step 2/3: their two techniques — both reproduce as described',
+              'step 3/3: the chained dataflow — reproduces WITH spread-aware placement (theirs implicit)'];
+  sceneRoot.appendChild(text(500,y0+6+rows.length*rh+22,foot[step],'label hl'));
+},
+caption(step){return[
+ `<b>The primitives.</b> Reliable-column fractions land in the same band (their Table I: 82.9–95.1%; ours: 87–88% MAJ5-reliable). RowCopy is deterministic on our commodity modules (8192/8192) as it is "strict" on their screened part. The dual-track adder: they reach error-free via Frac [34] + calibration [48]; we measure 99.94% on screened columns with the MAJ5 sum — and 99.98% with an all-MAJ3 variant that needs no MAJ5 at all (Scene 8).`,
+ `<b>The two techniques.</b> On-the-fly encoding reproduces exactly as §V describes — the host selects the W row or the zero row as the RowClone source. The §V-D bit-sparsity skip is implemented (PIM_SKIP in the GeMV reproducer) but we have not benchmarked it at their scale or input distribution. The horizontal layout with row-wise aggregation reproduces (bitline = output element, row-major readout).`,
+ `<b>The chained dataflow — the part that reversed.</b> The faithful computation-rows dataflow (their Fig 2) runs at 99.98% end-to-end, but only with spread-aware placement the paper never discusses; and the fast in-DRAM operand movement its Fig 3 profile assumes is measured at 2.2–2.3× per gate over host-mediated loading. Verdict per row: every mechanism reproduces; the chain reproduces <em>conditionally</em> — the condition being the address discipline of Scene 5.`,
+][step];},
+codeRef(){return `<span class="src">row → source</span>
+<span class="cm">columns: paper Table I | study §4 table</span>
+<span class="cm">RowCopy: paper fn.3 | study §4 (8192/8192)</span>
+<span class="cm">adder: paper §VII | study §4 (99.94%);</span>
+<span class="cm">  all-MAJ3: test_mvdram_compute_rows_safe.cpp</span>
+<span class="cm">encoding+skip: paper §V/§V-D |</span>
+<span class="cm">  app/test_mvdram_gemv_inplace.cpp</span>
+<span class="cm">  (select-source RowClone; PIM_SKIP env)</span>
+<span class="cm">layout: paper §VI | study §4 table</span>
+<span class="cm">dataflow: paper Fig 2 |</span>
+<span class="cm">  app/test_mvdram_compute_rows_safe.cpp</span>
+<span class="cm">movement: paper Fig 3 |</span>
+<span class="cm">  app/test_mvdram_fastpath_ab.cpp +</span>
+<span class="cm">  docs/data/mvdram-repro/fastpath_ab_b*.log</span>`;}};
+
+// SCENE 7 — what we have NOT done
+const m7={ title:'Scene 7 — What we have NOT done (open work, stated plainly)', steps:3, render(step){
+  clearScene();
+  sceneRoot.appendChild(text(500,26,'three gaps on OUR side — none of them silently skipped','label hl'));
+  const gaps=[
+   ['1. Frac [34] + calibration [48]','their stated mechanism for error-free MAJX — never implemented on our rig','(our frac_template is a discharge primitive, not FracDRAM fractional-charge conditioning)','concrete next experiment: it might rescue MAJ5-chain columns on our silicon'],
+   ['2. their exact end-to-end benchmark','Llama2-7B/13B · Llama3-8B · Phi-4 on llama.cpp, mulmat_op replaced, 256 tok × 10 runs','we ran OUR model instead: BitNet b1.58-2B via transformers — deliberately, but different','also unmatched: 50%-sparsity inputs, 1,000-iter averages, N≤128/subarray, Table-I-style column tables'],
+   ['3. streaming-scale execution','§V-E: command generation OVERLAPS execution — a single-threaded CPU outruns DDR4-2400\'s ~1.5 ns/command','their 0.14 ms full GeMV implies on the order of 10⁵ commands as one continuous stream','ours: per-program host round-trips, ≤2048-inst IMEM (a fused gate is 154 insts) — the structural gap'],
+  ];
+  for(let i=0;i<3;i++){const y=60+i*160;const active=(step===i);
+    sceneRoot.appendChild(rect(80,y,840,140,'',{fill:'#1d2230',stroke:active?'#f97316':'#2a2f3d','stroke-width':active?2:1,rx:5,opacity:active?1:0.45}));
+    sceneRoot.appendChild(text(100,y+24,gaps[i][0],active?'label orange':'label dim','start'));
+    sceneRoot.appendChild(text(100,y+52,gaps[i][1],active?'label':'label dim','start'));
+    sceneRoot.appendChild(text(100,y+78,gaps[i][2],active?'label':'label dim','start'));
+    sceneRoot.appendChild(text(100,y+108,gaps[i][3],active?'label cyan':'label dim','start'));}
+},
+caption(step){return[
+ `<b>Frac + calibration.</b> The paper's error-free MAJX rests on Frac operations [their ref 34] and calibration techniques [48] on top of column screening (§VII). We never implemented either — our <code>frac_template</code> is a discharge primitive, not FracDRAM's fractional-charge conditioning. This is the concrete next experiment on our list: it is their stated mechanism, and it might rescue MAJ5-chain columns on our silicon. Until it is run, our MAJ5 results and theirs are not directly comparable.`,
+ `<b>Their benchmark.</b> We deliberately ran our own end-to-end (BitNet b1.58-2B via transformers) rather than their four models on llama.cpp with mulmat_op replaced (Q2/Q4, 256 tokens × 10 runs, §VIII-A). A kernel-level equivalence argument covers the compute, but the honest statement is: <em>we never executed their exact benchmark</em>. Their other conventions — 50%-sparsity inputs, 1,000-iteration averages, N≤128 per subarray, per-module Table-I-style reliable-column tables — are also unmatched so far.`,
+ `<b>Streaming-scale execution.</b> Their §V-E observes that a single-threaded CPU generates DRAM commands faster than DDR4-2400 processes them (~1.5 ns/command), so command generation overlaps execution — and their 0.14 ms full-GeMV figure implies on the order of 10⁵ commands issued as a continuous stream. Our rig executes small programs (≤2048-instruction IMEM; a fused gate is 154 instructions) with a host round-trip each. This is the structural performance gap between our per-gate numbers and their kernel numbers — open engineering, not physics.`,
+][step];},
+codeRef(){return `<span class="src">paper: MVDRAM, arXiv:2503.23817 (v2)</span>
+<span class="cm">§VII   Frac [34] + calibration [48] for</span>
+<span class="cm">       error-free MAJX</span>
+<span class="cm">§VIII-A  llama.cpp benchmark protocol</span>
+<span class="cm">§V-E   ~1.5 ns/command DDR4-2400; command</span>
+<span class="cm">       generation overlaps execution</span>
+
+<span class="src">our side</span>
+<span class="cm">docs/MVDRAM_REPRODUCTION.md §4/§8 (what ran)</span>
+<span class="cm">docs/data/mvdram-repro/fastpath_ab_b*.log:</span>
+<span class="cm">  "fused gate program: max 154 insts</span>
+<span class="cm">   (IMEM 2048)" — the round-trip shape</span>`;}};
+
+// SCENE 8 — what our silicon adds beyond the paper
+const m8={ title:'Scene 8 — What our silicon adds beyond the paper', steps:4, render(step){
+  clearScene();
+  sceneRoot.appendChild(text(500,26,'four results the paper does not contain — each one load-bearing for Scene 5','label hl'));
+  const cards=[
+   ['the selection law','which members of a co-activation lattice fire: each predecoder unit contributes ∅ or its whole share of the pair offset','1691/1691 member-observations explained on EACH of two dies; timing-invariant across 8 combos; screening → a computed predicate'],
+   ['cross-die determinism','the same selection experiment on two dies of the same model','per-member CSVs byte-identical across the dies (only the device-path preamble differs) — the law is a property of the design, not the specimen'],
+   ['MAJ3 self-pollution','the MAJ operation corrupts its OWN operand set through the same lattice','on one module, a tuple rated 100% reliable by standard characterization has 2 of 16 open rows silently overwritten during every MAJ — absorbed only by a 14-vs-2 majority'],
+   ['all-MAJ3 accumulation','a carry-save popcount built from MAJ3 only — no MAJ5 anywhere','99.98% end-to-end on the safe-placement dataflow; sidesteps the MAJ5 sum bit and with it the Frac/calibration dependency of their adder'],
+  ];
+  for(let i=0;i<4;i++){const y=54+i*122;const active=(step===i);
+    sceneRoot.appendChild(rect(80,y,840,104,'',{fill:active?'#10241a':'#1d2230',stroke:active?'#22c1c3':'#2a2f3d','stroke-width':active?2:1,rx:5,opacity:active?1:0.5}));
+    sceneRoot.appendChild(text(100,y+22,cards[i][0],active?'label cyan':'label dim','start'));
+    const w1=cards[i][1].split(' ');const m1_=Math.ceil(w1.length/2);
+    sceneRoot.appendChild(text(100,y+44,w1.slice(0,m1_).join(' '),active?'label':'label dim','start'));
+    sceneRoot.appendChild(text(100,y+60,w1.slice(m1_).join(' '),active?'label':'label dim','start'));
+    const w2=cards[i][2].split(' ');const m2_=Math.ceil(w2.length/2);
+    sceneRoot.appendChild(text(100,y+80,w2.slice(0,m2_).join(' '),active?'label hl':'label dim','start'));
+    sceneRoot.appendChild(text(100,y+96,w2.slice(m2_).join(' '),active?'label hl':'label dim','start'));}
+},
+caption(step){return[
+ `<b>The selection law.</b> For an APA pair at offset d, which of the 2^k predicted lattice rows fire is a zero-exception predicate: each predecoder unit contributes ∅ or its whole share of d. Verified member-by-member: <b>1691/1691 observations explained on each of two dies</b>, zero exceptions, zero mixed rows, identical at all 8 timing combos (t₁₂∈{5,10,20,30} × t₂₃∈{1,2}). Screening becomes a computed predicate — this is what made Scene 5's safe placement possible. Full treatment: <a href="xor-spread.html">row-spread explainer</a>, Scene 5.`,
+ `<b>Cross-die determinism.</b> The same selection experiment run on two dies of the same model produces per-member CSVs that are <b>byte-identical</b> (only the device-path preamble differs). The law — groups, firing sets, k-decay — is a property of the decoder design, not of the individual specimen. For a method like MVDRAM's, that means a placement discipline computed on one die transfers to another of the same design.`,
+ `<b>MAJ3 self-pollution.</b> The MAJ operation corrupts its own operand set through the same co-activation: on one of our modules, a tuple rated "100% reliable" by standard characterization has 2 of its 16 open rows silently overwritten during every MAJ — the result survives only because a 14-vs-2 majority absorbs the corruption (study §4 provenance note). Column-static error models — including reliable-column screening of the kind the paper uses — cannot represent this, because it depends on which rows are co-activated, not on the column.`,
+ `<b>All-MAJ3 accumulation.</b> Our carry-save popcount is built from MAJ3 gates only and reaches <b>99.98%</b> end-to-end on the safe-placement dataflow — no MAJ5 anywhere. That sidesteps the paper's MAJ5 sum bit (§II-C1) and with it the Frac [34] / calibration [48] dependency of their adder. On silicon where chained MAJ5 is fragile, this is the accumulation path that survives.`,
+][step];},
+codeRef(step){return [`<span class="src">reproducer + data</span>
+<span class="cm">app/test_selection_timing.cpp</span>
+<span class="cm">docs/data/selection-law/selection_timing_b0.csv,</span>
+<span class="cm">  selection_timing_b2.csv, selection_timing_b2.log</span>
+<span class="hl">1691/1691 ×2 dies · 0 exceptions ·</span>
+<span class="hl">8/8 timing combos · full-set% 100/100/75/25/0</span>`,
+`<span class="src">data (docs/data/selection-law/)</span>
+<span class="cm">selection_timing_b0.csv vs _b2.csv:</span>
+<span class="hl">data rows byte-identical across the dies</span>
+<span class="cm">(diff = the 2-line /dev/xdma0_* preamble)</span>`,
+`<span class="src">sources</span>
+<span class="cm">docs/MVDRAM_REPRODUCTION.md §4 (provenance</span>
+<span class="cm">note: 2-of-16 rows overwritten per MAJ)</span>
+<span class="cm">mechanism + success-rate signature:</span>
+<span class="cm">xor-spread.html Scenes 6–7 +</span>
+<span class="cm">app/test_spread.cpp, app/test_fault_sweep.cpp</span>`,
+`<span class="src">reproducer</span>
+<span class="cm">app/test_mvdram_compute_rows_safe.cpp —</span>
+<span class="cm">popcount-4 carry-save DAG, 18 MAJ3 gates,</span>
+<span class="hl">99.98% e2e (safe placement)</span>
+<span class="cm">study §4 table: in-DRAM carry-save popcount</span>
+<span class="cm">tree 99.97–99.98%; paper §II-C1 (their sum</span>
+<span class="cm">bit = MAJ5) for the contrast</span>`][step];}};
+
+// SCENE 9 — verdict
+const m9={ title:'Scene 9 — Verdict', steps:3, render(step){
+  clearScene();
+  const heads=['the method: achievable on commodity DDR4 — with spread-aware addressing',
+               'the parts: the part-number lottery is real',
+               'the numbers: read them with the stated caveats'];
+  sceneRoot.appendChild(text(500,26,heads[step],'label hl'));
+  if(step===0){
+    sceneRoot.appendChild(rect(120,90,760,180,'',{fill:'#10241a',stroke:'#22c1c3','stroke-width':2,rx:5}));
+    sceneRoot.appendChild(text(500,122,'MVDRAM\'s dataflow runs on our spread-afflicted commodity silicon:','label'));
+    sceneRoot.appendChild(text(500,150,'99.98% end-to-end · fused fast path 2.2–2.3×/gate over host-mediated','label cyan'));
+    sceneRoot.appendChild(text(500,182,'but ONLY with the pair-offset placement discipline the paper never discusses','label hl'));
+    sceneRoot.appendChild(text(500,214,'our spread characterization is not a refutation of the method —','label'));
+    sceneRoot.appendChild(text(500,238,'it is the requirement specification for running it outside hand-screened modules','label'));
+    sceneRoot.appendChild(text(500,330,'(June\'s "the dataflow is not achievable" is withdrawn — study §8)','label dim'));
+  }
+  if(step===1){
+    sceneRoot.appendChild(rect(120,90,760,160,'',{fill:'#2a1a1a',stroke:'#7f1d1d','stroke-width':2,rx:5}));
+    sceneRoot.appendChild(text(500,120,'the paper\'s named part, bought new twice: 0 charge-share events in 60,000','label orange'));
+    sceneRoot.appendChild(text(500,144,'random pairs — no PUD at all, while working perfectly as memory','label orange'));
+    sceneRoot.appendChild(text(500,176,'their own selection kept 1 module of 16 characterized (footnote 3)','label'));
+    sceneRoot.appendChild(text(500,208,'"unmodified DRAM" in practice means: unmodified, hand-screened DRAM','label hl'));
+    sceneRoot.appendChild(text(500,300,'anyone attempting this should budget for module screening —','label'));
+    sceneRoot.appendChild(text(500,324,'and run the 1-minute spread test on whatever survives (study §6.5)','label'));
+  }
+  if(step===2){
+    const rows=[
+     ['their end-to-end 2.18×/1.31× is a REAL measured llama.cpp run','the strongest evidence in the paper','#22c1c3'],
+     ['their energy figures (30.5×/3.04×) are CACTI-estimated on the MVDRAM side','baselines measured — asymmetric method, stated in the paper','#f97316'],
+     ['their GPU baseline is a Jetson Orin Nano','an edge part — the GPU comparisons do not speak to datacenter GPUs','#f97316'],
+     ['our performance numbers are kernel-level (per-gate), not their benchmark','the streaming gap of Scene 7 stands between the two','#4f9bff'],
+    ];
+    for(let i=0;i<4;i++){const y=70+i*110;
+      sceneRoot.appendChild(rect(100,y,800,90,'',{fill:'#1d2230',stroke:rows[i][2],'stroke-width':2,rx:5}));
+      sceneRoot.appendChild(text(120,y+32,rows[i][0],'label hl','start'));
+      sceneRoot.appendChild(text(120,y+62,rows[i][1],'label','start'));}
+  }
+},
+caption(step){return[
+ `<b>On the method.</b> Revised overall verdict (study §8): MVDRAM's method is <b>achievable on commodity DDR4</b> — the faithful dataflow runs at 99.98% end-to-end and the fused fast path beats host-mediated loading by 2.2–2.3× per gate — but only with spread-aware addressing the paper does not discuss, on silicon its own screening would have rejected. Our spread characterization is not a refutation; it is the requirement specification for running the method outside hand-screened modules.`,
+ `<b>On the parts.</b> The part-number lottery is real: the paper's named part, purchased new twice, performs no PUD whatsoever in our hands (0/60,000 random pairs) while working perfectly as memory — and the paper's own footnote 3 reports keeping 1 module of 16 characterized. "Unmodified DRAM" in practice means unmodified, <em>hand-screened</em> DRAM. Anyone attempting a build should budget for screening, then run the 1-minute spread test on whatever survives (study §6.5).`,
+ `<b>On the numbers.</b> Read both sides with their caveats. Theirs: the 2.18×/1.31× end-to-end is a real measured llama.cpp run — the paper's strongest evidence; the energy figures are CACTI-estimated on the MVDRAM side against measured baselines; the GPU baseline is a Jetson Orin Nano, an edge part. Ours: the per-gate and per-matmul numbers are kernel-level measurements on a round-trip-bound rig — the streaming-scale gap (Scene 7) stands between our numbers and their 0.19 ms kernel.`,
+][step];},
+codeRef(){return `<span class="src">verdict sources</span>
+<span class="cm">docs/MVDRAM_REPRODUCTION.md §5 (original),</span>
+<span class="cm">§8 (revision, 2026-07-17)</span>
+<span class="cm">Result A: §3 + docs/data/mvdram-repro/</span>
+<span class="cm">  rcrand_b0.log, rcrand_b3.log</span>
+<span class="cm">Result B: app/test_mvdram_compute_rows_safe.cpp,</span>
+<span class="cm">  app/test_mvdram_fastpath_ab.cpp + logs</span>
+
+<span class="src">paper caveats (their text)</span>
+<span class="cm">§VIII-A/Fig 16  real llama.cpp e2e runs</span>
+<span class="cm">Fig 14/17  CACTI-estimated MVDRAM energy [56]</span>
+<span class="cm">Table II   Jetson Orin Nano GPU baseline</span>
+<span class="cm">footnote 3  16-module screening</span>`;}};
+
+const SCENES=[m1,m2,m3,m4,m5,m6,m7,m8,m9];
+let curScene=0,curStep=0,playTimer=null;
+function renderNav(){nav.innerHTML='';SCENES.forEach((s,i)=>{const b=document.createElement('button');b.textContent=`${i+1}. ${s.title.replace(/^Scene \d+ — /,'')}`;if(i===curScene)b.classList.add('active');b.onclick=()=>{curScene=i;curStep=0;render();};nav.appendChild(b);});}
+function render(){renderNav();const s=SCENES[curScene];titleEl.textContent=s.title;s.render(curStep);captionEl.innerHTML=s.caption(curStep);codeEl.innerHTML=(s.codeRef?s.codeRef(curStep):'')||'<span class="cm">—</span>';stepNumEl.textContent=curStep+1;stepMaxEl.textContent=s.steps;sceneFoot.textContent=`Scene ${curScene+1} of ${SCENES.length}`;document.getElementById('prevBtn').disabled=(curScene===0&&curStep===0);document.getElementById('nextBtn').disabled=(curScene===SCENES.length-1&&curStep===s.steps-1);}
+document.getElementById('prevBtn').onclick=()=>{if(curStep>0)curStep--;else if(curScene>0){curScene--;curStep=SCENES[curScene].steps-1;}render();};
+document.getElementById('nextBtn').onclick=()=>{const s=SCENES[curScene];if(curStep<s.steps-1)curStep++;else if(curScene<SCENES.length-1){curScene++;curStep=0;}render();};
+document.getElementById('playBtn').onclick=()=>{const btn=document.getElementById('playBtn');if(playTimer){clearInterval(playTimer);playTimer=null;btn.textContent='▶ Play';}else{btn.textContent='⏸ Pause';playTimer=setInterval(()=>{const s=SCENES[curScene];if(curStep<s.steps-1)curStep++;else if(curScene<SCENES.length-1){curScene++;curStep=0;}else{clearInterval(playTimer);playTimer=null;btn.textContent='▶ Play';return;}render();},2800);}};
+document.addEventListener('keydown',e=>{if(e.key==='ArrowRight')document.getElementById('nextBtn').click();if(e.key==='ArrowLeft')document.getElementById('prevBtn').click();if(e.key===' '){e.preventDefault();document.getElementById('playBtn').click();}});
+render();
+</script>
+</body>
+</html>
