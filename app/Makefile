@@ -94,3 +94,24 @@ mvdram-compute-rows-exe: test_mvdram_compute_rows.o $(SHARED_OBJS)
 
 mvdram-gemv-inplace-exe: test_mvdram_gemv_inplace.o $(SHARED_OBJS)
 	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+fused-maj-exe: test_fused_maj.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+safe-load-exe: test_safe_load.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+sublattice-bcast-exe: test_sublattice_bcast.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+mvdram-compute-rows-safe-exe: test_mvdram_compute_rows_safe.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+mvdram-fastpath-ab-exe: test_mvdram_fastpath_ab.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+selection-timing-exe: test_selection_timing.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+recv-timeout-test-exe: test_recv_timeout.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)

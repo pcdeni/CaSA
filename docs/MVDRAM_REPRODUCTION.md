@@ -1,4 +1,4 @@
-# MVDRAM reproduction study — negative result
+# MVDRAM reproduction study — updated 2026-07 (Result A stands; Result B reversed)
 
 **We attempted to reproduce MVDRAM ([arXiv:2503.23817](https://arxiv.org/abs/2503.23817),
 "Enabling GeMV Execution in Unmodified DRAM for Low-Bit LLM Acceleration") on
@@ -11,12 +11,16 @@ the paper names. We could not reproduce it on any of them.**
   random row-pair attempts plus exhaustive timing sweeps. A part that performs
   no PUD operations cannot execute any part of MVDRAM's method.
 - **Four commodity DDR4 modules that DO perform PUD: every MVDRAM mechanism
-  reproduces in isolation, but the paper's chained dataflow collapses**
-  (6–11% correct vs 99.9% for our host-mediated variant), due to the
-  [XOR-spread](https://pcdeni.github.io/CaSA/explainer/xor-spread.html) — a
-  deterministic row-decoder artifact we characterized, which the paper does
-  not mention and which makes copies into a co-activated row set inherently
-  destructive on these dies.
+  reproduces in isolation.** Our June finding that *"the paper's chained
+  dataflow collapses (6–11% correct)"* due to the
+  [XOR-spread](https://pcdeni.github.io/CaSA/explainer/xor-spread.html) is
+  **REVERSED as of 2026-07 — see §8**: the collapse was an artifact of our
+  own row placement, not an inherent property of these dies. With
+  pair-offset-safe placement derived from the co-activation lattice, the
+  same dataflow runs at **99.98% end-to-end**, and a fused fast-path kernel
+  beats the host-mediated variant by **2.2–2.3×**. The spread is real and
+  the paper does not mention it; on these dies the method *requires*
+  spread-aware addressing.
 
 Everything below is measured. Reproducer code is in this repository; raw logs
 in [`data/mvdram-repro/`](data/mvdram-repro/).
@@ -189,7 +193,9 @@ We state plainly what evidence would revise this negative result:
 5. For any PUD-capable module claimed to run the full dataflow: run our
    1-minute spread test (`app/test_spread.cpp`) and publish the fingerprint.
    If a die shows genuinely clean copies into co-activated groups, MVDRAM's
-   dataflow becomes plausible on that die — we have not encountered one.
+   dataflow becomes plausible on that die — we have not encountered one
+   (per §8, clean copies turn out not to be required either: spread-aware
+   placement suffices).
 
 ## 7. What does work: LLM inference in unmodified DRAM, with the artifact engineered around
 
@@ -205,3 +211,44 @@ mechanism, measurements, and the bus-bound ceiling analysis.
 
 *Correspondence with the MVDRAM authors is ongoing; we will update this study
 with any evidence they provide (date codes, reproducers, or modules).*
+
+## 8. Update (2026-07-17) — Result B is REVERSED: the dataflow runs, with spread-aware addressing
+
+Continued characterization (with input from the SAFARI authors' latched-
+predecoder model — see the correspondence linked in the README) produced a
+complete address algebra for the co-activation set of an APA pair, and with
+it a placement discipline under which in-DRAM operand movement is
+tuple-clean **by construction**: corruption during a RowClone into a
+co-activated group is a function of the *pair offset* src⊕dst, and offsets
+free of generator-subset bits do not corrupt the group.
+
+Re-running §4's faithful computation-rows dataflow with ONLY the placement
+changed (same MAJ ops, same DAG — popcount-4 carry-save, 18 MAJ3 gates):
+
+| shape | ms/gate | end-to-end correct |
+|---|---|---|
+| June: operands per-column written (host-mediated) | 1.59 | 99.99% |
+| July: operands RowCloned in-DRAM, safe placement, unfused | 0.89 | 99.87% |
+| July: safe placement, whole gate fused into 1 program | **0.68** | **99.81%** |
+
+(Die A; die B within noise: 0.71 ms/gate, 99.81%. Reproducers:
+`app/test_mvdram_compute_rows_safe.cpp`, `app/test_mvdram_fastpath_ab.cpp`;
+the placement rule and its zero-exception selection law are documented in
+the XOR-spread explainer.)
+
+Consequences for this study's conclusions:
+
+- §4's "chained dataflow collapses / copies are inherently destructive" is
+  **withdrawn** — it was an addressing artifact of our placement. The
+  performance-faithful MVDRAM shape (fast in-DRAM operand movement,
+  intermediates never leaving the array) runs on commodity,
+  spread-afflicted DDR4 at a ~0.17% end-to-end accuracy cost vs the
+  host-mediated variant.
+- **Result A is unaffected and stands**: the paper's named part
+  (HMA851U6CJR6N-UHN0, two new units) performs no PUD at all in our hands.
+- Revised overall verdict: **MVDRAM's method is achievable on commodity
+  DDR4 — but only with spread-aware addressing the paper does not
+  discuss**, on silicon the paper's own screening would have rejected. Our
+  spread characterization is therefore not a refutation of the method; it
+  is the requirement specification for running it outside hand-screened
+  modules.

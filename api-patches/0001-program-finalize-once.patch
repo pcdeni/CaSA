@@ -1,0 +1,42 @@
+--- a/sources/api/prog.h
++++ b/sources/api/prog.h
+@@ -14,6 +14,15 @@
+   std::vector<Inst>         program;
+   std::vector<Mininst>      minprogram;
+   int spc = 0;
++  // get_inst_array() finalizes the program (inserts SMC_INFO packets,
++  // bakes branch targets). Running that pass twice CORRUPTS the program:
++  // `warnings` is re-inserted (program grows every call) and
++  // preprocess_branches ORs shifted targets over the old bits (garbage
++  // branch destinations -> rdRow never streams -> c2h stall). This flag
++  // makes finalization run exactly once; later calls only re-serialize.
++  // Root cause of the 2026-07-17 "probabilistic" stalls on re-executed
++  // pre-built Programs.
++  bool finalized = false;
+ 
+   bool dumpRegsCalled;
+ 
+--- a/sources/api/prog.cpp
++++ b/sources/api/prog.cpp
+@@ -184,11 +184,18 @@
+ 
+ Inst* Program::get_inst_array()
+ {
+-  linear_analysis();
+-  insert_generated();
++  // Finalize exactly once (see prog.h `finalized`): re-running these
++  // passes on an already-finalized program duplicates SMC_INFO packets
++  // and ORs shifted branch targets over the baked ones.
++  if (!finalized) {
++    linear_analysis();
++    insert_generated();
+ //  printf("Inserted auto-generated info instructions\n");
+-  preprocess_branches();
++    preprocess_branches();
+ //  printf("Assigned branch targets to labels\n");
++    warnings.clear();
++    finalized = true;
++  }
+   //pretty_print();
+   int bytes = size();
+   Inst* arr = (Inst*) malloc(bytes);

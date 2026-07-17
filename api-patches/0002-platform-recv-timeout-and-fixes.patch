@@ -1,0 +1,401 @@
+--- a/sources/api/platform.h
++++ b/sources/api/platform.h
+@@ -1,3 +1,5 @@
++#ifndef SOFTMC_PLATFORM_H
++#define SOFTMC_PLATFORM_H
+ #include "board.h"
+ #include "prog.h"
+ #include <thread>
+@@ -16,32 +18,62 @@
+ #define SOFTMC_NO_SUCH_FPGA -4
+ 
+ class SoftMCPlatform{
+-  #define INSTR_BUF_SIZE 32*2048
++  // Host-side AXI staging buffer — sized to the post-bump (IMEM=8192)
++  // bitstream. Buffer can be wider than the FPGA's actual IMEM; the runtime
++  // check below uses BITSTREAM_IMEM_INSTS, the deployed bitstream's true cap.
++  #define INSTR_BUF_SIZE 32*8192
++  // Real IMEM depth in the *currently deployed* bitstream. Bump to 8192
++  // ONLY after re-synthesizing instr_blk_mem with ADDR=13/depth=8192;
++  // otherwise the FPGA silently truncates and SoftMC deadlocks.
++  #define BITSTREAM_IMEM_INSTS 2048
+   #define API_BUF_SIZE 1024*1024*2
+   public:
+     SoftMCPlatform();
+     SoftMCPlatform(bool);
+-    ~SoftMCPlatform();
++    // Open against a specific DRAM-Bender instance (XDMA channel pair) on
++    // multi-bender bitstreams like BCU1525_QUAD. dimm_select N → channel N.
++    SoftMCPlatform(int dimm_select);
++    virtual ~SoftMCPlatform();
+     /**
+      * Initializes the whole platform
+      * @return SOFTMC_SUCCESS on sucessful initialization
+      */
+-    int init();
++    virtual int init();
+     /**
+      * Resets SoftMC logic, won't reset PCI-E endpoint or the PHY interface
+      */
+-    void reset_fpga();
++    virtual void reset_fpga();
+     /**
+      * Sends SoftMC program to the FPGA board over PCI-E
+      * @param prog reference to the program object to send
+      */
+-    void execute(Program & prog);
++    virtual void execute(Program & prog);
+     /**
+-     * Receive data from the FPGA board over PCI-E
+-     * @param dst_buf pointer to the buffer that will receive the data
+-     * @param num_words number of bytes to read
+-     */
+-    int receiveData(void* dst_buf, int num_words);
++     * Pop exactly `size` bytes of program payload from the c2h drain
++     * queue (which the receiver thread spawned by execute() fills in the
++     * background). Blocks until that many bytes are available. Returns
++     * the byte count on success; size must be a positive multiple of 4.
++     *
++     * The 32-byte per-program trailing AXI-Stream beat is stripped by
++     * the receiver thread, so apps just see the row payload(s) the SoftMC
++     * program emitted. For multi-row programs, call receiveData(buf, 8192)
++     * once per row in the loop the program emits them.
++     *
++     * Stall guard (opt-in): if env PIM_RECV_TIMEOUT_MS is set > 0, the
++     * blocking wait is bounded — if no NEW data arrives for that many ms
++     * (progress resets the clock), receiveData prints a diagnostic and
++     * returns the bytes read so far (< size). The platform is then
++     * poisoned (recv_stalled() == true): the drain thread may be blocked
++     * forever in the kernel c2h read, so do not retry receives — reset the
++     * rig or exit; the destructor detaches instead of joining in this
++     * state so a plain return/exit() cannot hang. Unset env (default)
++     * preserves the pristine block-forever behavior exactly.
++     */
++    virtual int receiveData(void* dst_buf, int size);
++
++    /** True once a receiveData call has timed out (see above); the object
++     *  must not be used for further execute/receive after this. */
++    bool recv_stalled() const { return recv_timed_out; }
+ 
+     #ifdef PYSMC
+     int py_receiveData(int num_words);
+@@ -67,13 +99,25 @@
+ 
+   private:
+     bool is_dummy;
++    int dimm_select;
+ 
+     BoardInterface *iface;
+     void* instr_buf;
++
++    // c2h drain thread + bounded queue. The thread is spawned by execute()
++    // BEFORE sendData and runs until the FPGA emits its end-of-program TLAST
++    // (kernel returns a partial read). It reads 32-KB chunks from c2h and
++    // pushes the row payload (stripping the 32-B per-program trailer) into
++    // api_recv_buf. Required because the FPGA back-pressures h2c when its
++    // c2h FIFO fills, so without concurrent c2h drain, sendData of any
++    // program whose output exceeds the c2h FIFO blocks indefinitely (and
++    // the kernel's 10 s xdma timeout fires). 2 MB queue is overkill but
++    // keeps the producer from ever stalling on push.
+     std::thread receiver;
+-    boost::lockfree::spsc_queue<int, boost::lockfree::capacity<API_BUF_SIZE/4>> api_recv_buf;
++    boost::lockfree::spsc_queue<int> api_recv_buf{API_BUF_SIZE/4};
+     void* xdma_recv_buf;
+     void consumeData();
++    bool recv_timed_out = false;
+ 
+   #ifdef PYSMC
+   public:
+@@ -81,3 +125,4 @@
+     py::memoryview get_buffer_memoryview();
+   #endif
+ };
++#endif // SOFTMC_PLATFORM_H
+--- a/sources/api/platform.cpp
++++ b/sources/api/platform.cpp
+@@ -3,24 +3,23 @@
+ #include <sys/time.h>
+ #include <stdlib.h>
+ #include <cassert>
++#include <chrono>
+ #include <stdint.h>
+ #include <stdio.h>
+-#include <thread>
+ #include <iostream>
++#include <thread>
+ #include <unistd.h>
+-#include <boost/lockfree/spsc_queue.hpp>
+ 
+ #include "platform.h"
+ #include "board.h"
+ #include "prog.h"
+ 
+-[[maybe_unused]] static int consume_total = 0;
+-[[maybe_unused]] static int receive_total = 0;
+-
+ SoftMCPlatform::SoftMCPlatform()
+ {
+-  // 32 KB large read buffer
+   is_dummy = false;
++  dimm_select = 0;
++  iface = nullptr;
++  instr_buf = nullptr;
+   xdma_recv_buf = malloc(32*1024);
+ 
+   #ifdef PYSMC
+@@ -30,12 +29,36 @@
+ 
+ SoftMCPlatform::SoftMCPlatform(bool sandbox)
+ {
+-  // 32 KB large read buffer
+   is_dummy = sandbox;
++  dimm_select = 0;
++  iface = nullptr;
++  instr_buf = nullptr;
++  xdma_recv_buf = malloc(32*1024);
++}
++
++SoftMCPlatform::SoftMCPlatform(int dimm_select_)
++{
++  is_dummy = false;
++  dimm_select = dimm_select_;
++  iface = nullptr;
++  instr_buf = nullptr;
+   xdma_recv_buf = malloc(32*1024);
++
++  #ifdef PYSMC
++  py_data_buffer = (uint8_t*)malloc(32*1024*sizeof(uint8_t));
++  #endif
+ }
+ 
+ SoftMCPlatform::~SoftMCPlatform(){
++  if (recv_timed_out) {
++    // A receive timed out: the drain thread may be blocked forever inside
++    // the kernel c2h read. Joining would hang, and freeing the buffers /
++    // iface under a thread that still uses them is UB — detach and leak on
++    // purpose; the process is exiting anyway.
++    if (receiver.joinable())
++      receiver.detach();
++    return;
++  }
+   if (receiver.joinable())
+     receiver.join();
+ 
+@@ -66,7 +89,13 @@
+     instr_buf = malloc(INSTR_BUF_SIZE);
+     memset(instr_buf, 0, INSTR_BUF_SIZE);
+ 
+-    iface = new BoardInterface(BoardInterface::IFACE::XDMA);
++    // PIM_BACKEND=sim → drop-in in-process behavioral DDR+SiMRA model
++    // (see api/pim_sim.{h,cpp}). Otherwise, real /dev/xdma path.
++    const char* backend = getenv("PIM_BACKEND");
++    BoardInterface::IFACE iface_kind = BoardInterface::IFACE::XDMA;
++    if (backend && std::string(backend) == "sim")
++      iface_kind = BoardInterface::IFACE::SIM;
++    iface = new BoardInterface(iface_kind, dimm_select);
+     if(!iface -> init())
+       return SOFTMC_SUCCESS;
+     else
+@@ -103,23 +132,65 @@
+   {
+     [[maybe_unused]] uint64_t* iseq     = (uint64_t*) prog.get_inst_array();
+     int bytes          = prog.size();
+-    assert (bytes <= INSTR_BUF_SIZE/4 && " too many instructions in the buffer, the limit is 2048.");
++    assert (bytes <= INSTR_BUF_SIZE/4 && " too many instructions in the buffer, the limit is 8192.");
+     return;
+   }
+   else
+   {
+     uint64_t* iseq     = (uint64_t*) prog.get_inst_array();
++    // Poisoned after a receiveData timeout: the drain thread may still be
++    // blocked in the kernel c2h read, so the join below would hang forever
++    // (the live-fire failure mode of 2026-07-17). Refuse further executes;
++    // the caller should reset the rig or exit.
++    if (recv_timed_out) {
++      std::cerr << "[platform] execute() SKIPPED: platform poisoned by an"
++                << " earlier receiveData timeout." << std::endl;
++      free(iseq);
++      return;
++    }
+     uint64_t* temp_ptr = (uint64_t*) instr_buf;
+     int bytes          = prog.size();
+-    assert (bytes <= INSTR_BUF_SIZE/4 && " too many instructions in the buffer, the limit is 2048.");
++    int n_inst         = bytes / 8;
++    // Env-overridable IMEM ceiling. Default = BITSTREAM_IMEM_INSTS (2048
++    // for today's bitstream). Set BITSTREAM_IMEM=8192 when running on the
++    // post-rebuild bitstream that bumps IMEM_ADDR_WIDTH 11→13. Resolved
++    // once on first call; held as a static so the gate stays branchless
++    // after warmup. The host AXI staging buffer (INSTR_BUF_SIZE) is
++    // already sized for 8192, so widening here is purely a runtime gate
++    // change.
++    static int s_bitstream_imem = []{
++      const char* v = getenv("BITSTREAM_IMEM");
++      int vv = (v && *v) ? atoi(v) : BITSTREAM_IMEM_INSTS;
++      if (vv <= 0) vv = BITSTREAM_IMEM_INSTS;
++      std::cerr << "[platform] BITSTREAM_IMEM in effect: " << vv
++                << (v && *v ? " (env override)" : " (compile-time default)")
++                << std::endl;
++      return vv;
++    }();
++    if (n_inst > s_bitstream_imem) {
++      std::cerr << "[platform] PROGRAM TOO LARGE FOR BITSTREAM: "
++                << n_inst << " instructions > BITSTREAM_IMEM=" << s_bitstream_imem
++                << "\n  -> the FPGA will truncate and SoftMC will deadlock."
++                << " Reduce K (PIM_INLINE_BITPLANES), or set"
++                << " BITSTREAM_IMEM=8192 if running on the rebuilt bitstream."
++                << std::endl;
++      free(iseq);
++      return;  // skip send; downstream receiveData will time out cleanly.
++    }
++    assert (bytes <= INSTR_BUF_SIZE/4 && " host AXI staging buffer overrun (raise INSTR_BUF_SIZE)");
+ 
+     for(int i = 0 ; i < bytes/8 ; i++)
+       temp_ptr[i*4] = iseq[i];
+ 
++    // Spawn the c2h drain thread BEFORE the h2c sendData. Required for
++    // any program whose c2h output exceeds the FPGA's c2h FIFO depth — if
++    // we don't have a concurrent reader, the FIFO fills, the FPGA
++    // back-pressures its instruction queue, and sendData blocks until the
++    // kernel's 10 s xdma timeout fires.
+     if(receiver.joinable())
+       receiver.join();
+-
+     receiver = std::thread(&SoftMCPlatform::consumeData, this);
++
+     int sent = iface -> sendData(instr_buf, bytes*4 /*in bytes*/);
+     memset(instr_buf, 0, bytes*4);
+     free(iseq);
+@@ -129,33 +200,27 @@
+ 
+ void SoftMCPlatform::consumeData()
+ {
+-  while(true)
+-  {
+-    int xdma_read_intent = 32*1024;
+-    int xdma_read_size = xdma_read_intent;
+-    int recvd = iface -> recvData((void*)xdma_recv_buf, xdma_read_size);
+-    if(recvd == 0)
+-      break;
+-    // xdma read size in words
+-    // If we did not read 32KBs then the program probably ended
+-    // and the last transfer is trash so we discard it
+-    if(recvd != xdma_read_intent)
+-      xdma_read_size = recvd-32;
+-    xdma_read_size /= 4;
+-    int total_size = xdma_read_size;
+-    int pushsz = api_recv_buf.push(((int*) xdma_recv_buf), xdma_read_size);
+-    while(pushsz < total_size)
+-      pushsz += api_recv_buf.push(((int*) xdma_recv_buf) + pushsz, xdma_read_size = (total_size - pushsz));
+-
+-//    printf("SoftMCPlatform::consumedata(): spsc filled with %d beats of data\n", pushsz);
+-//    printf("Consume total: %d\n",++consume_total);
+-
+-    assert(pushsz == total_size &&
+-      "Unexpected amount of data pushed into spsc\n");
+-
+-    if(recvd != xdma_read_intent)
+-      break;
+-
++  const int CHUNK = 32 * 1024;
++  // PIM_RECV_DEBUG=1: log every kernel read's size and the trailer-strip
++  // decision — the raw evidence for diagnosing c2h stalls / misalignment.
++  static const bool s_recv_debug = []{
++    const char* v = getenv("PIM_RECV_DEBUG");
++    return v && *v && atoi(v) != 0;
++  }();
++  while (true) {
++    int got = iface->recvData(xdma_recv_buf, CHUNK);
++    if (got <= 0) break;
++    int useful = (got < CHUNK) ? got - 32 : got;
++    if (s_recv_debug)
++      fprintf(stderr, "[recv-debug] got=%d useful=%d\n", got, useful);
++    if (useful > 0) {
++      int total = useful / 4;
++      int pushed = api_recv_buf.push((int*)xdma_recv_buf, total);
++      while (pushed < total)
++        pushed += api_recv_buf.push((int*)xdma_recv_buf + pushed,
++                                   total - pushed);
++    }
++    if (got < CHUNK) break;
+   }
+ }
+ 
+@@ -167,29 +232,57 @@
+ * returns the number of bytes read on success
+ */
+ int SoftMCPlatform::receiveData(void* recv_buf, int size){
+-  if(is_dummy)
+-  {
+-    assert(size>0 && size%4 == 0 && "size is expected to be a multiple of four\n");
+-    size /= 4;
+-    int * my_buf = (int *) recv_buf;
+-    for(int i = 0; i < size ; ++i) {
+-      my_buf[i] = 0x0;
+-    }
+-    return size * 4;
++  assert(size > 0 && size % 4 == 0 && "size must be a positive multiple of 4");
++  if(is_dummy) {
++    memset(recv_buf, 0, size);
++    return size;
+   }
+-  else
+-  {
+-    assert(size>0 && size%4 == 0 && "size is expected to be a multiple of four\n");
+-
+-    size /= 4;
+-    int total_size = size;
+-    int rdsz = api_recv_buf.pop((int*) recv_buf, size);
+-    while (rdsz < total_size)
+-      rdsz += api_recv_buf.pop(((int*) recv_buf) + rdsz, size = (total_size-rdsz));
+-
+-    assert(rdsz == total_size && "Unexpected amount of data popped from spsc\n");
+-    return total_size*4;
++  // Pop `size` bytes from the api_recv_buf the receiver thread is
++  // filling. Same semantics as the pristine SiMRA api, but yield to
++  // the scheduler when the queue is momentarily empty so we don't peg
++  // a host CPU at 100% spinning while the producer thread is doing the
++  // kernel read. (Original code busy-looped — fine in microbenchmarks
++  // but wastes a core when >1 process per host runs in parallel.)
++  // Already poisoned by an earlier timeout — fail fast (0 bytes) instead of
++  // waiting the full window again on every subsequent call.
++  if (recv_timed_out)
++    return 0;
++  size /= 4;
++  int total_words = size;
++  int rd = 0;
++  // Opt-in stall guard (PIM_RECV_TIMEOUT_MS, see platform.h). Resolved once;
++  // 0/unset keeps the pristine block-forever semantics with zero clock calls
++  // in the spin path.
++  static const long s_recv_timeout_ms = []{
++    const char* v = getenv("PIM_RECV_TIMEOUT_MS");
++    long vv = (v && *v) ? atol(v) : 0;
++    if (vv > 0)
++      std::cerr << "[platform] PIM_RECV_TIMEOUT_MS in effect: " << vv << std::endl;
++    return vv;
++  }();
++  auto last_progress = std::chrono::steady_clock::now();
++  while (rd < total_words) {
++    int got = api_recv_buf.pop((int*)recv_buf + rd, total_words - rd);
++    if (got == 0) {
++      if (s_recv_timeout_ms > 0 &&
++          std::chrono::duration_cast<std::chrono::milliseconds>(
++              std::chrono::steady_clock::now() - last_progress).count()
++              >= s_recv_timeout_ms) {
++        recv_timed_out = true;
++        std::cerr << "[platform] receiveData TIMEOUT: no c2h data for "
++                  << s_recv_timeout_ms << " ms; got " << rd * 4 << "/"
++                  << total_words * 4 << " bytes (FPGA c2h stall). Platform is"
++                  << " poisoned — reset the rig or exit; do not retry."
++                  << std::endl;
++        return rd * 4;
++      }
++      std::this_thread::yield();
++    } else if (s_recv_timeout_ms > 0) {
++      last_progress = std::chrono::steady_clock::now();
++    }
++    rd += got;
+   }
++  return total_words * 4;
+ }
+ 
+ #ifdef PYSMC

@@ -255,16 +255,73 @@ static void emit_bank_combined_body(Program& p,
   p.add_below(PRE(BAR, 0, 0));
   p.add_inst(SMC_SLEEP(6));
 
-  // 3. Overwrite 11 non-weight slots with x / 0 / ONE.
-  static const int act_pos[5]  = {1, 4, 7, 10, 13};
-  static const int zero_pos[5] = {2, 5, 8, 11, 14};
-  p.add_below(wrRow_immediate_label(BAR, open_rows[0], ONE, label_base + 0));
-  for (int i = 0; i < 5; i++)
-    p.add_below(wrRow_immediate_label(BAR, open_rows[act_pos[i]],
-                                       x_pattern, label_base + 1 + i));
-  for (int i = 0; i < 5; i++)
-    p.add_below(wrRow_immediate_label(BAR, open_rows[zero_pos[i]], 0u,
-                                       label_base + 100 + i));
+  // 3. Overwrite the 11 non-weight slots with x / 0 / ONE.
+  //    Default: 11 uniform wrRows (ONE + 5×x + 5×zero) — the wrRows are
+  //    ~80% of the per-MAJ program cost.
+  //    PIM_FUSED_COSET=1: lattice-addressing update — 5 wrRows + 2 in-tuple
+  //    coset broadcasts produce the same 5/5/5 vote balance with x on
+  //    positions {1,5,9,13}+{4} and zeros on {2,6,10,14}+{8}; W stays on
+  //    {3,7,11,12,15}. Requires (a) a separated-generator rank-4 tuple so
+  //    the sorted position index equals the generator bitmask (true for the
+  //    calib_dimm2 s72 and calib_dimm0 s61 classes), and (b) t_12 ≥ 10 on
+  //    the coset doubleACTs. Bit-exact on silicon for the s72 calib on
+  //    benders 0 & 2 (fused-maj A/B campaign, 0/114688 bad segments,
+  //    2026-07-17); validate before enabling on other calibs. The
+  //    unbalanced 7W/4x/4z variant is KNOWN WRONG (79-90% bad) — do not
+  //    drop the two extra anchor writes.
+  // 1 = coset mode (5 wrRows + 2 coset doubleACTs).
+  // 2 = DIAGNOSTIC: fused position layout via 10 explicit wrRows, no cosets.
+  // 3 = DIAGNOSTIC: explicit wrRows AND the coset doubleACTs (redundant).
+  static const int s_fused_coset = []{
+    const char* v = getenv("PIM_FUSED_COSET");
+    int m = (v && *v) ? atoi(v) : 0;
+    if (m)
+      fprintf(stderr, "[server] PIM_FUSED_COSET=%d: coset activation update "
+                      "in the MAJ3 body\n", m);
+    return m;
+  }();
+  if (s_fused_coset) {
+    static const int f_act[5]  = {1, 5, 9, 13, 4};
+    static const int f_zero[5] = {2, 6, 10, 14, 8};
+    p.add_below(wrRow_immediate_label(BAR, open_rows[0], ONE, label_base + 0));
+    if (s_fused_coset == 1) {
+      p.add_below(wrRow_immediate_label(BAR, open_rows[1], x_pattern,
+                                         label_base + 1));
+      p.add_below(wrRow_immediate_label(BAR, open_rows[2], 0u, label_base + 2));
+      p.add_below(wrRow_immediate_label(BAR, open_rows[4], x_pattern,
+                                         label_base + 3));
+      p.add_below(wrRow_immediate_label(BAR, open_rows[8], 0u, label_base + 4));
+    } else {
+      for (int i = 0; i < 5; i++)
+        p.add_below(wrRow_immediate_label(BAR, open_rows[f_act[i]],
+                                           x_pattern, label_base + 1 + i));
+      for (int i = 0; i < 5; i++)
+        p.add_below(wrRow_immediate_label(BAR, open_rows[f_zero[i]], 0u,
+                                           label_base + 100 + i));
+    }
+    if (s_fused_coset != 2) {
+      p.add_inst(SMC_SLEEP(6));
+      p.add_below(PRE(BAR, 0, 0));
+      p.add_inst(SMC_SLEEP(6));
+      // x → coset {1,5,9,13}: partner at generator distance g2^g3.
+      p.add_below(doubleACT(10, 2, open_rows[1], open_rows[13]));
+      p.add_inst(SMC_SLEEP(6));
+      p.add_below(PRE(BAR, 0, 0));
+      p.add_inst(SMC_SLEEP(6));
+      // 0 → coset {2,6,10,14}.
+      p.add_below(doubleACT(10, 2, open_rows[2], open_rows[14]));
+    }
+  } else {
+    static const int act_pos[5]  = {1, 4, 7, 10, 13};
+    static const int zero_pos[5] = {2, 5, 8, 11, 14};
+    p.add_below(wrRow_immediate_label(BAR, open_rows[0], ONE, label_base + 0));
+    for (int i = 0; i < 5; i++)
+      p.add_below(wrRow_immediate_label(BAR, open_rows[act_pos[i]],
+                                         x_pattern, label_base + 1 + i));
+    for (int i = 0; i < 5; i++)
+      p.add_below(wrRow_immediate_label(BAR, open_rows[zero_pos[i]], 0u,
+                                         label_base + 100 + i));
+  }
   p.add_inst(SMC_SLEEP(6));
   p.add_below(PRE(BAR, 0, 0));
   p.add_inst(SMC_SLEEP(6));

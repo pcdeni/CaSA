@@ -1,0 +1,10 @@
+Opened /dev/xdma0_h2c_2 -> 3
+Opened /dev/xdma0_c2h_2 -> 4
+Successfully reset the FPGA!
+[platform] BITSTREAM_IMEM in effect: 2048 (compile-time default)
+[platform] PIM_RECV_TIMEOUT_MS in effect: 15000
+[fp-ab] screening: 28/77 masks usable
+[fp-ab] fused gate program: max 154 insts (IMEM 2048)
+[fp-ab] C write-load (June shape)   :   1.585 ms/gate   per-op 99.996%   e2e popcount 99.990%
+[fp-ab] A clone-load, unfused       :   0.885 ms/gate   per-op 99.967%   e2e popcount 99.865%
+[fp-ab] B clone-load, FUSED 1-exec  :   0.683 ms/gate   per-op 99.965%   e2e popcount 99.808%

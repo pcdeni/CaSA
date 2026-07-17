@@ -22,15 +22,21 @@ charge-sharing, on real silicon.
 > and [our verification + open questions](https://github.com/CMU-SAFARI/SiMRA-DRAM/issues/1),
 > which now also bound Multi-RowCopy's own reliability envelope.
 >
-> ▶ **[MVDRAM reproduction study — negative result](docs/MVDRAM_REPRODUCTION.md)**
+> ▶ **[MVDRAM reproduction study — updated](docs/MVDRAM_REPRODUCTION.md)**
 > — we bought two new units of the exact DRAM part the MVDRAM paper
 > (arXiv:2503.23817) names and attempted a full reproduction. The part
 > performs **no processing-using-DRAM at all** in our hands (0 charge-share
 > copies in 60,000 random row pairs, while working perfectly as ordinary
-> memory), and on modules where PUD *does* work, the paper's chained
-> dataflow collapses to 6–11% correct because of the XOR-spread row-decoder
-> artifact above. Six modules tested, zero reproductions. Reproducer code
-> and raw logs included.
+> memory) — that finding stands. *Update, July 2026:* our second finding —
+> "on modules where PUD does work, the paper's chained dataflow collapses
+> to 6–11%" — is **reversed**: the collapse was an addressing artifact of
+> our own row placement. With pair-offset-safe placement derived from the
+> co-activation lattice, the paper's computation-rows dataflow runs at
+> 99.98% end-to-end and a fused fast-path kernel beats our host-mediated
+> variant by 2.2–2.3× (study §8). MVDRAM's method is achievable on
+> commodity spread-afflicted silicon — but only with spread-aware
+> addressing the paper does not discuss. Reproducer code and raw logs
+> included.
 
 This repository contains the software side of that demonstration:
 
