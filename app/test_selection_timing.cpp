@@ -44,13 +44,14 @@ static void read_row(SoftMCPlatform& pf,int bank,uint32_t row,uint8_t* out){
   pf.execute(p); pf.receiveData(out,8192); }
 
 int main(int argc,char**argv){
-  if(argc<3){fprintf(stderr,"Usage: %s <bender> <bank> [pairs_per_k=4] [seed=11]\n",argv[0]);return 1;}
+  if(argc<3){fprintf(stderr,"Usage: %s <bender> <bank> [pairs_per_k=4] [seed=11] [sub_base=45312] [slen=640]\n",argv[0]);return 1;}
   int bender=atoi(argv[1]),bank=atoi(argv[2]);
   int PPK=(argc>3)?atoi(argv[3]):4; int seed=(argc>4)?atoi(argv[4]):11;
-  const uint32_t SUB=45312, SLEN=640;
-  // production tuple rows to avoid
+  const uint32_t SUB=(argc>5)?(uint32_t)strtoul(argv[5],0,10):45312u;
+  const uint32_t SLEN=(argc>6)?(uint32_t)strtoul(argv[6],0,10):640u;
+  // production tuple rows to avoid (only on the DIMM-2 production subarray)
   set<uint32_t> avoid;
-  for(uint32_t r:{45340u,45436u,45724u,45820u}) for(uint32_t i=0;i<4;i++) avoid.insert(r+i);
+  if(SUB==45312u) for(uint32_t r:{45340u,45436u,45724u,45820u}) for(uint32_t i=0;i<4;i++) avoid.insert(r+i);
 
   const int T12S[4]={5,10,20,30};
   const int T23S[2]={1,2};

@@ -242,11 +242,40 @@ int main(int argc, char** argv) {
 
   // ONE-TIME setup: write every probe row's fingerprint. This takes the
   // longest (~640 × ~3 ms = ~2 s).
-  fprintf(stderr, "[setup] pre-writing %zu rows... ", row_addr.size());
+  //
+  // PIM_SCREEN_RW=1 (2026-07-18, per-subarray pool screening): also do a
+  // pattern + antipattern write/read screen per row — write mask, read,
+  // verify; write ~mask, read, verify; re-write mask (so the sweep's
+  // fingerprint state is exactly as without the screen). Machine-parseable
+  // RWBAD lines flag rows with any mismatching word. Default off.
+  bool screen_rw = getenv("PIM_SCREEN_RW") && atoi(getenv("PIM_SCREEN_RW")) > 0;
+  int rw_bad_rows = 0;
+  fprintf(stderr, "[setup] pre-writing %zu rows%s... ", row_addr.size(),
+          screen_rw ? " (+RW screen)" : "");
   fflush(stderr);
-  for (size_t i = 0; i < row_addr.size(); i++)
+  for (size_t i = 0; i < row_addr.size(); i++) {
     per_col_write(platform, row_addr[i], row_mask[i].data());
+    if (screen_rw) {
+      std::vector<uint8_t> rb(8192);
+      std::vector<uint32_t> anti(2048);
+      for (int k = 0; k < 2048; k++) anti[k] = ~row_mask[i][k];
+      read_row(platform, row_addr[i], rb.data(), 700000 + (int)i);
+      int pat_m = n_match(rb.data(), row_mask[i].data());
+      per_col_write(platform, row_addr[i], anti.data());
+      read_row(platform, row_addr[i], rb.data(), 750000 + (int)i);
+      int anti_m = n_match(rb.data(), anti.data());
+      per_col_write(platform, row_addr[i], row_mask[i].data());
+      if (pat_m < 2048 || anti_m < 2048) {
+        printf("RWBAD R=%u pat_match=%d anti_match=%d\n",
+               row_addr[i], pat_m, anti_m);
+        rw_bad_rows++;
+      }
+    }
+  }
   fprintf(stderr, "done\n");
+  if (screen_rw)
+    printf("# rw_screen: %d/%zu rows with any pattern/antipattern miss\n",
+           rw_bad_rows, row_addr.size());
 
   // Iterate test sources.
   int total_faults = 0;
@@ -348,5 +377,43 @@ int main(int argc, char** argv) {
 
   printf("\n# total_faults=%d  sources_tested=%zu  warmup=%d\n",
          total_faults, sources.size(), n_warmup);
+
+  // PIM_CHECK_CLONE=1 (2026-07-18): separate post-sweep pass — for each
+  // source R, re-write R's fingerprint, fire ONLY the RowClone doubleACT
+  // (t12=30, t23=1, R -> RFIRST) and read RFIRST back. Reports whether R
+  // can act as a scratch/backup row for this calib at all. Needed for
+  // windows that straddle a 1024-row predecoder block boundary (s86 on
+  // DIMM 2 splits at 54272): cross-block APA pairs deposit nothing (see
+  // sublattice_broadcast_2026_07_17/RESULT.md addendum 11), so rows on
+  // the far side of the boundary from RFIRST cannot clone-load. Kept out
+  // of the main sweep loop so the measured fault graph is untouched.
+  if (getenv("PIM_CHECK_CLONE") && atoi(getenv("PIM_CHECK_CLONE")) > 0) {
+    fprintf(stderr, "[clone-check] probing %zu sources...\n", sources.size());
+    int n_ok = 0, n_fail = 0;
+    std::vector<uint8_t> rb(8192);
+    for (size_t s_i = 0; s_i < sources.size(); s_i++) {
+      uint32_t R = sources[s_i];
+      int R_idx = -1;
+      for (size_t i = 0; i < row_addr.size(); i++)
+        if (row_addr[i] == R) { R_idx = (int)i; break; }
+      if (R_idx < 0) continue;
+      per_col_write(platform, R, row_mask[R_idx].data());
+      Program p;
+      p.add_inst(SMC_LI(8, CASR));
+      p.add_inst(SMC_LI(BANK_ID, BAR));
+      p.add_below(PRE(BAR, 0, 0)); p.add_inst(SMC_SLEEP(6));
+      p.add_below(doubleACT(30, 1, R, RFIRST));
+      p.add_inst(SMC_SLEEP(6));
+      p.add_below(PRE(BAR, 0, 0)); p.add_inst(SMC_SLEEP(6));
+      p.add_inst(SMC_END());
+      platform.execute(p);
+      read_row(platform, RFIRST, rb.data(), 800000 + (int)s_i);
+      int m = n_match(rb.data(), row_mask[R_idx].data());
+      int ok = (m >= 2046) ? 1 : 0;
+      printf("CLONE R=%u match=%d ok=%d\n", R, m, ok);
+      if (ok) n_ok++; else n_fail++;
+    }
+    printf("# clone_check: ok=%d fail=%d\n", n_ok, n_fail);
+  }
   return 0;
 }

@@ -166,7 +166,12 @@ static Program build_refresh_subarray_loop_program(
     p.add_inst(SMC_LI(bank, BAR));
     p.add_inst(SMC_LI(r0, LOOP_ROWS));
     p.add_inst(SMC_LI(r1, NUM_ROWS_REG));
-    std::string lab = "REFRESH_SUBARR_B" + std::to_string(bank);
+    // Label must be unique per ENTRY, not per bank: with LOAD-overflow
+    // extra pools the same bank appears once per subarray window, and a
+    // bank-only label makes every branch resolve to the last window's
+    // loop (earlier windows' setup is skipped entirely).
+    std::string lab = "REFRESH_SUBARR_B" + std::to_string(bank) +
+                      "_" + std::to_string(bi);
     p.add_label(lab);
       p.add_inst(SMC_ADDI(LOOP_ROWS, 0, RAR));      // RAR = LOOP_ROWS
       p.add_below(PRE(BAR, 0, 0));                   // ensure idle
@@ -225,13 +230,148 @@ static Program build_rowclone_program(int bank_id,
 // MAJ3 → read body. Caller must have set CASR (SMC_LI(8, CASR)) once
 // before the first body and emit SMC_END() after the last body. Bank
 // switching done at start of body via SMC_LI(bank_id, BAR).
+// Fused-coset eligibility of the calib the CURRENT program is being built
+// for. The fused body requires a separated-generator rank-4 tuple —
+// validated ONLY for the primary calibs (s72 class on DIMM 2, s61 class
+// on DIMM 0). The cs_extra voting calibs live in other subarrays and are
+// NOT validated: fused on them corrupts their trips, and the client's
+// median-of-3 then votes garbage in (the 2026-07-18 full-model
+// '<|end|><|assistant|' failure). Set explicitly before EVERY builder
+// call; single-threaded request loop makes a file-scope flag safe.
+static bool g_fused_calib_ok = true;
+
+// PIM_FUSED_COSET mode, read once (shared by the serial body and the
+// bank-parallel builder so both emit the same step-3 variant):
+//   0 = off (11 uniform wrRows — historic production body)
+//   1 = coset mode (5 wrRows + 2 in-tuple coset doubleACTs)
+//   2 = DIAGNOSTIC: fused position layout via 10 explicit wrRows, no cosets
+//   3 = DIAGNOSTIC: explicit wrRows AND the coset doubleACTs (redundant)
+static int fused_coset_mode() {
+  static const int m = []{
+    const char* v = getenv("PIM_FUSED_COSET");
+    int mode = (v && *v) ? atoi(v) : 0;
+    if (mode)
+      fprintf(stderr, "[server] PIM_FUSED_COSET=%d: coset activation update "
+                      "in the MAJ3 body\n", mode);
+    return mode;
+  }();
+  return m;
+}
+
+// ---------------------------------------------------------------------------
+// O4 (a): Fig-15-style RESIDENT CONSTANT ROWS (PIM_RESIDENT_CONSTS,
+// default off — emission byte-identical when unset).
+//
+// MVDRAM's Fig-15 convention stores W AND ¬W resident (doubled matrix
+// storage) so complement operands never need per-op writes. Audit of OUR
+// dataflow (2026-07-19): no body ever consumes a complemented weight
+// operand. The ternary split stores pos_mask and neg_mask as two
+// INDEPENDENT resident rows (process_load_weights writes one per
+// (chunk, sign) unit) and applies the sign ARITHMETICALLY at accumulate
+// time (sign_factor * bitplane_factor). neg_mask != ~pos_mask (ternary:
+// ~pos would cover {-1, 0}), so Fig-15's complement-doubling DOES NOT
+// APPLY here. The applicable transfer is the underlying principle: any
+// row whose content never changes per-op should be RESIDENT and cloned,
+// not rewritten.
+//
+// In the fused body (PIM_FUSED_COSET=1) the 5 remaining wrRows are
+// ONE@op[0], x@op[1], 0@op[2], x@op[4], 0@op[8]. The x rows carry the
+// per-op activation bitplane — they must stay wrRows. The ONE row and
+// the two 0 rows are CONSTANT: with a resident all-ones row and a
+// resident all-zeros row per bank (selected from the screened primary
+// pool at startup, per-column-written once, ACT-refreshed with the pool
+// by the MM3D-entry refresh loop — "refreshed like weights"), they
+// become RowClones. A wrRow runs a 128-iteration WRITE loop (~2k PHY
+// slots; the 5 wrRows are the dominant share of fused-body PHY time); a
+// framed clone is one doubleACT(30,1) (~120 PHY slots incl. PRE/SLEEP
+// framing) and also skips the LDWD pattern-load prologue. IMEM cost
+// drops too (~32 -> ~17 words per replaced row), which composes with
+// PIM_PACK_ROUNDS.
+//
+// Deposit safety (pair-lattice law, test_safe_load.cpp): an external
+// RowClone src->dst deposits src's pattern at {src ^ S : S subset of
+// bits(src ^ dst)}; the tuple-intersecting deposits are open_rows[
+// dst_idx ^ j] for every generator-sum e_j that is a bit-subset of
+// (src ^ dst). setup_resident_consts() picks const rows such that
+//   ONE  src -> op[0]:      NO tuple deposit besides the target;
+//   ZERO src -> op[2],op[8]: deposits confined to {op[0]} + zero rows
+//     ({2,6,10,14} coset + {8}) — zeros onto zero rows are no-ops, and a
+//     zero deposit on op[0] is erased because the ONE fill is emitted
+//     AFTER the zero clones (ordering is load-bearing).
+// The const pair is also checked for mutual deposits. Src-side deposits
+// into the wider pool have the same geometry as the production
+// backup->Rfirst clones (screened pool rows, same subarray) — the
+// envelope production already runs in.
+//
+// NOT modeled in sim: a clone leaves charge-shared (not write-driven)
+// voltage; the frac x3 discharge on a CLONED ONE anchor is the most
+// plausible silicon divergence. PIM_RESIDENT_CONSTS=2 keeps ONE as a
+// wrRow (zeros-only) as the decomposition arm for the silicon A/B.
+//   0/unset = off, 1 = clone ONE + zeros, 2 = clone zeros only.
+static const uint32_t RES_ROW_NONE = 0xFFFFFFFFu;
+static int resident_consts_mode() {
+  static const int m = []{
+    const char* v = getenv("PIM_RESIDENT_CONSTS");
+    int mode = (v && *v) ? atoi(v) : 0;
+    if (mode)
+      fprintf(stderr, "[server] PIM_RESIDENT_CONSTS=%d: fused-body constant "
+                      "rows cloned from resident pool rows (%s)\n",
+              mode, mode == 2 ? "zeros only, ONE stays wrRow" : "ONE + zeros");
+    return mode;
+  }();
+  return m;
+}
+// O4 (a) DRIFT FIX (2026-07-19, RESULT.md addendum 23): cadence for
+// re-writing the resident const rows at MM3D-request granularity.
+// Addendum 22's drift physics: same-subarray tuple traffic transitions
+// resident rows' CONTENT one-shot (coupling-class-ordered saturation,
+// ~65% of pool rows within ~80-160 bodies), and the MM3D-entry
+// ACT-refresh PRESERVES the drifted content — it restores charge, not
+// data. Weight rows are re-written per LOAD slice, but the const rows
+// sat resident for the whole run, so every fused body cloned from
+// progressively degraded ONE/ZERO sources — invisible to short
+// protocol runs (fresh consts), fatal at full-model traffic scale
+// (consts-only full model 2026-07-19: '1. I am a helpful AI assistant'
+// vs the features-off control's Paris on the same binary).
+// PIM_CONSTS_REWRITE_EVERY=N: rewrite every Nth MM3D request.
+// Default 1 = every request (cost: one program with 2 uniform wrRows
+// per const-bank vs 3 clones saved x hundreds of bodies/request).
+// 0 = never = the pre-fix behavior, kept as the drift-probe arm.
+static int consts_rewrite_every() {
+  static const int v = []{
+    const char* e = getenv("PIM_CONSTS_REWRITE_EVERY");
+    long n = (e && *e) ? atol(e) : 1;
+    if (n < 0) n = 1;
+    if (e && *e)
+      fprintf(stderr, "[server] PIM_CONSTS_REWRITE_EVERY=%ld%s\n", n,
+              n == 0 ? " (NEVER re-write — pre-drift-fix diagnostic arm)"
+                     : "");
+    return (int)n;
+  }();
+  return v;
+}
+
+// Framed RowClone src->dst — identical dwell + framing to the step-1
+// backup->Rfirst clone (PRE / SLEEP / doubleACT(30,1) / SLEEP / PRE /
+// SLEEP). Caller must have BAR set for the target bank.
+static void emit_const_clone(Program& p, uint32_t src_row, uint32_t dst_row) {
+  p.add_below(PRE(BAR, 0, 0));
+  p.add_inst(SMC_SLEEP(6));
+  p.add_below(doubleACT(/*t_12=*/30, /*t_23=*/1, src_row, dst_row));
+  p.add_inst(SMC_SLEEP(6));
+  p.add_below(PRE(BAR, 0, 0));
+  p.add_inst(SMC_SLEEP(6));
+}
+
 static void emit_bank_combined_body(Program& p,
                                      int bank_id,
                                      uint32_t backup_row,
                                      uint32_t Rfirst, uint32_t Rsecond,
                                      const uint32_t* open_rows,
                                      uint32_t x_pattern,
-                                     int label_base) {
+                                     int label_base,
+                                     uint32_t res_one = RES_ROW_NONE,
+                                     uint32_t res_zero = RES_ROW_NONE) {
   // Per-bank register setup: BAR + NUM_COLS_REG must be (re-)set when
   // this bank's body starts so prior bank's state doesn't leak in.
   p.add_inst(SMC_LI(bank_id, BAR));
@@ -272,17 +412,37 @@ static void emit_bank_combined_body(Program& p,
   // 1 = coset mode (5 wrRows + 2 coset doubleACTs).
   // 2 = DIAGNOSTIC: fused position layout via 10 explicit wrRows, no cosets.
   // 3 = DIAGNOSTIC: explicit wrRows AND the coset doubleACTs (redundant).
-  static const int s_fused_coset = []{
-    const char* v = getenv("PIM_FUSED_COSET");
-    int m = (v && *v) ? atoi(v) : 0;
-    if (m)
-      fprintf(stderr, "[server] PIM_FUSED_COSET=%d: coset activation update "
-                      "in the MAJ3 body\n", m);
-    return m;
-  }();
-  if (s_fused_coset) {
+  // (Mode accessor hoisted to fused_coset_mode() so the bank-parallel
+  // builder emits the identical step-3 variant.)
+  const int s_fused_coset = fused_coset_mode();
+  // O4 (a): resident-const clones are wired for the FUSED mode-1 body only
+  // (the production winner whose wrRows they attack); modes 0/2/3 keep
+  // their historic emission byte-for-byte. Per-body res rows come from the
+  // caller (primary-calib bodies only); RES_ROW_NONE falls back to wrRow.
+  const int rc_mode = resident_consts_mode();
+  const bool use_consts = rc_mode > 0 && s_fused_coset == 1 &&
+                          g_fused_calib_ok && res_zero != RES_ROW_NONE;
+  if (s_fused_coset && g_fused_calib_ok) {
     static const int f_act[5]  = {1, 5, 9, 13, 4};
     static const int f_zero[5] = {2, 6, 10, 14, 8};
+    if (use_consts) {
+      // Order is load-bearing (deposit safety, see the block comment at
+      // resident_consts_mode): zero clones first — their only permitted
+      // off-target deposits are zeros onto zero rows or onto op[0], and
+      // the ONE fill emitted after them erases the op[0] case. The x
+      // wrRows carry per-op data and stay writes.
+      emit_const_clone(p, res_zero, open_rows[2]);
+      emit_const_clone(p, res_zero, open_rows[8]);
+      if (rc_mode == 2 || res_one == RES_ROW_NONE)
+        p.add_below(wrRow_immediate_label(BAR, open_rows[0], ONE,
+                                           label_base + 0));
+      else
+        emit_const_clone(p, res_one, open_rows[0]);
+      p.add_below(wrRow_immediate_label(BAR, open_rows[1], x_pattern,
+                                         label_base + 1));
+      p.add_below(wrRow_immediate_label(BAR, open_rows[4], x_pattern,
+                                         label_base + 3));
+    } else {
     p.add_below(wrRow_immediate_label(BAR, open_rows[0], ONE, label_base + 0));
     if (s_fused_coset == 1) {
       p.add_below(wrRow_immediate_label(BAR, open_rows[1], x_pattern,
@@ -298,6 +458,7 @@ static void emit_bank_combined_body(Program& p,
       for (int i = 0; i < 5; i++)
         p.add_below(wrRow_immediate_label(BAR, open_rows[f_zero[i]], 0u,
                                            label_base + 100 + i));
+    }
     }
     if (s_fused_coset != 2) {
       p.add_inst(SMC_SLEEP(6));
@@ -389,14 +550,22 @@ static Program build_multibank_combined_program(
     const std::vector<uint32_t>& Rseconds,
     const std::vector<const uint32_t*>& open_rows_list,
     const std::vector<uint32_t>& x_patterns,
-    int label_seed) {
+    int label_seed,
+    // O4 (a): optional per-body (ONE row, ZERO row) resident-const pairs;
+    // nullptr / short vector / RES_ROW_NONE entries = wrRow fallback.
+    const std::vector<std::pair<uint32_t,uint32_t>>* res_consts = nullptr) {
   Program p;
   p.add_inst(SMC_LI(8, CASR));
   for (size_t i = 0; i < bank_ids.size(); i++) {
+    uint32_t rc1 = RES_ROW_NONE, rc0 = RES_ROW_NONE;
+    if (res_consts && i < res_consts->size()) {
+      rc1 = (*res_consts)[i].first;
+      rc0 = (*res_consts)[i].second;
+    }
     emit_bank_combined_body(p, bank_ids[i], backup_rows[i],
                             Rfirsts[i], Rseconds[i],
                             open_rows_list[i], x_patterns[i],
-                            label_seed + (int)i * 2000);
+                            label_seed + (int)i * 2000, rc1, rc0);
     // PIM_REFRESH_BETWEEN: optional periodic SMC_REF between bank bodies.
     // SMC_REF advances DDR4's internal refresh counter (one row per bank
     // per command, cycles through 8K rows over 64 ms). Manual placement
@@ -425,6 +594,14 @@ static Program build_multibank_combined_program(
 // parallelized today). Net win: ~3-4× compression on the SiMRA stages
 // (RowClone goes 4×34 PHY → 37 PHY, Broadcast 4×14 → 21, MAJ3 stays).
 //
+// PIM_FUSED_COSET composition (task O3): when the fused coset body is
+// enabled AND the calib is fused-eligible (g_fused_calib_ok — same gate
+// as the serial body), step 3 emits 5 wrRows per bank serially and then
+// the TWO in-tuple coset doubleACTs (t_12=10 / t_23=2, exactly the
+// serial dwells) as pack4-parallel sequences across the 4 banks —
+// followed by the per-bank frac sections, preserving the serial fused
+// body's per-bank order: wrRows → coset dACTs → frac ×3 → MAJ3 → rdRow.
+//
 // Register layout (live across the parallel sections):
 //   slot 0: CASR   = 8 (kept stable; column-stride for ICAR)
 //   slots 1, 2, 3, 9: bar0..bar3 (LI'd once at body top, never overwritten)
@@ -433,7 +610,10 @@ static Program build_multibank_combined_program(
 // Other reg uses (PATTERN_REG=12, BAR=7, etc.) are confined to the
 // per-bank serial sections and re-LI their inputs themselves; we
 // re-establish CASR=8 and the canonical BAR=bank_id at the top of each
-// serial section.
+// serial section. The serial wrRow helper clobbers slots 4/6/13/14
+// (CAR/RAR/LOOP_COLS/NUM_COLS_REG overlap src/dst slots), so EVERY
+// parallel phase that follows a serial section re-LIs src/dst — the
+// coset phases do this exactly like Phase 5 (MAJ3) always has.
 static Program build_multibank_parallel_program(
     const std::vector<int>& bank_ids,
     const std::vector<uint32_t>& backup_rows,
@@ -441,7 +621,11 @@ static Program build_multibank_parallel_program(
     const std::vector<uint32_t>& Rseconds,
     const std::vector<const uint32_t*>& open_rows_list,
     const std::vector<uint32_t>& x_patterns,
-    int label_seed)
+    int label_seed,
+    // O4 (a): optional per-body resident-const pairs — see the serial
+    // builder. Forwarded through the serial fallbacks; honored in the
+    // per-bank serial wrRow section of the fused (mode 1) path.
+    const std::vector<std::pair<uint32_t,uint32_t>>* res_consts = nullptr)
 {
   const int N = (int)bank_ids.size();
   // Today the parallel scheduler is wired for N=4. Smaller N falls back
@@ -449,8 +633,26 @@ static Program build_multibank_parallel_program(
   if (N != 4) {
     return build_multibank_combined_program(
         bank_ids, backup_rows, Rfirsts, Rseconds,
-        open_rows_list, x_patterns, label_seed);
+        open_rows_list, x_patterns, label_seed, res_consts);
   }
+  // The pack4 scheme assumes one slot per DISTINCT bank: 4 work units on
+  // a repeated bank (e.g. single-bank + PIM_INLINE_BITPLANES=4) would
+  // interleave two doubleACT patterns on the same bank — uncalibrated
+  // timing. Fall back to the serial emitter for those.
+  for (int a = 0; a < 4; a++)
+    for (int b2 = a + 1; b2 < 4; b2++)
+      if (bank_ids[a] == bank_ids[b2]) {
+        static bool warned = false;
+        if (!warned) {
+          warned = true;
+          fprintf(stderr, "[server] PIM_PARALLEL_BANKS: duplicate bank %d "
+                  "in 4-unit batch — using serial multibank emit\n",
+                  bank_ids[a]);
+        }
+        return build_multibank_combined_program(
+            bank_ids, backup_rows, Rfirsts, Rseconds,
+            open_rows_list, x_patterns, label_seed, res_consts);
+      }
   Program p;
   p.add_inst(SMC_LI(8, CASR));
   // Pre-LI bar regs (stable across the whole body).
@@ -491,37 +693,149 @@ static Program build_multibank_parallel_program(
   pre_all();
   p.add_inst(SMC_SLEEP(6));
 
-  // Phase 3 + 4: per-bank serial wrRow setup × 11 + frac × 3.
-  // BAR / PATTERN_REG / LOOP_COLS / NUM_COLS_REG / RAR / CAR are
-  // re-LI'd by the wrRow_immediate_label / frac_template helpers.
-  // We re-establish BAR=bank_id, NUM_COLS_REG=128 at the top of each
-  // bank's serial section.
+  // Phase 3 + 4: per-bank serial wrRow setup + frac × 3, honoring the
+  // same PIM_FUSED_COSET step-3 variants as emit_bank_combined_body
+  // (identical rows, patterns, dwells, and per-bank order; only the
+  // scheduling of the two coset doubleACTs differs — they run as
+  // pack4-parallel sequences in Phase 3b below).
+  //   mode 0: 11 uniform wrRows/bank, frac inside this loop (emission
+  //           byte-identical to the pre-fused parallel builder).
+  //   mode 1: 5 wrRows/bank (ONE@0, x@1, 0@2, x@4, 0@8); cosets in 3b;
+  //           frac moves to Phase 4 (after the cosets, as in serial).
+  //   mode 2: DIAGNOSTIC — fused layout via 10 explicit wrRows, no
+  //           cosets; frac stays inside this loop.
+  //   mode 3: DIAGNOSTIC — explicit wrRows AND the coset doubleACTs.
+  // The fused 5/5/5 vote balance (x on {1,5,9,13}+{4}, zeros on
+  // {2,6,10,14}+{8}, W on {3,7,11,12,15}) is a hard rule — the
+  // unbalanced variant is KNOWN WRONG on silicon.
+  const int fused_mode = g_fused_calib_ok ? fused_coset_mode() : 0;
+  const bool fused_cosets = (fused_mode == 1 || fused_mode == 3);
   static const int act_pos[5]  = {1, 4, 7, 10, 13};
   static const int zero_pos[5] = {2, 5, 8, 11, 14};
+  static const int f_act[5]  = {1, 5, 9, 13, 4};
+  static const int f_zero[5] = {2, 6, 10, 14, 8};
   for (int b = 0; b < 4; b++) {
     p.add_inst(SMC_LI((uint32_t)bank_ids[b], BAR));
     p.add_inst(SMC_LI(128, NUM_COLS_REG));
+    // O4 (a): fused mode-1 bodies may clone their constant rows from
+    // resident pool rows (same substitution + ordering as the serial
+    // body). The clone's doubleACT LIs RF_REG(10)/LOOP_COLS(13) — both
+    // already in the serial-section clobber set (every parallel phase
+    // re-LIs src/dst after serial sections), so no new register hazard.
+    uint32_t rc1 = RES_ROW_NONE, rc0 = RES_ROW_NONE;
+    if (res_consts && (size_t)b < res_consts->size()) {
+      rc1 = (*res_consts)[b].first;
+      rc0 = (*res_consts)[b].second;
+    }
+    const int rc_mode = resident_consts_mode();
+    const bool use_consts_b = rc_mode > 0 && fused_mode == 1 &&
+                              rc0 != RES_ROW_NONE;
+    if (use_consts_b) {
+      emit_const_clone(p, rc0, open_rows_list[b][2]);
+      emit_const_clone(p, rc0, open_rows_list[b][8]);
+      if (rc_mode == 2 || rc1 == RES_ROW_NONE)
+        p.add_below(wrRow_immediate_label(BAR, open_rows_list[b][0],
+                                           ONE, label_seed + b*2000 + 0));
+      else
+        emit_const_clone(p, rc1, open_rows_list[b][0]);
+      p.add_below(wrRow_immediate_label(BAR, open_rows_list[b][1],
+                                         x_patterns[b],
+                                         label_seed + b*2000 + 1));
+      p.add_below(wrRow_immediate_label(BAR, open_rows_list[b][4],
+                                         x_patterns[b],
+                                         label_seed + b*2000 + 3));
+    } else {
     p.add_below(wrRow_immediate_label(BAR, open_rows_list[b][0],
                                        ONE, label_seed + b*2000 + 0));
-    for (int i = 0; i < 5; i++)
-      p.add_below(wrRow_immediate_label(BAR, open_rows_list[b][act_pos[i]],
+    if (fused_mode == 1) {
+      p.add_below(wrRow_immediate_label(BAR, open_rows_list[b][1],
                                          x_patterns[b],
-                                         label_seed + b*2000 + 1 + i));
-    for (int i = 0; i < 5; i++)
-      p.add_below(wrRow_immediate_label(BAR, open_rows_list[b][zero_pos[i]],
-                                         0u,
-                                         label_seed + b*2000 + 100 + i));
-    p.add_inst(SMC_SLEEP(6));
-    p.add_below(PRE(BAR, 0, 0));
-    p.add_inst(SMC_SLEEP(6));
-    for (int j = 0; j < 3; j++) {
-      p.add_inst(SMC_SLEEP(6));
-      p.add_below(frac_template(/*t_frac=*/0, open_rows_list[b][0]));
-      p.add_inst(SMC_SLEEP(6));
+                                         label_seed + b*2000 + 1));
+      p.add_below(wrRow_immediate_label(BAR, open_rows_list[b][2], 0u,
+                                         label_seed + b*2000 + 2));
+      p.add_below(wrRow_immediate_label(BAR, open_rows_list[b][4],
+                                         x_patterns[b],
+                                         label_seed + b*2000 + 3));
+      p.add_below(wrRow_immediate_label(BAR, open_rows_list[b][8], 0u,
+                                         label_seed + b*2000 + 4));
+    } else {
+      const int* ap = (fused_mode >= 2) ? f_act  : act_pos;
+      const int* zp = (fused_mode >= 2) ? f_zero : zero_pos;
+      for (int i = 0; i < 5; i++)
+        p.add_below(wrRow_immediate_label(BAR, open_rows_list[b][ap[i]],
+                                           x_patterns[b],
+                                           label_seed + b*2000 + 1 + i));
+      for (int i = 0; i < 5; i++)
+        p.add_below(wrRow_immediate_label(BAR, open_rows_list[b][zp[i]],
+                                           0u,
+                                           label_seed + b*2000 + 100 + i));
+    }
     }
     p.add_inst(SMC_SLEEP(6));
     p.add_below(PRE(BAR, 0, 0));
     p.add_inst(SMC_SLEEP(6));
+    if (!fused_cosets) {
+      for (int j = 0; j < 3; j++) {
+        p.add_inst(SMC_SLEEP(6));
+        p.add_below(frac_template(/*t_frac=*/0, open_rows_list[b][0]));
+        p.add_inst(SMC_SLEEP(6));
+      }
+      p.add_inst(SMC_SLEEP(6));
+      p.add_below(PRE(BAR, 0, 0));
+      p.add_inst(SMC_SLEEP(6));
+    }
+  }
+
+  // Phase 3b (fused modes 1 & 3): the two in-tuple coset doubleACTs as
+  // pack4-parallel sequences — the 4 banks' (src → dst) pairs of ONE
+  // coset in one packed sequence, per-bank dwell exactly t_12=10 /
+  // t_23=2 (same as the serial fused body; parallel_doubleACT preserves
+  // per-bank dwells and spaces cross-bank ACTs to honor tRRD_S / tFAW
+  // via schedule_bank_starts). src/dst regs are re-LI'd here because the
+  // serial wrRow sections clobber slots 4/6/13/14; the SLEEP(6) after
+  // the LIs is the same RAW-hazard barrier Phase 5 uses after serial
+  // sections.
+  if (fused_cosets) {
+    std::vector<uint32_t> coset_src(4), coset_dst(4);
+    // x → coset {1,5,9,13}: partner at generator distance g2^g3.
+    for (int b = 0; b < 4; b++) {
+      coset_src[b] = open_rows_list[b][1];
+      coset_dst[b] = open_rows_list[b][13];
+    }
+    li_rows(src_reg, coset_src);
+    li_rows(dst_reg, coset_dst);
+    p.add_inst(SMC_SLEEP(6));   // RAW hazard barrier: let LI writes propagate
+    p.add_below(parallel_doubleACT(10, 2, bar_reg, src_reg, dst_reg));
+    p.add_inst(SMC_SLEEP(6));
+    pre_all();
+    p.add_inst(SMC_SLEEP(6));
+    // 0 → coset {2,6,10,14}.
+    for (int b = 0; b < 4; b++) {
+      coset_src[b] = open_rows_list[b][2];
+      coset_dst[b] = open_rows_list[b][14];
+    }
+    li_rows(src_reg, coset_src);
+    li_rows(dst_reg, coset_dst);
+    p.add_inst(SMC_SLEEP(6));   // RAW hazard barrier
+    p.add_below(parallel_doubleACT(10, 2, bar_reg, src_reg, dst_reg));
+    p.add_inst(SMC_SLEEP(6));
+    pre_all();
+    p.add_inst(SMC_SLEEP(6));
+
+    // Phase 4 (fused): per-bank serial frac × 3 AFTER the coset
+    // broadcasts — mirrors the serial fused body's per-bank order.
+    for (int b = 0; b < 4; b++) {
+      p.add_inst(SMC_LI((uint32_t)bank_ids[b], BAR));
+      p.add_inst(SMC_LI(128, NUM_COLS_REG));
+      for (int j = 0; j < 3; j++) {
+        p.add_inst(SMC_SLEEP(6));
+        p.add_below(frac_template(/*t_frac=*/0, open_rows_list[b][0]));
+        p.add_inst(SMC_SLEEP(6));
+      }
+      p.add_inst(SMC_SLEEP(6));
+      p.add_below(PRE(BAR, 0, 0));
+      p.add_inst(SMC_SLEEP(6));
+    }
   }
 
   // Phase 5: parallel MAJ3 (t_12=0, t_23=0). Re-LI src=Rfirst, dst=Rsecond
@@ -666,7 +980,97 @@ struct BankConfig {
   // 0 = the primary `calib` above; indices 1, 2, … pull from this list.
   std::vector<Calib>                cs_extra;
   std::vector<std::vector<uint32_t>> pool_extra;
+  // 2026-07-18 per-subarray screened pools: the REAL subarray window
+  // [start, end) each extra's pool rows live in (parsed from the
+  // "# window" comment of its PIM_POOL_LIST_FILE_SUB file). Used by the
+  // MM3D refresh when LOAD-overflow places handle rows there.
+  std::vector<std::pair<uint32_t,uint32_t>> pool_extra_win;
+  // LOAD-overflow allocation cursors into pool_extra[i] (only advanced
+  // when PIM_LOAD_OVERFLOW_SUBS=1).
+  std::vector<size_t> pool_extra_cursor;
+  // O4 (a): resident constant rows (PIM_RESIDENT_CONSTS). Selected from
+  // the screened primary pool at startup and REMOVED from backup_pool
+  // (so neither LOAD_WEIGHTS handles nor the V2 scratch tail can touch
+  // them), per-column-written once (all-ones / all-zeros), ACT-refreshed
+  // with the subarray by the MM3D-entry refresh loop. RES_ROW_NONE =
+  // unavailable (feature off or selection failed) -> wrRow fallback.
+  uint32_t res_one_row  = RES_ROW_NONE;
+  uint32_t res_zero_row = RES_ROW_NONE;
+  // O10 (2026-07-20): per-bank FUSED-layout column mask. dimm0's fused
+  // residual (addendum 24) is the fused OPERAND LAYOUT mis-computing on
+  // marginal columns of this die (content-conditional per column; the
+  // May calibration screened the BASELINE layout only). Columns flagged
+  // here get their popcount HOST-REPAIRED from the unit's weight mask
+  // whenever the executed body used the fused layout — substitution is
+  // exact by definition (MAJ3(W,x,0) = W & x), so repairing a correct
+  // column is a no-op; the mask size is the honest "not computed
+  // in-DRAM" fraction. Empty = feature off for this bank.
+  std::vector<uint8_t> fused_col_bad;   // [2048], 1 = host-repair
+  int fused_bad_count = 0;
 };
+
+// O10: any bank has a fused colmask -> LOAD keeps full masks per round
+// (repair needs them at MM3D time). Set once at startup.
+static bool g_fused_colmask_any = false;
+
+// PIM_FUSED_COLMASK_FILE: path pattern with {bank} token; the file lists
+// the fused-GOOD columns (one integer per line, '#' comments — the
+// fused-colmask-exe output). Complement = repair set. Missing file =
+// colmask disabled for that bank (loud stderr). Present but empty of
+// integers = FATAL (explicit config that can't be honored).
+static void load_fused_colmask(BankConfig& b) {
+  const char* pat = getenv("PIM_FUSED_COLMASK_FILE");
+  if (!pat || !*pat) return;
+  std::string path = pat;
+  size_t pos;
+  while ((pos = path.find("{bank}")) != std::string::npos)
+    path.replace(pos, 6, std::to_string(b.bank_id));
+  FILE* fp = fopen(path.c_str(), "r");
+  if (!fp) {
+    fprintf(stderr, "[fused-colmask] bank %d: no file '%s' — colmask "
+            "DISABLED for this bank (fused stays unrepaired)\n",
+            b.bank_id, path.c_str());
+    return;
+  }
+  std::vector<uint8_t> bad(2048, 1);
+  long n_good = 0;
+  char line[128];
+  while (fgets(line, sizeof(line), fp)) {
+    char* s = line;
+    while (*s == ' ' || *s == '\t') s++;
+    if (*s == '#' || *s == '\n' || *s == 0) continue;
+    long c = atol(s);
+    if (c >= 0 && c < 2048 && bad[c]) { bad[c] = 0; n_good++; }
+  }
+  fclose(fp);
+  if (n_good == 0) {
+    fprintf(stderr, "[fused-colmask] FATAL: '%s' lists no columns\n",
+            path.c_str());
+    exit(1);
+  }
+  b.fused_bad_count = 2048 - (int)n_good;
+  if (b.fused_bad_count == 0) {
+    fprintf(stderr, "[fused-colmask] bank %d: all 2048 columns fused-good "
+            "('%s') — no repairs\n", b.bank_id, path.c_str());
+    return;  // fused_col_bad stays empty -> zero-cost path
+  }
+  b.fused_col_bad = std::move(bad);
+  g_fused_colmask_any = true;
+  fprintf(stderr, "[fused-colmask] bank %d: %d/2048 columns host-repaired "
+          "on fused bodies ('%s')\n", b.bank_id, b.fused_bad_count,
+          path.c_str());
+}
+
+// Substitute exact popcount(mask & x) for the repair columns. Call ONLY
+// when the body that produced `pc` ran the FUSED layout (mode 1/3 AND
+// all-primary program). `mask` = the unit's weight row (2048 x u32).
+static inline void fused_repair_pc(const BankConfig& b, int* pc,
+                                   const uint32_t* mask, uint32_t xb) {
+  if (b.fused_col_bad.empty() || !mask) return;
+  const uint8_t* fb = b.fused_col_bad.data();
+  for (int j = 0; j < 2048; j++)
+    if (fb[j]) pc[j] = __builtin_popcount(mask[j] & xb);
+}
 
 // Round → (subarray_idx, in-pool index). In dual mode, even rounds use
 // subarray 0 and odd rounds use subarray 1; each gets ceil(R/2) rows.
@@ -693,14 +1097,60 @@ static inline const std::vector<uint32_t>& bc_pool(const BankConfig& bc, size_t 
 }
 // D: select calib + pool by calib_idx (0 = primary; 1, 2, ... = cs_extra).
 static inline const Calib& bc_calib_idx(const BankConfig& bc, uint32_t idx) {
-  if (idx == 0) return bc.calib;
+  if (idx == 0 || bc.cs_extra.empty()) return bc.calib;
   size_t i = (idx - 1) % bc.cs_extra.size();
   return bc.cs_extra[i];
 }
 static inline const std::vector<uint32_t>& bc_pool_idx(const BankConfig& bc, uint32_t idx) {
-  if (idx == 0) return bc.backup_pool;
+  if (idx == 0 || bc.pool_extra.empty()) return bc.backup_pool;
   size_t i = (idx - 1) % bc.pool_extra.size();
   return bc.pool_extra[i];
+}
+// V2-fallback scratch reserve. The tail rows of each PRIMARY pool are
+// never handed to LOAD_WEIGHTS handles and are the only rows V2-mode
+// requests may scratch on. Without this, mixed LOAD+V2 traffic (any
+// full-model run: LOAD fills the pool, later slices fall back to V2)
+// had V2's round-cycled scratch writes land on handle-RESIDENT weight
+// rows — per_column_write_row destroyed the loaded weights and every
+// subsequent LOAD-mode matmul computed garbage (2026-07-18 full-model
+// '<|end|>' regression; V2_SCRATCH had been reduced 110 → 0 in the
+// ~50-row DIMM-0-pool era under a "pure-LOAD usage" assumption).
+// Extra-calib pools (calib_idx > 0) hold no handles → no reserve needed.
+static size_t v2_scratch_reserve() {
+  static const size_t v = []{
+    const char* e = getenv("PIM_V2_SCRATCH");
+    long n = (e && *e) ? atol(e) : 16;
+    return (size_t)(n < 0 ? 0 : n);
+  }();
+  return v;
+}
+// LOAD-overflow into extra subarrays (2026-07-18, default ON;
+// PIM_LOAD_OVERFLOW_SUBS=0 opts out): LOAD_WEIGHTS may overflow handle
+// rows into the per-subarray screened extra pools once the primary pool
+// is full, lifting the 294-row LOAD ceiling. Each overflowed
+// (round, bank) unit records which calib owns its subarray (the
+// RowClone scratch→Rfirst and the MAJ3 tuple must be same-subarray),
+// and MM3D dispatches that unit on the owning calib's tuple (plain
+// body — fused stays primary-only). Extras whose window overlaps the
+// PRIMARY subarray (sub 71 on DIMM 2: scratch-only pools, relaxed
+// screening) are never overflow targets.
+static bool load_overflow_enabled() {
+  static const bool v = []{
+    const char* e = getenv("PIM_LOAD_OVERFLOW_SUBS");
+    return !(e && *e && atoi(e) == 0);
+  }();
+  return v;
+}
+static inline size_t v2_pool_idx(const BankConfig& bc, uint32_t calib_idx,
+                                 size_t round, size_t pool_size) {
+  const size_t rsv = v2_scratch_reserve();
+  // Primary pools always protect LOAD-resident rows behind the tail
+  // reserve. Extra pools hold residents only under LOAD-overflow — then
+  // their V2/voting scratch draws must use the tail reserve too.
+  if ((calib_idx == 0 || load_overflow_enabled()) && rsv > 0 && rsv < pool_size)
+    return pool_size - rsv + (round % rsv);
+  size_t i = round_to_pool_idx(bc, round);
+  return (i >= pool_size) ? i % pool_size : i;
 }
 // Maximum pool occupancy this set of rounds will require, per subarray.
 // Used to validate sizing before doing any work.
@@ -711,6 +1161,42 @@ static inline size_t bc_max_pool_idx_for(const BankConfig& bc, size_t n_rounds, 
   // needed a distinct pool slot.
   (void)n_rounds; (void)sub;
   return 1;
+}
+
+// O4 (a) DRIFT FIX: one program that re-writes every bank's resident
+// const rows with their nominal content (ZERO = 0x00000000 fill,
+// ONE = 0xFFFFFFFF fill). Uses the SAME uniform-fill wrRow primitive
+// the non-consts fused body uses for these constants
+// (wrRow_immediate_label: write-driven levels, 128-col WRITE loop) —
+// NOT per_column_write_row, whose 3-programs-per-row shape would cost
+// ~24 execute round-trips per request; this is ONE execute (~2 wrRows
+// x N banks ~= a few hundred IMEM words, no receiveData).
+// Returns false if no bank has resident consts (nothing executed).
+static bool rewrite_resident_const_rows(SoftMCPlatform& platform,
+                                        std::vector<BankConfig>& banks) {
+  Program p;
+  p.add_inst(SMC_LI(8, CASR));
+  int lbl = 0;
+  for (auto& b : banks) {
+    if (b.res_zero_row == RES_ROW_NONE && b.res_one_row == RES_ROW_NONE)
+      continue;
+    p.add_inst(SMC_LI(b.bank_id, BAR));
+    if (b.res_zero_row != RES_ROW_NONE)
+      p.add_below(wrRow_immediate_label(BAR, b.res_zero_row, 0u,
+                                        900000 + lbl++));
+    if (b.res_one_row != RES_ROW_NONE)
+      p.add_below(wrRow_immediate_label(BAR, b.res_one_row, ONE,
+                                        900000 + lbl++));
+    // tWR guard + close the last written row before the next bank /
+    // program end (mirrors the chunk-program trailer).
+    p.add_inst(SMC_SLEEP(8));
+    p.add_below(PRE(BAR, 0, 0));
+    p.add_inst(SMC_SLEEP(6));
+  }
+  if (lbl == 0) return false;
+  p.add_inst(SMC_END());
+  platform.execute(p);
+  return true;
 }
 
 // One LOAD_WEIGHTS-issued handle: which backup-pool indices were taken
@@ -743,6 +1229,14 @@ struct LoadedHandle {
   // time from each bank's calib so we don't have to recompute it.
   std::vector<uint32_t> refresh_row_start;  // per bank
   std::vector<uint32_t> refresh_row_end;    // per bank
+  // LOAD-overflow (PIM_LOAD_OVERFLOW_SUBS=1): which calib owns each
+  // (round, bank) unit. 0 = primary, i+1 = cs_extra[i]. Empty vector =
+  // all-primary (legacy handles). MM3D emits each unit's body on its
+  // owning calib's tuple.
+  std::vector<std::vector<uint8_t>> per_round_calib_sel;  // [round][bk]
+  // Extra refresh windows this handle's overflow rows live in, per bank
+  // (deduped at MM3D dispatch across handles).
+  std::vector<std::vector<std::pair<uint32_t,uint32_t>>> extra_refresh_wins;  // [bk]
 };
 
 // Verbosity for data-integrity instrumentation. Set via env
@@ -779,6 +1273,14 @@ static int g_parallel_banks = -1;
 // disrupts charge-sharing) helps with cumulative ACT-disturb on
 // open_rows over many MAJ3 invocations.
 static int g_refresh_between = -1;
+// O4 (b): PIM_PACK_ROUNDS = N packs MM3D bodies from up to N consecutive
+// rounds (x the PIM_INLINE_BITPLANES chunking) into ONE program + ONE
+// receiveData, up to the BITSTREAM_IMEM envelope. Default 1 = the historic
+// per-(round x bp-chunk) cadence, code path untouched. MM3D-handle path
+// only: the V2 path's per-round scratch writes need write-then-use
+// locality (2026-05-04: batching writes upfront broke q_proj), so V2
+// never packs across rounds.
+static int g_pack_rounds = -1;
 static int env_flag(const char* name, int dflt) {
   const char* v = getenv(name);
   if (!v || !*v) return dflt;
@@ -792,16 +1294,26 @@ static void init_debug_flags() {
   if (g_inline_bp < 1) g_inline_bp = 1;
   if (g_parallel_banks < 0) g_parallel_banks = env_flag("PIM_PARALLEL_BANKS", 0);
   if (g_refresh_between < 0) g_refresh_between = env_flag("PIM_REFRESH_BETWEEN", 0);
+  if (g_pack_rounds < 0) {
+    g_pack_rounds = env_flag("PIM_PACK_ROUNDS", 1);
+    if (g_pack_rounds < 1) g_pack_rounds = 1;
+    if (g_pack_rounds > 1)
+      fprintf(stderr, "[server] PIM_PACK_ROUNDS=%d: MM3D bodies packed "
+              "across rounds up to the IMEM envelope\n", g_pack_rounds);
+  }
   if (g_bitstream_imem < 0) {
     g_bitstream_imem = env_flag("BITSTREAM_IMEM", 2048);
     if (g_bitstream_imem <= 0) g_bitstream_imem = 2048;
     fprintf(stderr, "[server] BITSTREAM_IMEM=%d (set BITSTREAM_IMEM=8192"
                     " on the rebuilt bitstream)\n", g_bitstream_imem);
-    // Heuristic K-cap warning. Body sizes (multibank-combined MAJ3
-    // body): ~416 inst/bank serial, ~104 inst/bank with PARALLEL_BANKS.
-    // Cap so we warn early, before platform.cpp's gate kills the
-    // program at execute time.
-    int per_body = g_parallel_banks ? 104 : 416;
+    // Heuristic K-cap warning. Body sizes (measured 2026-07-18 via
+    // PIM_DUMP_MM3D_PROGRAMS): ~416 inst/bank serial (~258 fused),
+    // ~407 inst/bank parallel (~244 parallel-fused). K>1 batches have
+    // M != 4 work units, so build_multibank_parallel_program falls back
+    // to the SERIAL emitter regardless of PIM_PARALLEL_BANKS — use the
+    // serial (largest) figure for the fit estimate so we warn early,
+    // before platform.cpp's gate kills the program at execute time.
+    int per_body = 416;
     int n_banks  = 4;  // production default
     int max_K_fit = g_bitstream_imem / (per_body * n_banks);
     if (max_K_fit < 1) max_K_fit = 1;
@@ -850,25 +1362,71 @@ static int process_load_weights(SoftMCPlatform& platform,
   size_t n_units = (size_t)n_chunks * 2;
   size_t n_rounds = (n_units + N - 1) / N;
 
-  // Check pool space on every bank. We reserve V2_SCRATCH rows at the END
-  // of each pool for v2-fallback (per-request) requests so they never
-  // collide with handle-allocated rows. Send non-zero ack on exhausted so
-  // the client falls back to v2 for this slice.
-  // Reduced from 110 → 0: with the new safe-zone backup pool (offset
-  // 240, stride 8), pool size is ~50 rows max per bank, so we can't
-  // afford to reserve 110 for v2 fallback. v2 path will need to
-  // allocate from elsewhere if mixed in. For pure-LOAD usage (which
-  // is what the corruption fix is for), no scratch is needed.
-  static constexpr size_t V2_SCRATCH = 0;
+  // Check pool space on every bank. We reserve v2_scratch_reserve() rows
+  // at the END of each pool for v2-fallback (per-request) requests so
+  // they never collide with handle-allocated rows. Send non-zero ack on
+  // exhausted so the client falls back to v2 for this slice.
+  // (History: this reserve was 110, then 0 in the ~50-row DIMM-0-pool
+  // era assuming pure-LOAD usage — which made every mixed LOAD+V2 run
+  // corrupt resident weights. See v2_scratch_reserve().)
+  const size_t V2_SCRATCH = v2_scratch_reserve();
+  const bool overflow_subs = load_overflow_enabled();
+  // Per-bank allocation plan: for each round, (backup_row, calib_sel).
+  // calib_sel 0 = primary pool/calib; i+1 = cs_extra[i]'s pool/calib.
+  // Primary fills first (unchanged legacy layout), then extras in cs_extra
+  // order. Every pool keeps its V2_SCRATCH tail free for voting/V2 scratch.
+  std::vector<std::vector<std::pair<uint32_t,uint8_t>>> plan(N);
+  std::vector<size_t> primary_take(N, 0);
+  std::vector<std::vector<size_t>> extra_take(N);
   for (int bk = 0; bk < N; bk++) {
-    size_t needed = banks[bk].pool_cursor + n_rounds + V2_SCRATCH;
-    if (needed > banks[bk].backup_pool.size()) {
+    BankConfig& b = banks[bk];
+    extra_take[bk].assign(b.pool_extra.size(), 0);
+    size_t prim_avail = 0;
+    if (b.backup_pool.size() > b.pool_cursor + V2_SCRATCH)
+      prim_avail = b.backup_pool.size() - b.pool_cursor - V2_SCRATCH;
+    size_t remaining = n_rounds;
+    size_t take = std::min(remaining, prim_avail);
+    for (size_t k = 0; k < take; k++)
+      plan[bk].emplace_back(
+          b.backup_pool[b.pool_cursor + primary_take[bk]++], (uint8_t)0);
+    remaining -= take;
+    if (remaining > 0 && overflow_subs) {
+      // Primary subarray window for this bank (same math as the MM3D
+      // refresh): extras overlapping it are scratch-only (their pools
+      // share the primary window's row budget and use the relaxed
+      // directed-edge screen) — never place resident data there.
+      uint32_t prim_ws = (b.calib.open_rows[0] / 640) * 640;
+      uint32_t prim_we = prim_ws + 640;
+      if (const char* ss = getenv("PIM_SUB_START")) if (*ss) prim_ws = (uint32_t)atoi(ss);
+      if (const char* se = getenv("PIM_SUB_END"))   if (*se) prim_we = (uint32_t)atoi(se);
+      for (size_t ei = 0; ei < b.pool_extra.size() && remaining > 0; ei++) {
+        // Extras without a real window (legacy shared-primary pools) are
+        // NOT overflow targets — their rows are the primary's rows.
+        if (!(b.pool_extra_win[ei].first < b.pool_extra_win[ei].second))
+          continue;
+        // Skip primary-window-overlapping extras (scratch-only).
+        if (b.pool_extra_win[ei].first < prim_we &&
+            b.pool_extra_win[ei].second > prim_ws)
+          continue;
+        size_t avail = 0;
+        if (b.pool_extra[ei].size() > b.pool_extra_cursor[ei] + V2_SCRATCH)
+          avail = b.pool_extra[ei].size() - b.pool_extra_cursor[ei] - V2_SCRATCH;
+        size_t t = std::min(remaining, avail);
+        for (size_t k = 0; k < t; k++)
+          plan[bk].emplace_back(
+              b.pool_extra[ei][b.pool_extra_cursor[ei] + extra_take[bk][ei]++],
+              (uint8_t)(ei + 1));
+        remaining -= t;
+      }
+    }
+    if (remaining > 0) {
       fprintf(stderr, "[server] LOAD_WEIGHTS handle=%u: bank %d pool would "
-              "overflow (cursor=%zu + n_rounds=%zu + v2_scratch=%zu > %zu) "
+              "overflow (cursor=%zu + n_rounds=%zu + v2_scratch=%zu > %zu%s) "
               "— sending ENOSPC ack\n",
-              handle_id, banks[bk].bank_id,
-              banks[bk].pool_cursor, n_rounds, V2_SCRATCH,
-              banks[bk].backup_pool.size());
+              handle_id, b.bank_id,
+              b.pool_cursor, n_rounds, V2_SCRATCH,
+              b.backup_pool.size(),
+              overflow_subs ? " incl. extra pools" : "");
       uint32_t ack = 1;  // non-zero = pool exhausted
       ssize_t w = write(response_fd, &ack, 4);
       (void)w;
@@ -884,6 +1442,8 @@ static int process_load_weights(SoftMCPlatform& platform,
   h.n_units = n_units;
   h.n_rounds = n_rounds;
   h.per_round_backup_rows.assign(n_rounds, std::vector<uint32_t>(N, 0));
+  h.per_round_calib_sel.assign(n_rounds, std::vector<uint8_t>(N, 0));
+  h.extra_refresh_wins.assign(N, {});
   h.expected_popcounts.assign(
       n_rounds, std::vector<std::vector<uint8_t>>(N));
   h.expected_first_row_mask.assign(N, std::vector<uint32_t>());
@@ -897,6 +1457,12 @@ static int process_load_weights(SoftMCPlatform& platform,
     // PIM_SUB_START/END override for non-640-aligned subarrays (DIMM 2).
     if (const char* ss = getenv("PIM_SUB_START")) if (*ss) h.refresh_row_start[bk] = (uint32_t)atoi(ss);
     if (const char* se = getenv("PIM_SUB_END"))   if (*se) h.refresh_row_end[bk]   = (uint32_t)atoi(se);
+    // Overflow rows live in extra subarrays — remember those windows so
+    // the MM3D refresh covers them as well.
+    for (size_t ei = 0; ei < banks[bk].pool_extra.size(); ei++) {
+      if (extra_take[bk].size() > ei && extra_take[bk][ei] > 0)
+        h.extra_refresh_wins[bk].push_back(banks[bk].pool_extra_win[ei]);
+    }
   }
 
   // Allocate + per-col write each (chunk, sign) unit's mask. Optionally
@@ -912,9 +1478,11 @@ static int process_load_weights(SoftMCPlatform& platform,
         : neg_mask_all + (size_t)chunk * d_out;
     int bk = (int)(u % (size_t)N);
     size_t round = u / (size_t)N;
-    uint32_t backup_row = banks[bk].backup_pool[banks[bk].pool_cursor + round];
+    uint32_t backup_row = plan[bk][round].first;
+    uint8_t  calib_sel  = plan[bk][round].second;
     per_column_write_row(platform, banks[bk].bank_id, backup_row, mask);
     h.per_round_backup_rows[round][bk] = backup_row;
+    h.per_round_calib_sel[round][bk]  = calib_sel;
 
     // Capture expected popcount per segment from the input mask.
     std::vector<uint8_t> exp_pc(d_out);
@@ -936,6 +1504,8 @@ static int process_load_weights(SoftMCPlatform& platform,
         atoi(getenv("PIM_LOAD_REWRITE_ON_MM3D")) > 0) keep_masks = true;
     if (getenv("PIM_VERIFY_AT_MM3D") &&
         atoi(getenv("PIM_VERIFY_AT_MM3D")) > 0) keep_masks = true;
+    // O10: fused-colmask repair needs the unit masks at MM3D time.
+    if (g_fused_colmask_any) keep_masks = true;
     if (keep_masks) {
       if (h.all_round_masks.empty())
         h.all_round_masks.assign(n_rounds, std::vector<std::vector<uint32_t>>(N));
@@ -996,8 +1566,18 @@ static int process_load_weights(SoftMCPlatform& platform,
       }
     }
   }
-  // Commit the cursors.
-  for (int bk = 0; bk < N; bk++) banks[bk].pool_cursor += n_rounds;
+  // Commit the cursors (primary + any overflowed extras).
+  for (int bk = 0; bk < N; bk++) {
+    banks[bk].pool_cursor += primary_take[bk];
+    for (size_t ei = 0; ei < extra_take[bk].size(); ei++)
+      banks[bk].pool_extra_cursor[ei] += extra_take[bk][ei];
+    if (overflow_subs && primary_take[bk] < n_rounds) {
+      fprintf(stderr, "[server] LOAD_WEIGHTS handle=%u bank %d: overflowed "
+              "%zu/%zu rounds into extra-subarray pools\n",
+              handle_id, banks[bk].bank_id, n_rounds - primary_take[bk],
+              n_rounds);
+    }
+  }
 
   handles[handle_id] = std::move(h);
 
@@ -1081,6 +1661,14 @@ static int process_request(SoftMCPlatform& platform,
             need_no_idx, req_len);
     return -1;
   }
+  // No usable extras → every voting trip runs on the primary calib
+  // (3 temporal noise samples still make a valid median). Also guards
+  // the (idx-1) % cs_extra.size() UB when extras are empty.
+  if (calib_idx > 0) {
+    bool have_extras = true;
+    for (const auto& b : banks) if (b.cs_extra.empty()) { have_extras = false; break; }
+    if (!have_extras) calib_idx = 0;
+  }
 
   // Slice into views.
   const uint32_t* pos_mask_all = (const uint32_t*)(req + off);
@@ -1137,9 +1725,10 @@ static int process_request(SoftMCPlatform& platform,
       // → different cells → different cell-flake noise sample for voting.
       const std::vector<uint32_t>& pool_for_round =
           bc_pool_idx(banks[bk], calib_idx);
-      size_t pool_idx = round_to_pool_idx(banks[bk], round);
-      if (pool_idx >= pool_for_round.size())
-        pool_idx %= pool_for_round.size();
+      // Draw from the V2 scratch reserve (pool tail) — never from rows
+      // that LOAD_WEIGHTS handles hold resident weights on.
+      size_t pool_idx = v2_pool_idx(banks[bk], calib_idx, round,
+                                    pool_for_round.size());
       uint32_t scratch_row = pool_for_round[pool_idx];
       auto t0 = clk::now();
       per_column_write_row(platform, banks[bk].bank_id, scratch_row, mask);
@@ -1188,8 +1777,9 @@ static int process_request(SoftMCPlatform& platform,
           // D: choose calib + pool by request's calib_idx.
           const Calib& c = bc_calib_idx(banks[bk], calib_idx);
           const std::vector<uint32_t>& pool = bc_pool_idx(banks[bk], calib_idx);
-          size_t pool_idx_mm3d = round_to_pool_idx(banks[bk], round);
-          if (pool_idx_mm3d >= pool.size()) pool_idx_mm3d %= pool.size();
+          // Must match the scratch-write draw above: V2 reserve tail only.
+          size_t pool_idx_mm3d = v2_pool_idx(banks[bk], calib_idx, round,
+                                             pool.size());
           uint32_t scratch_row = pool[pool_idx_mm3d];
           ex_bank_ids.push_back(banks[bk].bank_id);
           ex_backup_rows.push_back(scratch_row);
@@ -1201,11 +1791,16 @@ static int process_request(SoftMCPlatform& platform,
         }
       }
 
+      // V2 path selects calibs by calib_idx: fused only on the validated
+      // primary (idx 0); cs_extra trips get the plain 11-wrRow body.
+      // O4 (a): resident consts are NOT wired into the V2 path (scratch-
+      // weight fallback traffic; its bodies keep wrRows — nullptr).
+      g_fused_calib_ok = (calib_idx == 0);
       Program p = (g_parallel_banks
           ? build_multibank_parallel_program
           : build_multibank_combined_program)(
               ex_bank_ids, ex_backup_rows, ex_Rfirsts, ex_Rseconds,
-              ex_open_rows, ex_x_patterns, label_base);
+              ex_open_rows, ex_x_patterns, label_base, nullptr);
       label_base += 2000 * (int)M + 1000;
       // PIM_DUMP_PROGRAM=1: one-shot dump of the first MM3D u64 inst stream
       // to /tmp/dump_program_par<P>_n<M>.txt for diff between single-bank
@@ -1257,6 +1852,21 @@ static int process_request(SoftMCPlatform& platform,
           const uint8_t* row = rows_buf.data() + idx * 8192u;
           vector<int> pc(d_out);
           segment_popcount(row, pc.data(), (int)d_out);
+          // O10: host-repair fused-marginal columns. This V2 program ran
+          // the fused layout iff calib_idx==0 (g_fused_calib_ok above)
+          // and the coset mode is 1/3; the unit's mask is in-request.
+          if (calib_idx == 0 && !banks[bk].fused_col_bad.empty()) {
+            int fm = fused_coset_mode();
+            if (fm == 1 || fm == 3) {
+              size_t u2 = round * (size_t)N + (size_t)bk;
+              uint32_t ch2 = (uint32_t)(u2 / 2);
+              const uint32_t* m2 = ((u2 % 2) == 0)
+                  ? pos_mask_all + (size_t)ch2 * d_out
+                  : neg_mask_all + (size_t)ch2 * d_out;
+              fused_repair_pc(banks[bk], pc.data(), m2,
+                              x_bitplane_all[(size_t)ch2 * n_bitplanes + b]);
+            }
+          }
           int sign_factor = (ex_signs[idx] == 0) ? +1 : -1;
           int weight = sign_factor * bitplane_factor[b];
           for (uint32_t j = 0; j < d_out; j++) y[j] += weight * pc[j];
@@ -1380,17 +1990,30 @@ static int process_matmul_handle(SoftMCPlatform& platform,
     std::vector<uint32_t> ref_ends;
     for (int bk = 0; bk < N; bk++) {
       uint32_t mn = 0xFFFFFFFFu, mx = 0;
+      std::set<std::pair<uint32_t,uint32_t>> extra_wins;
       for (const auto& kv : handles) {
         const LoadedHandle& lh = kv.second;
         if (bk < (int)lh.refresh_row_start.size()) {
           if (lh.refresh_row_start[bk] < mn) mn = lh.refresh_row_start[bk];
           if (lh.refresh_row_end[bk]   > mx) mx = lh.refresh_row_end[bk];
         }
+        // LOAD-overflow: refresh the extra subarray windows too. Kept as
+        // separate deduped entries — a min/max union across subarrays
+        // 9k rows apart would refresh thousands of unrelated rows.
+        if (bk < (int)lh.extra_refresh_wins.size())
+          for (const auto& w : lh.extra_refresh_wins[bk])
+            if (w.first < w.second) extra_wins.insert(w);
       }
       if (mn < mx) {
         ref_bank_ids.push_back(banks[bk].bank_id);
         ref_starts.push_back(mn);
         ref_ends.push_back(mx);
+      }
+      for (const auto& w : extra_wins) {
+        if (mn < mx && w.first >= mn && w.second <= mx) continue;  // covered
+        ref_bank_ids.push_back(banks[bk].bank_id);
+        ref_starts.push_back(w.first);
+        ref_ends.push_back(w.second);
       }
     }
     if (!ref_bank_ids.empty()) {
@@ -1399,6 +2022,32 @@ static int process_matmul_handle(SoftMCPlatform& platform,
       platform.execute(rp);
     }
     t_refresh_ns = std::chrono::duration_cast<ns_t>(clk::now() - t0).count();
+  }
+
+  // O4 (a) DRIFT FIX (addendum 23): re-write the resident const rows at
+  // the start of the MM3D request so bodies clone from write-driven,
+  // undrifted ONE/ZERO. Deliberately AFTER the refresh loop — refresh
+  // restores charge of whatever content the rows currently hold; the
+  // rewrite then restores the CONTENT. Shared by the serial and the
+  // pack/parallel builders (both consume banks[].res_*_row below), so
+  // this is the single rewrite site. Cadence: consts_rewrite_every().
+  if (resident_consts_mode() > 0) {
+    static long s_consts_seq = 0;
+    const int rw_every = consts_rewrite_every();
+    if (rw_every > 0 && (s_consts_seq % rw_every) == 0) {
+      auto t0 = clk::now();
+      bool did = rewrite_resident_const_rows(platform, banks);
+      long long dt = std::chrono::duration_cast<ns_t>(clk::now() - t0).count();
+      t_refresh_ns += dt;
+      if (did) {
+        static long s_rw_n = 0;
+        s_rw_n++;
+        if (s_rw_n <= 3 || s_rw_n % 1000 == 0)
+          fprintf(stderr, "[res-consts-rw #%ld] req_seq=%ld every=%d "
+                  "%.2f ms\n", s_rw_n, s_consts_seq, rw_every, dt / 1e6);
+      }
+    }
+    s_consts_seq++;
   }
 
   // Decay/corruption check: read back the FIRST round's first row of
@@ -1513,6 +2162,151 @@ static int process_matmul_handle(SoftMCPlatform& platform,
                           !h.all_round_masks.empty());
 
   vector<int32_t> y(d_out, 0);
+
+  // ---------------------------------------------------------------------
+  // O4 (b): T2-style round packing (PIM_PACK_ROUNDS > 1, MM3D only).
+  // Bodies from up to N consecutive rounds (x the PIM_INLINE_BITPLANES
+  // chunking) are queued and flushed as ONE program + ONE
+  // receiveData(M x 8192 B) in emission order — fewer h2c round-trips
+  // and fewer per-program overheads (where the O3-measured per-program
+  // cost amortizes). Rounds are independent by construction: each body
+  // RowClones its OWN resident pool row and runs on the same tuple —
+  // exactly the shape PIM_INLINE_BITPLANES already chains K of inside
+  // one round (silicon-validated to K=20 on the 8K IMEM, 2026-07-17).
+  //
+  // IMEM envelope: bodies are estimated conservatively per mode (O3
+  // dump-measured serial figures + margin; a packed M != 4 program uses
+  // the serial emitter regardless of PIM_PARALLEL_BANKS) and a flush is
+  // forced BEFORE a queued batch would overflow BITSTREAM_IMEM.
+  // Diagnostics that depend on per-round dispatch adjacency
+  // (PIM_LOAD_REWRITE_ON_MM3D, PIM_VERIFY_AT_MM3D) force pack=1.
+  int pack_rounds = g_pack_rounds;
+  if (pack_rounds > 1 &&
+      (g_load_rewrite ||
+       (getenv("PIM_VERIFY_AT_MM3D") &&
+        atoi(getenv("PIM_VERIFY_AT_MM3D")) > 0))) {
+    static bool s_pack_warned = false;
+    if (!s_pack_warned) {
+      s_pack_warned = true;
+      fprintf(stderr, "[server] PIM_PACK_ROUNDS=%d ignored: per-round "
+              "rewrite/verify diagnostics need per-round dispatch\n",
+              g_pack_rounds);
+    }
+    pack_rounds = 1;
+  }
+  struct PendBody {
+    int bank_id;
+    uint32_t backup_row, Rf, Rs;
+    const uint32_t* orows;
+    uint32_t xpat;
+    int sign;
+    uint32_t bp;
+    uint32_t res_one, res_zero;
+    // O10 fused-colmask repair: the unit's LOAD-time mask (nullptr when
+    // unavailable) + owning bank config.
+    const uint32_t* rep_mask = nullptr;
+    const BankConfig* bcfg = nullptr;
+  };
+  std::vector<PendBody> pend;
+  bool   pend_all_primary    = true;
+  size_t pend_round_lo       = 0;
+  size_t pend_rounds_spanned = 0;
+  // Per-body IMEM estimates: O3 dump-measured serial figures (base 416,
+  // fused 258 inst/body) + margin; EST_BODY_BASE also covers the mode-3
+  // diagnostic (wrRows AND cosets). Resident-const bodies are SMALLER
+  // (~213), so the plain-fused estimate only ever under-packs — safe.
+  const int EST_BODY_FUSED = 270, EST_BODY_BASE = 460, EST_FIXED = 64;
+  auto flush_pend = [&]() -> int {
+    if (pend.empty()) return 0;
+    const size_t M = pend.size();
+    std::vector<int>             fx_bank_ids(M);
+    std::vector<uint32_t>        fx_backup_rows(M);
+    std::vector<uint32_t>        fx_Rfirsts(M);
+    std::vector<uint32_t>        fx_Rseconds(M);
+    std::vector<const uint32_t*> fx_open_rows(M);
+    std::vector<uint32_t>        fx_x_patterns(M);
+    std::vector<std::pair<uint32_t,uint32_t>> fx_consts(M);
+    for (size_t i = 0; i < M; i++) {
+      fx_bank_ids[i]    = pend[i].bank_id;
+      fx_backup_rows[i] = pend[i].backup_row;
+      fx_Rfirsts[i]     = pend[i].Rf;
+      fx_Rseconds[i]    = pend[i].Rs;
+      fx_open_rows[i]   = pend[i].orows;
+      fx_x_patterns[i]  = pend[i].xpat;
+      fx_consts[i]      = {pend[i].res_one, pend[i].res_zero};
+    }
+    g_fused_calib_ok = pend_all_primary;
+    Program p = (g_parallel_banks
+        ? build_multibank_parallel_program
+        : build_multibank_combined_program)(
+            fx_bank_ids, fx_backup_rows, fx_Rfirsts, fx_Rseconds,
+            fx_open_rows, fx_x_patterns, label_base, &fx_consts);
+    label_base += 2000 * (int)M + 1000;
+    // Same dump env + file naming as the unpacked path (only one of the
+    // two paths runs in a given process — env is fixed at startup).
+    static int s_pack_dumped = 0;
+    const char* pk_dump_n = getenv("PIM_DUMP_MM3D_PROGRAMS");
+    int pk_max_dumps = pk_dump_n ? atoi(pk_dump_n) : 0;
+    if (s_pack_dumped < pk_max_dumps) {
+      s_pack_dumped++;
+      char path[256];
+      snprintf(path, sizeof(path), "/tmp/mm3d_program_dump_%d.txt",
+               s_pack_dumped);
+      FILE* fp = fopen(path, "w");
+      if (fp) {
+        uint64_t* iseq = (uint64_t*)p.get_inst_array();
+        int n_inst = p.size() / 8;
+        fprintf(fp, "# MM3D PACKED program: bodies=%zu rounds=[%zu..+%zu) "
+                "backup_row0=%u\n", M, pend_round_lo, pend_rounds_spanned + 1,
+                fx_backup_rows[0]);
+        for (int i = 0; i < n_inst; i++)
+          fprintf(fp, "[%4d]  %016lx\n", i, (unsigned long)iseq[i]);
+        fclose(fp);
+        free(iseq);
+        fprintf(stderr, "[mm3d-dump #%d packed] bodies=%zu wrote %d insts "
+                "to %s\n", s_pack_dumped, M, n_inst, path);
+      }
+    }
+    auto t_exec0 = clk::now();
+    platform.execute(p);
+    t_exec_ns += std::chrono::duration_cast<ns_t>(clk::now() - t_exec0).count();
+    n_maj3_execs++;
+    static thread_local std::vector<uint8_t> pk_rows_buf;
+    size_t total_bytes = M * 8192u;
+    if (pk_rows_buf.size() < total_bytes) pk_rows_buf.resize(total_bytes);
+    auto t_recv0 = clk::now();
+    int rc = platform.receiveData(pk_rows_buf.data(), (int)total_bytes);
+    t_recv_ns += std::chrono::duration_cast<ns_t>(clk::now() - t_recv0).count();
+    if (rc != (int)total_bytes) {
+      fprintf(stderr, "[server] MM3D packed receiveData rc=%d expected=%zu "
+              "(bodies=%zu rounds=[%zu..+%zu))\n", rc, total_bytes, M,
+              pend_round_lo, pend_rounds_spanned + 1);
+      return -1;
+    }
+    auto t_pop0 = clk::now();
+    // O10: this packed program ran the fused layout iff it was
+    // all-primary (pend_all_primary -> g_fused_calib_ok at build) and
+    // the coset mode is 1/3. Capture BEFORE pend state is reset below.
+    const int fm_pk = fused_coset_mode();
+    const bool fused_ran_pk = pend_all_primary && (fm_pk == 1 || fm_pk == 3);
+    for (size_t i = 0; i < M; i++) {
+      const uint8_t* row = pk_rows_buf.data() + i * 8192u;
+      vector<int> pc(d_out);
+      segment_popcount(row, pc.data(), (int)d_out);
+      if (fused_ran_pk && pend[i].bcfg && pend[i].rep_mask)
+        fused_repair_pc(*pend[i].bcfg, pc.data(), pend[i].rep_mask,
+                        pend[i].xpat);
+      int sign_factor = (pend[i].sign == 0) ? +1 : -1;
+      int weight = sign_factor * bitplane_factor[pend[i].bp];
+      for (uint32_t j = 0; j < d_out; j++) y[j] += weight * pc[j];
+    }
+    t_pop_ns += std::chrono::duration_cast<ns_t>(clk::now() - t_pop0).count();
+    pend.clear();
+    pend_all_primary = true;
+    pend_rounds_spanned = 0;
+    return 0;
+  };
+
   for (size_t round = 0; round < n_rounds; round++) {
     int active_in_round = 0;
     for (int bk = 0; bk < N; bk++) {
@@ -1670,6 +2464,74 @@ static int process_matmul_handle(SoftMCPlatform& platform,
       }
     }
 
+    // O4 (b): packed path — enqueue this round's bodies; flush on
+    // IMEM-fit or when the queued span reaches PIM_PACK_ROUNDS. The
+    // enqueue math mirrors the unpacked path below body-for-body.
+    if (pack_rounds > 1) {
+      bool round_all_primary = true;
+      if (!h.per_round_calib_sel.empty())
+        for (int bk = 0; bk < active_in_round; bk++)
+          if (h.per_round_calib_sel[round][bk] != 0)
+            round_all_primary = false;
+      for (uint32_t bp_start = 0; bp_start < n_bitplanes;
+           bp_start += (uint32_t)g_inline_bp) {
+        uint32_t K = std::min((uint32_t)g_inline_bp, n_bitplanes - bp_start);
+        size_t M_next = (size_t)K * (size_t)active_in_round;
+        bool new_all_primary = pend_all_primary && round_all_primary;
+        int est = (new_all_primary && fused_coset_mode() == 1)
+                  ? EST_BODY_FUSED : EST_BODY_BASE;
+        if (!pend.empty() &&
+            (pend.size() + M_next) * (size_t)est + (size_t)EST_FIXED >
+                (size_t)g_bitstream_imem) {
+          if (flush_pend() != 0) return -1;
+        }
+        if (pend.empty()) pend_round_lo = round;
+        for (uint32_t kp = 0; kp < K; kp++) {
+          uint32_t b = bp_start + kp;
+          for (int bk = 0; bk < active_in_round; bk++) {
+            size_t u = round * (size_t)N + (size_t)bk;
+            uint32_t chunk = (uint32_t)(u / 2);
+            int sign = (int)(u % 2);
+            uint32_t xb = x_bitplane_all[(size_t)chunk * n_bitplanes + b];
+            uint8_t sel = h.per_round_calib_sel.empty()
+                ? 0 : h.per_round_calib_sel[round][bk];
+            const Calib& uc = (sel == 0 ||
+                               (size_t)(sel - 1) >= banks[bk].cs_extra.size())
+                ? banks[bk].calib : banks[bk].cs_extra[sel - 1];
+            PendBody pb;
+            pb.bank_id    = banks[bk].bank_id;
+            pb.backup_row = h.per_round_backup_rows[round][bk];
+            pb.Rf         = uc.Rfirst;
+            pb.Rs         = uc.Rsecond;
+            pb.orows      = uc.open_rows.data();
+            pb.xpat       = xb;
+            pb.sign       = sign;
+            pb.bp         = b;
+            pb.res_one    = (sel == 0) ? banks[bk].res_one_row
+                                       : RES_ROW_NONE;
+            pb.res_zero   = (sel == 0) ? banks[bk].res_zero_row
+                                       : RES_ROW_NONE;
+            // O10 fused-colmask repair inputs (masks kept at LOAD when
+            // any bank has a colmask; guard anyway).
+            pb.bcfg = &banks[bk];
+            pb.rep_mask =
+                (!banks[bk].fused_col_bad.empty() &&
+                 !h.all_round_masks.empty() &&
+                 (size_t)bk < h.all_round_masks[round].size() &&
+                 !h.all_round_masks[round][bk].empty())
+                ? h.all_round_masks[round][bk].data() : nullptr;
+            pend.push_back(pb);
+          }
+        }
+        pend_all_primary = pend_all_primary && round_all_primary;
+      }
+      pend_rounds_spanned++;
+      if (pend_rounds_spanned >= (size_t)pack_rounds) {
+        if (flush_pend() != 0) return -1;
+      }
+      continue;  // next round — the unpacked path below is not taken
+    }
+
     // Bitplane dispatch — chunked by g_inline_bp; see process_request for
     // the matching v2-path comment.
     for (uint32_t bp_start = 0; bp_start < n_bitplanes;
@@ -1683,6 +2545,7 @@ static int process_matmul_handle(SoftMCPlatform& platform,
       std::vector<const uint32_t*> ex_open_rows;
       std::vector<uint32_t>        ex_x_patterns;
       std::vector<int>             ex_signs;
+      std::vector<std::pair<uint32_t,uint32_t>> ex_consts;  // O4 (a)
       ex_bank_ids.reserve(M);
       ex_backup_rows.reserve(M);
       ex_Rfirsts.reserve(M);
@@ -1690,6 +2553,11 @@ static int process_matmul_handle(SoftMCPlatform& platform,
       ex_open_rows.reserve(M);
       ex_x_patterns.reserve(M);
       ex_signs.reserve(M);
+      ex_consts.reserve(M);
+      // LOAD-overflow: a unit whose row was allocated from an extra
+      // subarray's pool MUST run on that subarray's calib — RowClone
+      // scratch→Rfirst and the MAJ3 tuple are same-subarray operations.
+      bool all_primary = true;
       for (uint32_t kp = 0; kp < K; kp++) {
         uint32_t b = bp_start + kp;
         for (int bk = 0; bk < active_in_round; bk++) {
@@ -1697,26 +2565,43 @@ static int process_matmul_handle(SoftMCPlatform& platform,
           uint32_t chunk = (uint32_t)(u / 2);
           int sign = (int)(u % 2);
           uint32_t xb = x_bitplane_all[(size_t)chunk * n_bitplanes + b];
+          uint8_t sel = h.per_round_calib_sel.empty()
+              ? 0 : h.per_round_calib_sel[round][bk];
+          const Calib& uc = (sel == 0 ||
+                             (size_t)(sel - 1) >= banks[bk].cs_extra.size())
+              ? banks[bk].calib : banks[bk].cs_extra[sel - 1];
+          if (sel != 0) all_primary = false;
           ex_bank_ids.push_back(banks[bk].bank_id);
           ex_backup_rows.push_back(h.per_round_backup_rows[round][bk]);
-          ex_Rfirsts.push_back(banks[bk].calib.Rfirst);
-          ex_Rseconds.push_back(banks[bk].calib.Rsecond);
-          ex_open_rows.push_back(banks[bk].calib.open_rows.data());
+          ex_Rfirsts.push_back(uc.Rfirst);
+          ex_Rseconds.push_back(uc.Rsecond);
+          ex_open_rows.push_back(uc.open_rows.data());
           ex_x_patterns.push_back(xb);
           ex_signs.push_back(sign);
+          // O4 (a): resident consts are primary-calib only.
+          ex_consts.emplace_back(
+              sel == 0 ? banks[bk].res_one_row  : RES_ROW_NONE,
+              sel == 0 ? banks[bk].res_zero_row : RES_ROW_NONE);
         }
       }
       if (getenv("PIM_DEBUG_RX")) {
         for (size_t i = 0; i < ex_backup_rows.size(); i++) {
-          fprintf(stderr, "[mm3d-build] round=%zu bp=%u idx=%zu bk=%d backup_row=%u sign=%d\n",
-                  round, bp_start, i, ex_bank_ids[i], ex_backup_rows[i], ex_signs[i]);
+          fprintf(stderr, "[mm3d-build] round=%zu bp=%u idx=%zu bk=%d backup_row=%u sign=%d Rf=%u\n",
+                  round, bp_start, i, ex_bank_ids[i], ex_backup_rows[i], ex_signs[i], ex_Rfirsts[i]);
         }
       }
+      // LOAD-mode builds on the primary calib unless this round holds
+      // overflowed units — fused is validated only for the primary
+      // (separated-generator) tuples, so any non-primary body in the
+      // program forces the plain 11-wrRow variant for the whole program.
+      // Set explicitly: a prior V2 request with calib_idx>0 must not
+      // leave the flag sticky-false.
+      g_fused_calib_ok = all_primary;
       Program p = (g_parallel_banks
           ? build_multibank_parallel_program
           : build_multibank_combined_program)(
               ex_bank_ids, ex_backup_rows, ex_Rfirsts, ex_Rseconds,
-              ex_open_rows, ex_x_patterns, label_base);
+              ex_open_rows, ex_x_patterns, label_base, &ex_consts);
       label_base += 2000 * (int)M + 1000;
       // PIM_DUMP_MM3D_PROGRAMS=N: dump the first N MM3D-handle programs
       // u64 inst stream for diffing across rounds.
@@ -1766,6 +2651,17 @@ static int process_matmul_handle(SoftMCPlatform& platform,
           const uint8_t* row = rows_buf.data() + idx * 8192u;
           vector<int> pc(d_out);
           segment_popcount(row, pc.data(), (int)d_out);
+          // O10: this program ran the fused layout iff all_primary
+          // (g_fused_calib_ok at build) and the coset mode is 1/3.
+          if (all_primary && !banks[bk].fused_col_bad.empty()) {
+            int fm = fused_coset_mode();
+            if ((fm == 1 || fm == 3) && !h.all_round_masks.empty() &&
+                (size_t)bk < h.all_round_masks[round].size() &&
+                !h.all_round_masks[round][bk].empty())
+              fused_repair_pc(banks[bk], pc.data(),
+                              h.all_round_masks[round][bk].data(),
+                              ex_x_patterns[idx]);
+          }
           int sign_factor = (ex_signs[idx] == 0) ? +1 : -1;
           int weight = sign_factor * bitplane_factor[b];
           for (uint32_t j = 0; j < d_out; j++) y[j] += weight * pc[j];
@@ -1826,6 +2722,10 @@ static int process_matmul_handle(SoftMCPlatform& platform,
       }
     }
   }
+
+  // O4 (b): drain any bodies still queued when the round loop ends (the
+  // request's tail rounds may not fill a whole PIM_PACK_ROUNDS span).
+  if (pack_rounds > 1 && flush_pend() != 0) return -1;
 
   // POST-MM3D verify: re-read first round's first row of each bank
   // immediately after the MM3D work. If this shows corruption that
@@ -1958,7 +2858,93 @@ static std::vector<int> parse_bank_arg(const std::string& s) {
 // If PIM_POOL_LIST_FILE is set, read pool rows from that file (one row per
 // line, # = comment) — bypasses stride-based selection. Used for the
 // fault-aware layout produced by the per-row fault sweep.
-static std::vector<uint32_t> build_backup_pool(const Calib& c) {
+//
+// 2026-07-18 per-subarray screened pools: for NON-primary calibs
+// (is_primary=false: the cs_extra voting calibs, legacy dual), if
+// PIM_POOL_LIST_FILE_SUB is set (path pattern with {sub} and {bank}
+// tokens, sub = open_rows[0]/640), the extra's pool comes from ITS OWN
+// screened per-subarray file. The file must carry a "# window <start>
+// <end>" comment naming the REAL subarray range (FindOpenRows windows
+// are not 640-aligned on DIMM 2); rows are filtered against it and the
+// calib's open set. A missing file means "this sub-cluster has no
+// screened pool yet" → return empty, caller skips the extra (the
+// 2026-07-18 scoping behavior). A present-but-malformed file is FATAL —
+// explicit config that can't be honored must never silently degrade.
+// When PIM_POOL_LIST_FILE_SUB is unset, extras fall through to the
+// legacy PIM_POOL_LIST_FILE logic below (NOTE its known wart: an extra
+// whose tuple sits INSIDE the env window — sub 71 on DIMM 2 — then
+// shares the PRIMARY pool's rows, and its voting scratch draws cycle
+// over LOAD-resident rows; set PIM_POOL_LIST_FILE_SUB in any
+// LOAD-mode + voting production run to retire that hazard).
+static std::vector<uint32_t> build_backup_pool(
+    const Calib& c, bool is_primary,
+    std::pair<uint32_t,uint32_t>* win_out = nullptr) {
+  if (!is_primary) {
+    if (const char* sub_pat = getenv("PIM_POOL_LIST_FILE_SUB")) {
+      std::string path_str = sub_pat;
+      char buf[16];
+      size_t pos;
+      snprintf(buf, sizeof(buf), "%u", c.open_rows[0] / 640);
+      while ((pos = path_str.find("{sub}")) != std::string::npos)
+        path_str.replace(pos, 5, buf);
+      snprintf(buf, sizeof(buf), "%d", c.bank);
+      while ((pos = path_str.find("{bank}")) != std::string::npos)
+        path_str.replace(pos, 6, buf);
+      FILE* fp = fopen(path_str.c_str(), "r");
+      if (!fp) {
+        fprintf(stderr, "[backup_pool] no per-sub pool file '%s' for calib "
+                "(row %u, sub %u) — extra skipped\n",
+                path_str.c_str(), c.open_rows[0], c.open_rows[0] / 640);
+        return {};
+      }
+      std::vector<uint32_t> pool;
+      uint32_t ws = 0, we = 0;
+      char line[128];
+      while (fgets(line, sizeof(line), fp)) {
+        char* s = line;
+        while (*s == ' ' || *s == '\t') s++;
+        if (*s == '#') {
+          unsigned a, b;
+          if (sscanf(s, "# window %u %u", &a, &b) == 2) { ws = a; we = b; }
+          continue;
+        }
+        if (*s == '\n' || *s == 0) continue;
+        uint32_t r = (uint32_t)atoi(s);
+        if (r > 0) pool.push_back(r);
+      }
+      fclose(fp);
+      if (ws >= we) {
+        fprintf(stderr, "[backup_pool] FATAL: per-sub pool file '%s' has no "
+                "'# window <start> <end>' comment\n", path_str.c_str());
+        exit(1);
+      }
+      if (!(c.open_rows[0] >= ws && c.open_rows[0] < we)) {
+        fprintf(stderr, "[backup_pool] FATAL: per-sub pool file '%s' window "
+                "[%u, %u) does not contain calib row %u — wrong file for "
+                "this calib\n", path_str.c_str(), ws, we, c.open_rows[0]);
+        exit(1);
+      }
+      std::set<uint32_t> open_set(c.open_rows.begin(), c.open_rows.end());
+      std::vector<uint32_t> filtered;
+      size_t out_of_win = 0;
+      for (uint32_t r : pool) {
+        if (r < ws || r >= we) { out_of_win++; continue; }
+        if (open_set.count(r)) continue;
+        filtered.push_back(r);
+      }
+      if (out_of_win > 0) {
+        fprintf(stderr, "[backup_pool] FATAL: per-sub pool file '%s' has %zu "
+                "rows outside its own window [%u, %u)\n",
+                path_str.c_str(), out_of_win, ws, we);
+        exit(1);
+      }
+      fprintf(stderr, "[backup_pool] per-sub pool '%s': %zu rows in window "
+              "[%u, %u) for calib row %u\n", path_str.c_str(),
+              filtered.size(), ws, we, c.open_rows[0]);
+      if (win_out) *win_out = {ws, we};
+      return filtered;  // may be empty → caller skips the extra
+    }
+  }
   if (const char* path_pat = getenv("PIM_POOL_LIST_FILE")) {
     // {bank} token substitution → per-bank layouts. e.g.
     // /path/pool_layout_bank{bank}.txt resolves to ..._bank0.txt for
@@ -1977,8 +2963,14 @@ static std::vector<uint32_t> build_backup_pool(const Calib& c) {
     std::vector<uint32_t> pool;
     FILE* fp = fopen(path, "r");
     if (!fp) {
-      fprintf(stderr, "[backup_pool] PIM_POOL_LIST_FILE='%s' unreadable, "
-              "falling through to stride-based\n", path);
+      // An explicitly configured layout that can't be honored is fatal.
+      // The silent stride-based fallback here put production weights into
+      // 25 unscreened rows outside the calibrated window (2026-07-17
+      // regression: relative path + client cwd → ' the the the the').
+      fprintf(stderr, "[backup_pool] FATAL: PIM_POOL_LIST_FILE='%s' "
+              "unreadable. Relative paths resolve against the server's "
+              "cwd — pass an absolute path.\n", path);
+      exit(1);
     } else {
       char line[64];
       while (fgets(line, sizeof(line), fp)) {
@@ -1998,8 +2990,32 @@ static std::vector<uint32_t> build_backup_pool(const Calib& c) {
       uint32_t any_open = c.open_rows[0];
       uint32_t sub_start = (any_open / 640) * 640;
       uint32_t sub_end   = sub_start + 640;
-      if (const char* ss = getenv("PIM_SUB_START")) if (*ss) sub_start = (uint32_t)atoi(ss);
-      if (const char* se = getenv("PIM_SUB_END"))   if (*se) sub_end   = (uint32_t)atoi(se);
+      // The PIM_SUB_START/END window describes ONE subarray (the primary,
+      // non-640-aligned s72 case). Apply it only to calibs whose rows lie
+      // inside it. A calib OUTSIDE the window (a cs_extra candidate in
+      // another subarray) has no rows in the explicit pool file at all —
+      // filtering the file's rows into the WRONG subarray handed extras a
+      // pool of s72 rows: cross-subarray RowClones (garbage votes) plus
+      // scratch writes onto LOAD-resident weight rows, bypassing the V2
+      // scratch reserve (2026-07-18 full-model regression, residual part).
+      // For such calibs return empty: no screened pool exists, and the
+      // stride fallback would invent unscreened rows — the caller skips
+      // the extra instead.
+      {
+        uint32_t es = 0, ee = 0; bool env_win = false;
+        if (const char* ss = getenv("PIM_SUB_START")) if (*ss) { es = (uint32_t)atoi(ss); env_win = true; }
+        if (const char* se = getenv("PIM_SUB_END"))   if (*se) { ee = (uint32_t)atoi(se); }
+        if (env_win) {
+          if (any_open >= es && any_open < ee) {
+            sub_start = es; sub_end = ee;
+          } else {
+            fprintf(stderr, "[backup_pool] calib (row %u) outside env window "
+                    "[%u, %u) — no screened pool for its subarray, returning "
+                    "empty\n", any_open, es, ee);
+            return {};
+          }
+        }
+      }
       std::set<uint32_t> open_set(c.open_rows.begin(), c.open_rows.end());
       std::vector<uint32_t> filtered;
       for (uint32_t r : pool) {
@@ -2050,6 +3066,153 @@ static std::vector<uint32_t> build_backup_pool(const Calib& c) {
   return pool;
 }
 
+// ---------------------------------------------------------------------------
+// O4 (a): resident-const selection (see resident_consts_mode's block
+// comment for the model). Generator extraction + deposit math are exact
+// per-calib — no hardcoded s72 bit rules.
+
+// Derive the 4 tuple generators from open_rows and verify the tuple is
+// separated-generator (sorted position index == generator bitmask:
+// open_rows[i] == open_rows[0] ^ XOR of g[k] over set bits k of i).
+// The fused body is gated to exactly these calibs, so consts inherit the
+// same eligibility.
+static bool tuple_generators(const Calib& c, uint32_t g[4]) {
+  if (c.open_rows.size() != 16) return false;
+  for (int k = 0; k < 4; k++) g[k] = c.open_rows[1u << k] ^ c.open_rows[0];
+  for (int i = 0; i < 16; i++) {
+    uint32_t want = c.open_rows[0];
+    for (int k = 0; k < 4; k++)
+      if (i & (1 << k)) want ^= g[k];
+    if (c.open_rows[i] != want) return false;
+  }
+  return true;
+}
+
+// Deposit set of an external RowClone src -> open_rows[dst_idx]
+// (pair-lattice law, test_safe_load.cpp): rows {src ^ S : S subset of
+// bits(src ^ dst)}. A tuple row open_rows[dst_idx ^ j] is hit iff the
+// span element e_j (XOR of generators in combo j) is a bit-subset of
+// (src ^ dst) — then S = (src ^ dst) ^ e_j deposits src's pattern there.
+// Returns the bitmask of tuple indices hit BEYOND the target itself.
+static uint16_t clone_tuple_deposits(uint32_t src, const Calib& c,
+                                     const uint32_t g[4], int dst_idx) {
+  uint32_t d = src ^ c.open_rows[dst_idx];
+  uint16_t hit = 0;
+  for (int j = 1; j < 16; j++) {
+    uint32_t e = 0;
+    for (int k = 0; k < 4; k++)
+      if (j & (1 << k)) e ^= g[k];
+    if (e != 0 && (e & d) == e)
+      hit |= (uint16_t)(1u << (dst_idx ^ j));
+  }
+  return hit;
+}
+
+// Select + claim + write the per-bank resident constant rows. Runs once
+// at startup, AFTER pools are built and the platform is up, BEFORE any
+// request (so the claim precedes every LOAD allocation). No-op unless
+// PIM_RESIDENT_CONSTS is set. Selection failure on a bank leaves that
+// bank on wrRows (RES_ROW_NONE) — never fatal.
+static void setup_resident_consts(SoftMCPlatform& platform,
+                                  std::vector<BankConfig>& banks) {
+  const int rc_mode = resident_consts_mode();
+  if (rc_mode <= 0) return;
+  const size_t rsv = v2_scratch_reserve();
+  static std::vector<uint32_t> ones_mask(2048, 0xFFFFFFFFu);
+  static std::vector<uint32_t> zeros_mask(2048, 0x00000000u);
+  for (auto& b : banks) {
+    uint32_t g[4];
+    if (!tuple_generators(b.calib, g)) {
+      fprintf(stderr, "[res-consts] bank %d: primary tuple is not "
+              "separated-generator — consts DISABLED for this bank\n",
+              b.bank_id);
+      continue;
+    }
+    // Scan only the pool front — the tail rsv rows stay V2 scratch.
+    size_t scan_end = b.backup_pool.size() > rsv + 2
+                      ? b.backup_pool.size() - rsv : 0;
+    if (scan_end < 3) {
+      fprintf(stderr, "[res-consts] bank %d: pool too small (%zu rows, "
+              "v2_scratch=%zu) — consts DISABLED for this bank\n",
+              b.bank_id, b.backup_pool.size(), rsv);
+      continue;
+    }
+    auto usable = [&](uint32_t r) {
+      return r != b.calib.Rfirst && r != b.calib.Rsecond;
+    };
+    // Allowed off-target deposit indices for the ZERO clones: op[0]
+    // (erased by the ONE fill emitted after them) + the zero rows of the
+    // fused layout ({2,6,10,14} coset + {8}). Zeros onto zero rows are
+    // no-ops; anything else (W rows {3,7,11,12,15}, x rows {1,5,9,13,4})
+    // disqualifies the candidate.
+    const uint16_t zero_ok = (1u << 0) | (1u << 2) | (1u << 6) |
+                             (1u << 8) | (1u << 10) | (1u << 14);
+    size_t zi = (size_t)-1;
+    for (size_t i = 0; i < scan_end; i++) {
+      uint32_t r = b.backup_pool[i];
+      if (!usable(r)) continue;
+      if ((clone_tuple_deposits(r, b.calib, g, 2) & ~zero_ok) == 0 &&
+          (clone_tuple_deposits(r, b.calib, g, 8) & ~zero_ok) == 0) {
+        zi = i;
+        break;
+      }
+    }
+    if (zi == (size_t)-1) {
+      fprintf(stderr, "[res-consts] bank %d: no deposit-safe ZERO source in "
+              "%zu scanned pool rows — consts DISABLED for this bank\n",
+              b.bank_id, scan_end);
+      continue;
+    }
+    const uint32_t zrow = b.backup_pool[zi];
+    // ONE source (mode 1 only): strictly deposit-free into op[0] — it is
+    // the LAST const fill, nothing may repair its off-target deposits.
+    // Also reject pairs whose clones could deposit on EACH OTHER:
+    // "other = src ^ S" requires (src ^ other) subset of bits(src ^ dst).
+    size_t oi = (size_t)-1;
+    if (rc_mode == 1) {
+      const uint32_t d_z2 = zrow ^ b.calib.open_rows[2];
+      const uint32_t d_z8 = zrow ^ b.calib.open_rows[8];
+      for (size_t i = 0; i < scan_end; i++) {
+        if (i == zi) continue;
+        uint32_t r = b.backup_pool[i];
+        if (!usable(r)) continue;
+        if (clone_tuple_deposits(r, b.calib, g, 0) != 0) continue;
+        const uint32_t pd = r ^ zrow;
+        const uint32_t d_one = r ^ b.calib.open_rows[0];
+        if ((pd & d_one) == pd) continue;  // ONE clone could hit zero row
+        if ((pd & d_z2) == pd || (pd & d_z8) == pd) continue;  // and back
+        oi = i;
+        break;
+      }
+      if (oi == (size_t)-1)
+        fprintf(stderr, "[res-consts] bank %d: no deposit-free ONE source — "
+                "zeros-only for this bank (ONE stays a wrRow)\n", b.bank_id);
+    }
+    // Claim: remove the const rows from the pool so LOAD handles and the
+    // V2 scratch tail can never land on them. Erase higher index first.
+    b.res_zero_row = zrow;
+    if (oi != (size_t)-1) b.res_one_row = b.backup_pool[oi];
+    size_t hi = (oi == (size_t)-1) ? zi : std::max(zi, oi);
+    size_t lo = (oi == (size_t)-1) ? zi : std::min(zi, oi);
+    b.backup_pool.erase(b.backup_pool.begin() + hi);
+    if (hi != lo) b.backup_pool.erase(b.backup_pool.begin() + lo);
+    // Write the constants once. They are ordinary pool-subarray rows, so
+    // the MM3D-entry refresh loop ACT-refreshes them with everything else.
+    per_column_write_row(platform, b.bank_id, b.res_zero_row,
+                         zeros_mask.data());
+    if (b.res_one_row != RES_ROW_NONE)
+      per_column_write_row(platform, b.bank_id, b.res_one_row,
+                           ones_mask.data());
+    fprintf(stderr, "[res-consts] bank %d: ZERO=%u ONE=%s "
+            "(pool now %zu rows; d(z,op2)=0x%x d(z,op8)=0x%x)\n",
+            b.bank_id, b.res_zero_row,
+            b.res_one_row == RES_ROW_NONE
+                ? "wrRow" : std::to_string(b.res_one_row).c_str(),
+            b.backup_pool.size(),
+            zrow ^ b.calib.open_rows[2], zrow ^ b.calib.open_rows[8]);
+  }
+}
+
 int main(int argc, char** argv) {
   if (argc != 4) {
     fprintf(stderr,
@@ -2095,7 +3258,8 @@ int main(int argc, char** argv) {
     BankConfig bc;
     bc.bank_id = bk;
     bc.calib = cs[0];
-    bc.backup_pool = build_backup_pool(bc.calib);
+    load_fused_colmask(bc);   // O10: PIM_FUSED_COLMASK_FILE, {bank} token
+    bc.backup_pool = build_backup_pool(bc.calib, /*is_primary=*/true);
     if (bc.backup_pool.empty()) {
       fprintf(stderr, "[server] empty backup pool for bank %d\n", bk);
       return 2;
@@ -2123,23 +3287,40 @@ int main(int argc, char** argv) {
       }
       std::sort(ranked.begin(), ranked.end(),
                 [](const auto& a, const auto& b){ return a.first > b.first; });
+      // O9 (2026-07-20): extras cap env-gated. Default 4 = historic
+      // behavior byte-for-byte; the new-subarray residency pilot raises
+      // it so freshly-calibrated clusters join LOAD-overflow.
+      static int s_max_extras = -1;
+      if (s_max_extras < 0) {
+        const char* v = getenv("PIM_MAX_EXTRAS");
+        s_max_extras = (v && *v) ? atoi(v) : 4;
+        if (s_max_extras != 4)
+          fprintf(stderr, "[server] PIM_MAX_EXTRAS=%d\n", s_max_extras);
+      }
       for (auto& [cnt, sub] : ranked) {
-        if (bc.cs_extra.size() >= 4) break;
+        if ((int)bc.cs_extra.size() >= s_max_extras) break;
         // Pick the first calib in cs whose open_rows[0] falls in this sub.
         for (const auto& c : cs) {
           uint32_t s = (c.open_rows[0] / 640) * 640;
           if (s != sub) continue;
-          std::vector<uint32_t> pool_i = build_backup_pool(c);
+          std::pair<uint32_t,uint32_t> win{0, 0};
+          std::vector<uint32_t> pool_i =
+              build_backup_pool(c, /*is_primary=*/false, &win);
           if (pool_i.empty()) break;
           bc.cs_extra.push_back(c);
           bc.pool_extra.push_back(std::move(pool_i));
+          bc.pool_extra_win.push_back(win);
+          bc.pool_extra_cursor.push_back(0);
           break;
         }
       }
       fprintf(stderr, "[server] bank %d: %zu extra calibs (dense clusters)",
               bk, bc.cs_extra.size());
-      for (const auto& c : bc.cs_extra)
-        fprintf(stderr, " sub=%u", (c.open_rows[0] / 640));
+      for (size_t ei = 0; ei < bc.cs_extra.size(); ei++)
+        fprintf(stderr, " sub=%u(pool=%zu@[%u,%u))",
+                (bc.cs_extra[ei].open_rows[0] / 640),
+                bc.pool_extra[ei].size(),
+                bc.pool_extra_win[ei].first, bc.pool_extra_win[ei].second);
       fprintf(stderr, "\n");
     }
     // Legacy dual-subarray (kept default OFF; same code path as D's first
@@ -2151,7 +3332,7 @@ int main(int argc, char** argv) {
         uint32_t subi_start = (cs[i].open_rows[0] / 640) * 640;
         if (subi_start != sub0_start) {
           bc.calib_b = cs[i];
-          bc.backup_pool_b = build_backup_pool(bc.calib_b);
+          bc.backup_pool_b = build_backup_pool(bc.calib_b, /*is_primary=*/false);
           if (!bc.backup_pool_b.empty()) {
             bc.dual = true;
           }
@@ -2208,6 +3389,11 @@ int main(int argc, char** argv) {
   // (SMC_REF in our programs at safe points) is the only correct path.
   std::cout.flush();
   fflush(stdout);
+
+  // O4 (a): claim + write the resident constant rows (no-op unless
+  // PIM_RESIDENT_CONSTS is set). Must precede the first LOAD_WEIGHTS so
+  // the pool claim happens before any handle allocation.
+  setup_resident_consts(platform, banks);
 
   fprintf(stderr, "[server] ready: bender=%d N_banks=%zu "
           "(response_fd=%d)\n",
