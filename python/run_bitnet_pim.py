@@ -29,11 +29,19 @@ _BN = "/home/deni/Claude/SiMRA-DRAM-main/DRAM-Bender/sources/apps/DSN_AE_APPS/Bi
 # sub_start/sub_end = None means the server's default 640-aligned math is
 # correct (DIMM 0). DIMM 2's s_id 72 is not 640-aligned → explicit range.
 DIMM_SPECS = {
+    # 2026-07-20: clone-ok pools on both DIMMs (O8/O5 hygiene — the May
+    # pools were ~33-39% clone-dead by the anti-selection corollary).
+    # dimm0 sub window explicit per the O5 ready-state spec.
     0: {'bender': 0, 'calib': f"{_BN}/calib_dimm0.txt",
-        'pool_layout': f"{_BN}/pool_layout_dimm0_bank{{bank}}.txt",
-        'sub_start': None, 'sub_end': None},
+        'pool_layout': f"{_BN}/pool_layout_dimm0_cloneok_bank{{bank}}.txt",
+        'sub_start': 38400, 'sub_end': 39040,
+        # O10 2026-07-20: fused-layout colmask (host-repairs the fused
+        # OPERAND-LAYOUT-marginal columns of this die; ~9% of columns).
+        # Gated by PIM_D0_FUSED_COLMASK=0 for A/B against the o5fix shape.
+        **({} if os.environ.get('PIM_D0_FUSED_COLMASK', '1') == '0' else
+           {'fused_colmask': f"{_BN}/fused_colmask_dimm0_bank{{bank}}.txt"})},
     2: {'bender': 2, 'calib': f"{_BN}/calib_dimm2.txt",
-        'pool_layout': f"{_BN}/pool_layout_dimm2_bank{{bank}}.txt",
+        'pool_layout': f"{_BN}/pool_layout_dimm2_cloneok_bank{{bank}}.txt",
         'sub_start': 45312, 'sub_end': 45952},
 }
 

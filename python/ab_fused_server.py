@@ -38,6 +38,9 @@ def main():
                     help="set PIM_FUSED_COSET=1 in the server env")
     ap.add_argument("--server", default="./bitnet-proj-server")
     ap.add_argument("--log", default=None)
+    ap.add_argument("--dump-bad", default=None,
+                    help="write every bad segment as 'matmul s ref got' "
+                         "lines to this file (O10 colmask augmentation)")
     a = ap.parse_args()
     assert a.d_in % 32 == 0
     n_chunks = a.d_in // 32
@@ -95,6 +98,7 @@ def main():
 
     factors = [1 << b for b in range(a.bitplanes)]
     times, all_ok = [], True
+    dump_f = open(a.dump_bad, "w") if a.dump_bad else None
     for req in range(a.matmuls):
         xbp = [[rng.getrandbits(32) for _ in range(a.bitplanes)]
                for _ in range(n_chunks)]
@@ -119,6 +123,8 @@ def main():
                 bad += 1
                 if first is None:
                     first = (s, ref, y[s])
+                if dump_f:
+                    dump_f.write("%d %d %d %d\n" % (req, s, ref, y[s]))
         ok = bad == 0
         all_ok &= ok
         nz = sum(1 for v in y if v != 0)
@@ -132,6 +138,8 @@ def main():
     srv.stdin.flush()
     srv.wait(timeout=30)
     log_f.close()
+    if dump_f:
+        dump_f.close()
     n = len(times)
     mean = sum(times) / n
     med = sorted(times)[n // 2]

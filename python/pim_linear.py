@@ -37,11 +37,17 @@ _XBP_CACHE_MAX = 8
 def _pack_xbp(x_int8, n_chunks):
     cache_on = os.environ.get('PIM_XBP_CACHE', '1') == '1'
     if cache_on:
-        # id+shape as quick key.  In BitNet's forward, the same x tensor
-        # is fed to q/k/v sequentially, so id() matches.  Different x'es
-        # have different ids (numpy doesn't immediately recycle ids while
-        # in scope).  Cheap miss = full repack — no correctness risk.
-        key = (id(x_int8), n_chunks, x_int8.shape[0])
+        # Key by CONTENT, not id().  The cache does not retain x_int8, so
+        # a freed array's address gets recycled by the allocator while its
+        # id() lives on as a key — in batched prefill the per-position x
+        # arrays ping-pong through the same addresses and later positions
+        # hit earlier positions' stale bitplanes (2026-07-17: deterministic
+        # ' The capital of of capital...' derail at the first token that
+        # needs real attention retrieval; PIM_INT_DIFF showed q/k/v/o
+        # decorrelated from position 0 while down/gate tails were normal).
+        # tobytes() is a ~2.5 KB copy, ~µs vs the ~1 ms pack it saves;
+        # dict equality on bytes keys makes hits exact, not just probable.
+        key = (x_int8.tobytes(), n_chunks)
         cached = _XBP_CACHE.get(key)
         if cached is not None:
             return cached
@@ -67,6 +73,7 @@ MAGIC_V2 = 0xB17EF002
 MAGIC_LOAD = 0xB17EF003   # LOAD_WEIGHTS (one-time per linear's slice)
 MAGIC_MM3D = 0xB17EF004   # MATMUL_HANDLE (subsequent calls)
 _NEXT_HANDLE_ID = [0]     # global handle-id counter
+_V2_FALLBACK_COUNT = [0]  # slices that fell back LOAD→V2 (diagnostics)
 
 
 def _bf16_to_f32_scalar(t):
@@ -229,6 +236,10 @@ class PimBitLinear(nn.Module):
                 if cfg.get('pool_layout'): extra_env['PIM_POOL_LIST_FILE'] = cfg['pool_layout']
                 if cfg.get('sub_start') is not None: extra_env['PIM_SUB_START'] = cfg['sub_start']
                 if cfg.get('sub_end') is not None: extra_env['PIM_SUB_END'] = cfg['sub_end']
+                # O10 (2026-07-20): per-DIMM fused-layout colmask (host
+                # repair of fused-marginal columns — dimm0 only today).
+                if cfg.get('fused_colmask'):
+                    extra_env['PIM_FUSED_COLMASK_FILE'] = cfg['fused_colmask']
                 self._servers.append(PimServer.shared(
                     cfg['bender'], cfg['bank'], cfg['calib'],
                     server_path, extra_env=extra_env or None))
@@ -311,6 +322,40 @@ class PimBitLinear(nn.Module):
             #    correctness-guaranteed path. One request per d_out slice.
             static_prefix_v2 = header + pos_mask.tobytes() + neg_mask.tobytes()
 
+            # 1b. Multi-DIMM V2 split (2026-07-20 balance fix): per-server
+            #     chunk-range V2 bodies. The full-body V2 fallback used to
+            #     go to self._server = servers[0] unconditionally, so once
+            #     the LOAD pools filled (ENOSPC after ~18-22 sub-handles
+            #     per DIMM — the full model needs 2940), ~98% of traffic
+            #     landed on DIMM 0 and the other DIMM starved (o5 run:
+            #     15510 calls/23.5GB on D0 vs 628 calls/51MB on D2).
+            #     Split by d_in instead: server i computes chunks
+            #     [c_a, c_b) as a partial sum (y = sum_c x[c]*W[:,c] —
+            #     same math as the LOAD-mode sub split), host adds.
+            #     Built only when >1 server; single-DIMM keeps the
+            #     byte-identical legacy full-body path.
+            v2_parts = None
+            _n_srv_cfg = len(self._servers) if use_server else 1
+            if _n_srv_cfg > 1:
+                v2_parts = []
+                per = (n_chunks + _n_srv_cfg - 1) // _n_srv_cfg
+                for si in range(_n_srv_cfg):
+                    c_a = si * per
+                    c_b = min(c_a + per, n_chunks)
+                    if c_a >= c_b:
+                        continue
+                    part_header = (struct.pack('<I', MAGIC_V2)
+                                   + struct.pack('<I', (c_b - c_a) * 32)
+                                   + struct.pack('<I', D_OUT_SLICE)
+                                   + struct.pack('<I', c_b - c_a)
+                                   + struct.pack('<I', N_BITPLANES))
+                    v2_parts.append({
+                        'server_idx': si, 'c_a': c_a, 'c_b': c_b,
+                        'prefix': (part_header
+                                   + pos_mask[c_a:c_b].tobytes()
+                                   + neg_mask[c_a:c_b].tobytes()),
+                    })
+
             # 2. Per-sub-d_in LOAD_WEIGHTS bodies (each sub ≤ MAX_CHUNKS_PER_SUB
             #    chunks → fits inside the validated single-bank persistent
             #    ceiling). For d_in ≤ 512 this collapses to a single sub.
@@ -357,6 +402,7 @@ class PimBitLinear(nn.Module):
                 'a': a, 'b': b, 'n_real': n_real,
                 'n_copies': n_copies,  # 1 = no replication; ≥2 = vote across copies
                 'static_prefix': static_prefix_v2,
+                'v2_parts': v2_parts,   # None single-DIMM; per-server split multi
                 'bp_factor_bytes': bp_factor_bytes,
                 'load_subs': load_subs,
                 # Stashed for int-level diff log (PIM_INT_DIFF=1).
@@ -480,13 +526,37 @@ class PimBitLinear(nn.Module):
                         # Each sub loads its weights into ITS assigned DIMM's
                         # server pool (multi-DIMM); single-DIMM → server 0.
                         srv = self._servers[sub['server_idx']]
+                        # ENOSPC latch: once a server refused a LOAD for
+                        # pool exhaustion (ack byte 1), its cursor never
+                        # retreats — skip the round-trip for all later
+                        # slices (the o5 run wasted ~1250 probe calls).
+                        if getattr(srv, 'load_enospc', False):
+                            all_ok = False
+                            break
                         ack = srv.request(sub['load_body'], expect_resp_len=4)
                         if len(ack) != 4 or ack[0] != 0:
                             all_ok = False
+                            if len(ack) == 4 and ack[0] == 1:
+                                if not getattr(srv, 'load_enospc', False):
+                                    srv.load_enospc = True
+                                    print(f"[pim] server bender="
+                                          f"{srv.bender_id}: LOAD pool "
+                                          f"exhausted (ENOSPC) — later "
+                                          f"slices use V2"
+                                          + (" (multi-DIMM split)"
+                                             if len(self._servers) > 1
+                                             else ""),
+                                          flush=True)
                             break
                         sub['loaded'] = True
                     slc['loaded_state_done'] = True
                     slc['load_mode_ok']      = all_ok
+                    if not all_ok:
+                        _V2_FALLBACK_COUNT[0] += 1
+                        n_fb = _V2_FALLBACK_COUNT[0]
+                        if n_fb == 1 or n_fb % 100 == 0:
+                            print(f"[pim] LOAD→V2 fallback slices so far: "
+                                  f"{n_fb}", flush=True)
 
                 use_load_mode = (not _force_v2 and slc.get('load_mode_ok', False))
                 self._t_body_build_ms += (_time.perf_counter() - _ts) * 1000
@@ -562,6 +632,47 @@ class PimBitLinear(nn.Module):
                         for p in partials: y_acc += p
                         return y_acc
                     else:
+                        parts = slc.get('v2_parts')
+                        if parts and os.environ.get('PIM_V2_SPLIT', '1') != '1':
+                            parts = None   # kill-switch: legacy servers[0] route
+                        if parts:
+                            # 2026-07-20 BALANCE FIX: multi-DIMM V2. Each
+                            # server computes its d_in chunk range as a
+                            # partial sum, concurrently; host adds. The
+                            # old path sent the full body to servers[0]
+                            # only, starving every other DIMM once the
+                            # LOAD pools were exhausted.
+                            partials = [None] * len(parts)
+                            errs = [None] * len(parts)
+                            def _run_part(pi):
+                                try:
+                                    part = parts[pi]
+                                    body = (part['prefix']
+                                            + x_bitplane[part['c_a']:part['c_b']].tobytes()
+                                            + bp_factor_bytes
+                                            + struct.pack('<I', cal_idx))
+                                    resp = self._servers[part['server_idx']].request(body)
+                                    partials[pi] = np.frombuffer(
+                                        resp, dtype=np.int32,
+                                        count=D_OUT_SLICE)
+                                except Exception as e:
+                                    errs[pi] = e
+                            _serial = os.environ.get('PIM_MULTIDIMM_SERIAL') == '1'
+                            if _serial:
+                                for pi in range(len(parts)): _run_part(pi)
+                            else:
+                                ths = [threading.Thread(target=_run_part,
+                                                        args=(pi,))
+                                       for pi in range(len(parts))]
+                                for th in ths: th.start()
+                                for th in ths: th.join()
+                            for e in errs:
+                                if e is not None:
+                                    raise e
+                            self._n_inner_requests += len(parts)
+                            y_acc = np.zeros(D_OUT_SLICE, dtype=np.int32)
+                            for p in partials: y_acc += p
+                            return y_acc
                         body = (slc['static_prefix']
                                 + x_bp_bytes
                                 + bp_factor_bytes
