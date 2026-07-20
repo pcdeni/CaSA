@@ -102,17 +102,35 @@ One row per scoreboard entry; "paper" column then "ours" column.
 
 | Scoreboard row | Paper source | Our source |
 |---|---|---|
-| Reliable-column fraction: 83–95% vs 87–88% MAJ5-reliable | [paper Table I] | [study §4, table] |
+| Reliable-column fraction: 83–95% vs 87–88% (June) → 94–95% strict all 8 banks (July ZERO policy) | [paper Table I] | [study §4, table] (June); RESULT.md addendum 10 §C + colmasks_maj5_zero_2026_07_17/ (per-bank winners 1919–1954/2048 — verified against majx select-mode logs) |
 | RowCopy: strict on screened part vs 8192/8192 deterministic (commodity) | [paper fn. 3] | [study §4, table]; [code:app/test_rowclone_smoke.cpp] |
-| Dual-track adder: error-free after Frac[34]+calib[48] vs 99.94% (MAJ5 sum, screened cols) | [paper §VII] | [study §4, table] |
+| Dual-track adder: error-free after Frac[34]+calib[48] vs mechanism-exact — strictly error-free on 94.8% of cols (ZERO+2), 16-bit chain carry 0.0000% | [paper §VII] | RESULT.md addendum 8b (1942/2048 = 94.8% adder-strict on screen) + addendum 13 ([data:sublattice_broadcast_2026_07_17/chain_b2_s78_16bit.csv]: carry 0.0000% all 16 positions, sum 0.009–0.068%) ; June 99.94% row retained in [study §4] |
 | — all-MAJ3 variant 99.98% | n/a (their adder uses MAJ5) [paper §II-C1] | [code:app/test_mvdram_compute_rows_safe.cpp]; [study §4 table ("in-DRAM carry-save popcount tree 99.97–99.98%") + §8] |
-| On-the-fly encoding: reproduced (select-source RowClone) | [paper §V, Fig 6] | [code:app/test_mvdram_gemv_inplace.cpp] (`select`/`srcrow` product literals) |
-| Bit-sparsity skip: implemented, not benchmarked at their scale | [paper §V-D] | [code:app/test_mvdram_gemv_inplace.cpp] (`PIM_SKIP` env); "not benchmarked at scale" is a scope statement, see Scene 7 |
+| On-the-fly encoding: PHYSICAL (July 20) — clone-created products, 3.0× faster, 94.7% unvoted at 4096² | [paper §V, Fig 6] | [code:mvdram-repro/lane2_gemv_server.cpp] (LANE2_ENCODE=clone); [data:mvdram-repro/o7_logs_2026_07_20/R3b_clone_4096_depthscreen.log] (11.9 s, 3877/4096 = 94.65% — verified 2026-07-20) vs R1 (38.4 s) |
+| Bit-sparsity skip: measured — commands ∝ density (9.0→5.1/pass at 100→50%); zero-skip in all server modes; B2 table's measured-density arm quantifies it at model dims | [paper §V-D] | RESULT.md addendum 17 §4 (gemv-encoded); [data:mvdram-repro/b2_results/20260719_233500/] (paper50 vs measured arms) |
 | Horizontal layout + row-wise aggregation: reproduced | [paper §VI, Fig 7–10] | [study §4, table]; [code:app/test_mvdram_gemv_inplace.cpp] |
 | Computation-rows dataflow: 99.98% with safe placement (June 6.1% reversed) | [paper Fig 2] (as characterized in [study §4]) | [code:app/test_mvdram_compute_rows_safe.cpp]; [study §8] |
-| Fast in-DRAM operand movement: 2.2–2.3×/gate vs host-write shape | [paper Fig 3] (profile assumption) | [code:app/test_mvdram_fastpath_ab.cpp]; [data:docs/data/mvdram-repro/fastpath_ab_b*.log] |
+| Fast in-DRAM operand movement: 2.2–2.3×/gate vs host-write shape; 3.0×/GeMV in the fused clone server mode | [paper Fig 3] (profile assumption) | [code:app/test_mvdram_fastpath_ab.cpp]; [data:docs/data/mvdram-repro/fastpath_ab_b*.log] (1.585/0.885/0.683 b2; 1.574/0.898/0.705 b0 — re-verified 2026-07-20); lane2 clone A/B (o7 logs) |
+| Partial sums to processor: per-32-block integer partials → FIRST EXACT FP32, bit-exact vs CPU on the real Llama-2-7B blk.0.attn_q tensor | [paper §II-C2, §VII] | [code:mvdram-repro/lane2_gemv_server.cpp] (GEMV_PARTIALS 0x4D563003) + [code:mvdram-repro/lane2_partials_fp32.py]; [data:mvdram-repro/o7_logs_2026_07_20/R4_fp32_realtensor.log] (524,288/524,288 int-exact; 4096/4096 fp32 bit-identical — verified 2026-07-20) |
+| Their e2e protocol: sampled interception, 36 verified ops across 4 models × both precisions, 99.58–99.99% int-exact unvoted, outputs CPU-exact by construction | [paper §VIII-A] | [code:mvdram_bench/llama.cpp shim mvdram-pim.{h,c}]; [data:mvdram_bench/smoke_2026_07_19/silicon/e2e_*_ops.log] (36 ops counted, range re-derived 2026-07-20: min 99.5759%, max 99.9928%) |
 
-## Scene 7 — What we have NOT done
+## Scene 7 — The three gaps of July 17: two closed, one remains (RETITLED + UPDATED 2026-07-20)
+
+Original (07-17) rows retained below for the gap definitions; the 07-20
+closure rows follow.
+
+| Claim (07-20) | Source |
+|---|---|
+| Gap 1 CLOSED: MAJ5 is conditioning-sensitive; the dominant knob is the reference row's INIT, not pulse count | RESULT.md addendum 8 (frac-maj5-exe sweeps) |
+| ZERO-init 963 strict cols vs ~200 frac'd-ONE on the marginal subarray (≈5×); ZERO+2 on the good subarray: 1915 strict / 2010 soft95 of 2048 (600-run confirm) | [data:sublattice_broadcast_2026_07_17/frac_maj5_b0_s72.csv, frac_maj5_b2_s86_confirm.log] (confirm rows re-read 2026-07-20: n_frac=2 t_frac=0 ZERO → strict=1915 soft95=2010) |
+| Per-bank MAJ5 colmasks 94–95% strict on all 8 banks of both compute dies | RESULT.md addendum 10 §C; colmasks_maj5_zero_2026_07_17/maj5_best_b{0,2}_bank{0-3}.txt |
+| Exact dual-track adder strictly error-free on 1942/2048 = 94.8% of s86 under ZERO+2; June "chain collapse" attributed to frac'd-ONE on unscreened cols | RESULT.md addenda 8b + 13 |
+| MAJ3 is conditioning-INSENSITIVE (flat 78/78 configs); frac does NOT rescue the geometry-limited die (corr −0.44) — two dead ends closed | RESULT.md addendum 7 ([data:frac_sweep_b2_s72.csv, frac_sweep_b1_s24.csv]) |
+| Gap 2 CLOSED at declared sampled scope: llama.cpp hook + lane2 server + 36 verified ops + B2 table | Scene 8 rows (primary) |
+| Gap 3 REMAINS with a measured size: 32000×4096 qb2 paper50 cell 17.04 s vs their 0.19 ms ≈ 9×10⁴ | [data:mvdram-repro/b2_results/20260719_233500/b2_gemv_table.md] (17.04±0.31 — verified 2026-07-20) ÷ [paper §VIII-B] |
+| Staged answer: seq_engine 100% command-bus utilization in Verilator; 8K-IMEM multi-body packing measured ~2.3× | memory record dram_bender_seq_engine; RESULT.md addendum 15 |
+
+### Original 07-17 gap definitions (retained)
 
 | Claim | Source |
 |---|---|
@@ -128,7 +146,37 @@ One row per scoreboard entry; "paper" column then "ours" column.
 | Ours: per-program host round-trips, ≤2048-instruction IMEM; a fused gate is 154 instructions | [data:docs/data/mvdram-repro/fastpath_ab_b0.log, fastpath_ab_b2.log] ("fused gate program: max 154 insts (IMEM 2048)") |
 | This is the structural gap between our per-gate numbers and their kernel numbers — engineering, not physics | [editorial], grounded in the two rows above |
 
-## Scene 8 — What our silicon adds beyond the paper
+## Scene 8 — Their protocol, run (NEW 2026-07-20)
+
+| Claim | Source |
+|---|---|
+| Shim at BOTH mulmat attachment points (generic + repack); the repack path carries all quantized projection mulmats on x86 | REPRODUCTION.md 2026-07-18 (census section); [code:mvdram_bench/llama.cpp ggml/src/ggml-cpu/mvdram-pim.{h,c}] |
+| Sampled interception: every Nth eligible GeMV runs on silicon AND CPU with a per-op verdict; generation text CPU-exact by construction (route c2, declared in advance) | LANE2_GEMV_SERVER.md (scope decision); REPRODUCTION.md 2026-07-18 (threading contract + route c2) |
+| Full-fidelity 256-tok e2e is multi-day per model at our per-op walls — the reason for sampled scope, stated | LANE2_GEMV_SERVER.md (scope decision) |
+| 36 verified ops: 7B 12 (Q4_0 99.81–99.90%, Q2_K 99.83–99.90%), 13B 8, 8B 8, Phi-4 8; overall range 99.58–99.99% | [data:mvdram_bench/smoke_2026_07_19/silicon/e2e_*_ops.log] (counted 36; per-file min/max re-derived 2026-07-20) |
+| Dims covered: 4096/5120/7680/11008/13824/14336/32000/35840 incl. Llama-3 GQA kv (M=1024) and a 35,840-output head | REPRODUCTION.md 2026-07-20 (§VIII-A protocol COMPLETE) + ops logs |
+| Quant mappings validated bit-exact vs gguf ground truth before silicon: q4_0 (q−8), q2_K (q−2), q3_K (split-storage q−4), q6_K (q−32, 3-handle split) | REPRODUCTION.md 2026-07-18/19 (check_derepack/check_q2k/check_q3k/check_q6k, zero mismatches) |
+| B2 table: 32 cells × 5 iters, both input arms (paper50 + measured density), CPU column, on silicon | [data:mvdram-repro/b2_results/20260719_233500/b2_gemv_table.{md,csv}] |
+| Cells quoted in the deck: 4096² qb4 paper50 34.09±0.64 s / measured 18.88±0.39; 32000×4096 qb2 17.04±0.31 / 14.83±0.33; qb1 8.56±0.20 / 7.51±0.12 | same table (rows re-read 2026-07-20) |
+| Deviations stated: 5 iters vs 1,000; single module/tuple vs 4-module N≤128; host round-trips vs §V-E | table header (the deviations are printed in the artifact itself) |
+| Exact fp32: 524,288/524,288 partials int-exact; 4096/4096 outputs bit-identical to CPU fp32 reference; 732.8 s, 55,388 FA, 332,328 MAJ, vote3 | [data:mvdram-repro/o7_logs_2026_07_20/R4_fp32_realtensor.log] (verified 2026-07-20) |
+| Paper-side finding: N≤128 partial granularity crosses q4_0's 32-weight scale blocks → exact fp32 impossible from partials at the paper's stated shape; scales/dequantization absent from the paper | REPRODUCTION.md 2026-07-18 (route c2 paper re-read: "the words scale/zero-point/dequantize never appear") + 2026-07-20 O7 ambiguity 3 [editorial: arithmetic consequence] |
+
+## Scene 9 — The last fidelity deviations, closed (NEW 2026-07-20)
+
+| Claim | Source |
+|---|---|
+| Phase-1 deviations declared 07-18: host-resolved encoding; host-formed ¬carry; no exact-fp32 path; host-streamed matrix | REPRODUCTION.md 2026-07-18 phase-1 section (the deviations list, written before the closures) |
+| All three closed as env-gated modes; defaults byte-preserve phase-1 (R1 revalidates) | LANE2_GEMV_SERVER.md 2026-07-20 header; REPRODUCTION.md O7 section |
+| Clone-encode: 11.9 s vs 38.4 s = 3.2×; pcwrites 253,032 → 50,592 (5.0×); 94.65% unvoted | [data:o7_logs R3b vs R1] (verified 2026-07-20) |
+| Accuracy price mechanism: ~0.03%/gate MAJ3 flake × 9× more MAJs × ~12 levels; transient-dominated; depth-2 screen bought +0.4% only | REPRODUCTION.md O7 (a) |
+| Rail telemetry: v⊕¬v violations 0.30% of lane-checks (clone mode); a built-in error detector | REPRODUCTION.md O7 (a); R2/R2v logs show 0.063%/0.021% in dual-track mode (verified) |
+| Dual-track: 76.0 s / 99.49% unvoted; vote3 229.8 s / 99.83%; complements silicon-formed at every ~12 levels; exactly 2× MAJs/wall + 2× matrix planes | [data:o7_logs R2, R2v] (verified 2026-07-20); [paper §VII, Fig 15] for the stated trade |
+| Row-budget math: resident dual-rail chunk ≈ 3N+16 rows → N ≤ ~160 per 512-row subarray, consistent with their N≤128 | REPRODUCTION.md O7 (b) [editorial: arithmetic]; [paper §VII] |
+| Standing deviation: matrix residency (single-tuple time-multiplexing), stated wherever numbers appear | REPRODUCTION.md 2026-07-20 supersession note |
+| Four paper ambiguities + conventions chosen (product-row placement; complement identities; partial granularity; unsigned 1-bit) | REPRODUCTION.md O7 "Paper ambiguities met" (items 1–4) |
+
+## Scene 10 (was Scene 8) — What our silicon adds beyond the paper
 
 | Claim | Source |
 |---|---|
@@ -142,7 +190,22 @@ One row per scoreboard entry; "paper" column then "ours" column.
 | Column-static error models (incl. reliable-column screening) cannot represent the effect — it depends on which rows are co-activated, not the column | [study §4, closing paragraph] |
 | All-MAJ3 accumulation: carry-save popcount from MAJ3 only, 99.98% e2e with safe placement; no MAJ5 → no Frac/calibration dependency for the adder | [code:app/test_mvdram_compute_rows_safe.cpp] (18-MAJ3-gate DAG); [study §4 table, §8]; MAJ5 dependency of their adder: [paper §II-C1] |
 
-## Scene 9 — Verdict
+### Scene 10 additions (cards 5–6, NEW 2026-07-20)
+
+| Claim | Source |
+|---|---|
+| The reference-policy law (card 5): rows as in Scene 7 gap-1 closure | Scene 7 closure rows (primary) |
+| The clone-dead law (card 6): closed form; held-out 2,496/2,496 pre-committed; die 2: 2,494/2,496 zero false-dead; converts screening into computation | xor_spread_explainer_ledger.md Scene 6 rows (primary); [code:app/clone_law.py] |
+
+## Scene 11 (was Scene 9) — Verdict (UPDATED 2026-07-20)
+
+| Claim (07-20 additions) | Source |
+|---|---|
+| July 18–20 completions line: mechanism-exact adder (94.8%), four-model protocol at sampled scope (36 ops), first exact fp32 | Scenes 7–9 rows above (primary) |
+| Energy caveat retained verbatim: 30.5×/3.04× CACTI-estimated MVDRAM side vs measured baselines (RAPL/tegrastats) — asymmetric method the paper itself states | [paper Fig 14, Fig 17] |
+| The measured streaming gap ≈9×10⁴ quoted in the verdict | Scene 7 gap-3 row (primary) |
+
+### Original Scene 9 (Verdict) rows, retained
 
 | Claim | Source |
 |---|---|
