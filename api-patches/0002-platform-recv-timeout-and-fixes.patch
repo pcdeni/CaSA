@@ -1,12 +1,16 @@
 --- a/sources/api/platform.h
 +++ b/sources/api/platform.h
-@@ -1,3 +1,5 @@
+@@ -1,6 +1,9 @@
 +#ifndef SOFTMC_PLATFORM_H
 +#define SOFTMC_PLATFORM_H
  #include "board.h"
  #include "prog.h"
  #include <thread>
-@@ -16,32 +18,62 @@
++#include <atomic>
+ #include <boost/lockfree/spsc_queue.hpp>
+ 
+ #ifdef PYSMC
+@@ -16,32 +19,100 @@
  #define SOFTMC_NO_SUCH_FPGA -4
  
  class SoftMCPlatform{
@@ -39,6 +43,44 @@
       */
 -    void reset_fpga();
 +    virtual void reset_fpga();
++
++    /**
++     * Toggles the readback engine between READ_MODE (stream full row data)
++     * and DIFF_MODE (popcount of rd_data XOR pattern reg; with the
++     * POPCOUNT_ACCUM_MODE bitstream, one 32-bit total drained per program
++     * flush). Out-of-band control word, bit INSTR_WIDTH+1 — same mechanism
++     * as reset_fpga. State toggles: pair every switch with a switch back.
++     *
++     * KNOWN RACY on silicon (RESULT.md addendum 20c): the word is decoded
++     * only in the frontend's INIT_MEM state and a lost/duplicated toggle
++     * flips parity. Prefer set_readback_mode() on build4+ images; on
++     * build3 and older keep the verified-toggle probe pattern
++     * (test_popcount_hw.cpp). Kept for compatibility with all images.
++     */
++    void toggle_readback_mode();
++
++    /**
++     * build4+ images ONLY (trailer magic 0xDBC0DE02): set the readback
++     * mode with the idempotent SET control words (SET-READ = bit
++     * INSTR_WIDTH+5, SET-DIFF = bit INSTR_WIDTH+6). Level semantics: a
++     * duplicate send is a no-op and a lost word is repaired by sending
++     * again — no toggle parity to lose. On pre-build4 images these words
++     * fall through the frontend decode chain into the instruction-load
++     * path (clobbering IMEM word 0 and arming EXECUTE on tlast), so DO
++     * NOT call this unless the flashed image is build4+; the
++     * verified-toggle probes in test_popcount_hw.cpp remain valid on
++     * build4 (idempotent words converge in one attempt).
++     * @param diff true -> DIFF_MODE, false -> READ_MODE
++     */
++    void set_readback_mode(bool diff);
++
++    /**
++     * Bounded, NON-poisoning receive probe: waits up to timeout_ms for
++     * `size` bytes; returns bytes delivered (0 on timeout) and never sets
++     * the poisoned flag. For mode-probe / drain-probe logic where "no
++     * data" is an expected answer, not a failure.
++     */
++    int receiveDataTry(void* recv_buf, int size, long timeout_ms);
      /**
       * Sends SoftMC program to the FPGA board over PCI-E
       * @param prog reference to the program object to send
@@ -79,7 +121,7 @@
  
      #ifdef PYSMC
      int py_receiveData(int num_words);
-@@ -67,13 +99,25 @@
+@@ -67,13 +138,29 @@
  
    private:
      bool is_dummy;
@@ -99,6 +141,10 @@
 +    // keeps the producer from ever stalling on push.
      std::thread receiver;
 -    boost::lockfree::spsc_queue<int, boost::lockfree::capacity<API_BUF_SIZE/4>> api_recv_buf;
++    // Set false before each consumeData spawn, true when it returns.
++    // Lets execute() detect a drain thread wedged in the kernel c2h read
++    // and poison instead of joining forever (2026-07-18 deadlock class).
++    std::atomic<bool> receiver_done{true};
 +    boost::lockfree::spsc_queue<int> api_recv_buf{API_BUF_SIZE/4};
      void* xdma_recv_buf;
      void consumeData();
@@ -106,7 +152,7 @@
  
    #ifdef PYSMC
    public:
-@@ -81,3 +125,4 @@
+@@ -81,3 +168,4 @@
      py::memoryview get_buffer_memoryview();
    #endif
  };
@@ -196,7 +242,49 @@
      if(!iface -> init())
        return SOFTMC_SUCCESS;
      else
-@@ -103,23 +132,65 @@
+@@ -97,66 +126,185 @@
+   }
+ }
+ 
++void SoftMCPlatform::toggle_readback_mode()
++{
++  if(is_dummy)
++  {
++    return;
++  }
++  ((uint8_t*) instr_buf)[8] = (uint8_t) 2;   // bit INSTR_WIDTH+1
++  int sent = iface -> sendData(instr_buf, 32 /*in bytes*/);
++  memset(instr_buf, 0, 32);
++  if(sent)
++    std::cerr << "Could not toggle readback mode!" << std::endl;
++  else
++    std::cout << "Toggled readback mode." << std::endl;
++}
++
++// build4+ images ONLY (trailer magic 0xDBC0DE02) — see platform.h.
++// SET-READ = bit INSTR_WIDTH+5 (byte[8] = 0x20), SET-DIFF = bit
++// INSTR_WIDTH+6 (byte[8] = 0x40). Idempotent: safe to send repeatedly;
++// a duplicate is a no-op, a lost word is repaired by resending.
++void SoftMCPlatform::set_readback_mode(bool diff)
++{
++  if(is_dummy)
++  {
++    return;
++  }
++  ((uint8_t*) instr_buf)[8] = diff ? (uint8_t) 0x40 : (uint8_t) 0x20;
++  int sent = iface -> sendData(instr_buf, 32 /*in bytes*/);
++  memset(instr_buf, 0, 32);
++  if(sent)
++    std::cerr << "Could not set readback mode ("
++              << (diff ? "DIFF" : "READ") << ")!" << std::endl;
++  else
++    std::cout << "Set readback mode: " << (diff ? "DIFF" : "READ")
++              << " (build4 SET word)." << std::endl;
++}
++
+ void SoftMCPlatform::execute(Program &prog)
+ {
+   if(is_dummy)
    {
      [[maybe_unused]] uint64_t* iseq     = (uint64_t*) prog.get_inst_array();
      int bytes          = prog.size();
@@ -252,20 +340,59 @@
      for(int i = 0 ; i < bytes/8 ; i++)
        temp_ptr[i*4] = iseq[i];
  
+-    if(receiver.joinable())
 +    // Spawn the c2h drain thread BEFORE the h2c sendData. Required for
 +    // any program whose c2h output exceeds the FPGA's c2h FIFO depth — if
 +    // we don't have a concurrent reader, the FIFO fills, the FPGA
 +    // back-pressures its instruction queue, and sendData blocks until the
 +    // kernel's 10 s xdma timeout fires.
-     if(receiver.joinable())
++    if(receiver.joinable()) {
++      // The previous drain thread normally exits at its stream's end (short
++      // kernel read strips the 32 B trailer). If the FPGA never terminated
++      // that stream (2026-07-18: DIFF/accum-mode chunks without the expected
++      // framing), the thread sits in the kernel c2h read forever and a blind
++      // join deadlocks the process. With the stall guard configured, wait up
++      // to the window, then poison + detach — same policy as the destructor.
++      long guard_ms = 0;
++      if (const char* v = getenv("PIM_RECV_TIMEOUT_MS")) if (*v) guard_ms = atol(v);
++      if (guard_ms > 0 && !receiver_done.load(std::memory_order_acquire)) {
++        auto t0 = std::chrono::steady_clock::now();
++        while (!receiver_done.load(std::memory_order_acquire)) {
++          if (std::chrono::duration_cast<std::chrono::milliseconds>(
++                  std::chrono::steady_clock::now() - t0).count() >= guard_ms) {
++            fprintf(stderr, "[platform] drain thread stuck in kernel c2h read"
++                    " for %ld ms — poisoning platform, detaching thread. Reset"
++                    " the rig before further use.\n", guard_ms);
++            recv_timed_out = true;
++            receiver.detach();
++            return;
++          }
++          std::this_thread::yield();
++        }
++      }
        receiver.join();
 -
++    }
++    receiver_done.store(false, std::memory_order_release);
      receiver = std::thread(&SoftMCPlatform::consumeData, this);
 +
      int sent = iface -> sendData(instr_buf, bytes*4 /*in bytes*/);
      memset(instr_buf, 0, bytes*4);
      free(iseq);
-@@ -129,33 +200,27 @@
+-    assert(!sent && "could not send instructions");
++    if (sent) {
++      // A failed h2c send (errno 512 wedge class) used to assert() —
++      // SIGABRT mid-stream with a live drain thread, which is precisely
++      // what leaves the XDMA engines dangling and forces a host reboot.
++      // Poison instead: subsequent executes/receives fail fast, the
++      // process exits cleanly, the drain thread is detached by the
++      // destructor's poison path.
++      fprintf(stderr, "[platform] sendData FAILED (h2c wedge?) — poisoning "
++              "platform; reset the rig before further use.\n");
++      recv_timed_out = true;
++    }
+   }
+ }
  
  void SoftMCPlatform::consumeData()
  {
@@ -307,8 +434,19 @@
 +    int got = iface->recvData(xdma_recv_buf, CHUNK);
 +    if (got <= 0) break;
 +    int useful = (got < CHUNK) ? got - 32 : got;
-+    if (s_recv_debug)
++    if (s_recv_debug) {
 +      fprintf(stderr, "[recv-debug] got=%d useful=%d\n", got, useful);
++      if (got < CHUNK && got >= 32) {
++        // Dump the stripped 32 B trailer: build3+ images carry magic
++        // 0xDBC0DE01 in word 0 plus 7 debug counters {rd_init, zq_init,
++        // ref_init, flush_edge, flush_eaten, drain, accum_write} —
++        // image-identity check and live race diagnosis in one.
++        const uint32_t* t = (const uint32_t*)((const char*)xdma_recv_buf + got - 32);
++        fprintf(stderr, "[recv-debug] trailer:");
++        for (int i = 0; i < 8; i++) fprintf(stderr, " %08x", t[i]);
++        fprintf(stderr, "\n");
++      }
++    }
 +    if (useful > 0) {
 +      int total = useful / 4;
 +      int pushed = api_recv_buf.push((int*)xdma_recv_buf, total);
@@ -318,12 +456,15 @@
 +    }
 +    if (got < CHUNK) break;
    }
++  receiver_done.store(true, std::memory_order_release);
  }
  
-@@ -167,29 +232,57 @@
+ /**
+@@ -166,30 +314,79 @@
+ * @param size number of bytes to read
  * returns the number of bytes read on success
  */
- int SoftMCPlatform::receiveData(void* recv_buf, int size){
+-int SoftMCPlatform::receiveData(void* recv_buf, int size){
 -  if(is_dummy)
 -  {
 -    assert(size>0 && size%4 == 0 && "size is expected to be a multiple of four\n");
@@ -331,12 +472,24 @@
 -    int * my_buf = (int *) recv_buf;
 -    for(int i = 0; i < size ; ++i) {
 -      my_buf[i] = 0x0;
--    }
--    return size * 4;
++int SoftMCPlatform::receiveDataTry(void* recv_buf, int size, long timeout_ms) {
 +  assert(size > 0 && size % 4 == 0 && "size must be a positive multiple of 4");
-+  if(is_dummy) {
-+    memset(recv_buf, 0, size);
-+    return size;
++  if (is_dummy) { memset(recv_buf, 0, size); return size; }
++  if (recv_timed_out) return 0;
++  int total_words = size / 4;
++  int rd = 0;
++  auto t0 = std::chrono::steady_clock::now();
++  while (rd < total_words) {
++    int got = api_recv_buf.pop((int*)recv_buf + rd, total_words - rd);
++    if (got == 0) {
++      if (std::chrono::duration_cast<std::chrono::milliseconds>(
++              std::chrono::steady_clock::now() - t0).count() >= timeout_ms)
++        return rd * 4;   // expected-possible outcome: NOT a poison event
++      std::this_thread::yield();
++      continue;
+     }
+-    return size * 4;
++    rd += got;
    }
 -  else
 -  {
@@ -347,9 +500,17 @@
 -    int rdsz = api_recv_buf.pop((int*) recv_buf, size);
 -    while (rdsz < total_size)
 -      rdsz += api_recv_buf.pop(((int*) recv_buf) + rdsz, size = (total_size-rdsz));
--
++  return rd * 4;
++}
+ 
 -    assert(rdsz == total_size && "Unexpected amount of data popped from spsc\n");
 -    return total_size*4;
++int SoftMCPlatform::receiveData(void* recv_buf, int size){
++  assert(size > 0 && size % 4 == 0 && "size must be a positive multiple of 4");
++  if(is_dummy) {
++    memset(recv_buf, 0, size);
++    return size;
++  }
 +  // Pop `size` bytes from the api_recv_buf the receiver thread is
 +  // filling. Same semantics as the pristine SiMRA api, but yield to
 +  // the scheduler when the queue is momentarily empty so we don't peg

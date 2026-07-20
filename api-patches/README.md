@@ -38,3 +38,29 @@ Cumulative delta of `SoftMCPlatform` (platform.{h,cpp}):
   bitstream's IMEM up front (oversize send = silent FPGA deadlock).
 - consume-thread drain architecture + partial-write handling retained from
   our earlier fixes (see comments in the diff).
+
+Two hardening layers added in the 07-20 regeneration:
+- `receiveDataTry(buf, size, timeout_ms)`: a bounded, **non-poisoning**
+  receive probe — waits up to `timeout_ms`, then returns whatever arrived
+  *without* setting the poisoned flag. For mode-/drain-probe logic where
+  "no data yet" is an expected, recoverable outcome (used by
+  `app/test_popcount_hw.cpp`), as opposed to `receiveData`'s timeout which
+  poisons because a real stall there is unrecoverable.
+- Send-failure poison: if `sendData` fails (h2c wedge), `execute()` now
+  poisons the platform and detaches the drain thread instead of joining it
+  forever — the second half of the 2026-07-18 deadlock class (the first
+  half being the receive-side hang).
+
+Readback-mode control for the Road-B popcount path (`set_readback_mode` is
+**build4-only**):
+- `toggle_readback_mode()` — flips the readback engine READ_MODE ↔ DIFF_MODE
+  by a *stateful* toggle. Fragile: a lost or duplicated toggle flips parity,
+  so on build3 and older images it is paired with the verified-toggle probe
+  pattern (`app/test_popcount_hw.cpp`).
+- `set_readback_mode(bool diff)` — **build4+ images ONLY** (trailer magic
+  `0xDBC0DE02`): idempotent SET words, no toggle parity to lose. On
+  pre-build4 images the words are ignored; do NOT call it unless the flashed
+  bitstream is build4+.
+
+`0001` is unchanged since 07-17 (`prog.{cpp,h}` did not move); only `0002`
+was regenerated against the same pristine base.
