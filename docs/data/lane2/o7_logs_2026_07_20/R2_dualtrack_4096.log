@@ -1,0 +1,22 @@
+[client] starting: /home/deni/Claude/mvdram-repro/lane2-gemv-server 2 /home/deni/Claude/mvdram-repro/calib_maj5_dimm2.txt 0 86 /home/deni/Claude/mvdram-repro/colmask_dimm2_s86_robust.txt
+Opened /dev/xdma0_h2c_2 -> 4
+Opened /dev/xdma0_c2h_2 -> 5
+Successfully reset the FPGA!
+[lane2] server: bender=2 s_id=86 bank=0 pack=1 vote3=0 dualtrack=1 encode=host input colmask=1784/2048
+[platform] BITSTREAM_IMEM in effect: 8192 (env override)
+[platform] PIM_RECV_TIMEOUT_MS in effect: 15000
+[lane2] op-matched screen (3 trials): 1602/1784 reliable segments (0.0 s, 198 MAJs) -> capacity M<=51264 outputs/pass
+[lane2] ready
+[lane2] LOAD handle=1 q=4 K=4096 M=4096 -> 4096 x 4 bitplane rows (+inverted planes, Fig-15 dual-track) (host-resident; streamed into the tuple per-op — see header) in 0.30 s
+[client] LOAD ok: q=4 K=4096 M=4096 (8388608 B payload; pack 0.10s, load 0.31s)
+[lane2]   plane i=0 c=0 done (19.0 s, FA=2111 MAJ=8444)
+[lane2]   plane i=1 c=0 done (19.2 s, FA=4222 MAJ=16888)
+[lane2]   plane i=2 c=0 done (19.4 s, FA=6333 MAJ=25332)
+[lane2]   plane i=3 c=0 done (18.4 s, FA=8444 MAJ=33776)
+[lane2] GEMV handle=1 K=4096 M=4096 q=4 r=1: 75.97 s wall, 8444 FA, 33776 MAJ, 573616 execs, 506064 pcwrites, 1982 taps zero-skipped
+[lane2]   dual-rail consistency: 547522 violations / 865746432 lane-checks
+[client] GEMV#0: 76.0s wall  exact 4075/4096 (99.4873%)  |err|: max=24176 mean=33.9485
+[client]   mismatch outputs (first 12 of 21): m=11 ref=-1182 got=-4095, m=728 ref=-1118 got=-25294, m=840 ref=-1128 got=-16338, m=973 ref=-1144 got=-4095, m=1052 ref=-1041 got=11107, m=1390 ref=-1443 got=-4095, m=1420 ref=-1093 got=-4095, m=1557 ref=-800 got=8306, m=1881 ref=-1104 got=-4096, m=2083 ref=-942 got=17178, m=2191 ref=-1025 got=-4095, m=2222 ref=-1123 got=-4095
+[client]   |err| histogram: 2619x1, 2652x1, 2913x1, 2951x1, 2972x1, 2992x1, 3002x1, 3067x1, 3070x1, 3093x1, 3110x1, 3246x1, 3308x1, 6098x1, 6212x1, 8988x1, 9106x1, 12148x1, 15210x1, 18120x1, 24176x1
+[client] RESULT: RESIDUAL — see histogram (cell-noise envelope?)
+[lane2] quit sentinel

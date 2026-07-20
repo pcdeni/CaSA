@@ -1,0 +1,21 @@
+[client] starting: /home/deni/Claude/mvdram-repro/lane2-gemv-server 2 /home/deni/Claude/mvdram-repro/calib_maj5_dimm2.txt 0 86 /home/deni/Claude/mvdram-repro/colmask_dimm2_s86_robust.txt
+Opened /dev/xdma0_h2c_2 -> 4
+Opened /dev/xdma0_c2h_2 -> 5
+Successfully reset the FPGA!
+[lane2] server: bender=2 s_id=86 bank=0 pack=1 vote3=0 dualtrack=0 encode=host input colmask=1784/2048
+[platform] BITSTREAM_IMEM in effect: 8192 (env override)
+[platform] PIM_RECV_TIMEOUT_MS in effect: 15000
+[lane2] op-matched screen (3 trials): 1600/1784 reliable segments (0.0 s, 198 MAJs) -> capacity M<=51200 outputs/pass
+[lane2] ready
+[lane2] LOAD handle=1 q=4 K=4096 M=4096 -> 4096 x 4 bitplane rows (host-resident; streamed into the tuple per-op — see header) in 0.25 s
+[client] LOAD ok: q=4 K=4096 M=4096 (8388608 B payload; pack 0.10s, load 0.25s)
+[lane2]   plane i=0 c=0 done (9.5 s, FA=2111 MAJ=4222)
+[lane2]   plane i=1 c=0 done (9.5 s, FA=4222 MAJ=8444)
+[lane2]   plane i=2 c=0 done (9.4 s, FA=6333 MAJ=12666)
+[lane2]   plane i=3 c=0 done (9.9 s, FA=8444 MAJ=16888)
+[lane2] GEMV handle=1 K=4096 M=4096 q=4 r=1: 38.37 s wall, 8444 FA, 16888 MAJ, 286808 execs, 253032 pcwrites, 1982 taps zero-skipped
+[client] GEMV#0: 38.4s wall  exact 4095/4096 (99.9756%)  |err|: max=4 mean=0.0010
+[client]   mismatch outputs (first 1 of 1): m=1005 ref=-1200 got=-1196
+[client]   |err| histogram: 4x1
+[client] RESULT: RESIDUAL — see histogram (cell-noise envelope?)
+[lane2] quit sentinel
