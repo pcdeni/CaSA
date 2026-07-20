@@ -1,0 +1,16 @@
+# Fault-free pool layout for DIMM 2 / extra calib sub-cluster 85 (Rfirst=54412)
+# window 54144 54784
+# 9 rows. Shares the physical s86 window with sub84; subordinate construction:
+# greedy IS over the sub84+sub85 union fault graph, candidates exclude the sub84 pool,
+# rows with any union-graph edge to it, and both open sets; all rows RowClone-into-54412
+# verified on all 4 banks + RW-screened. sub84 files unchanged.
+# Generated 2026-07-19 by o8_derive_sub85_pool.py (task O8d) from sub85_bank*.log.
+54451
+54483
+54515
+54699
+54709
+54731
+54741
+54763
+54773
