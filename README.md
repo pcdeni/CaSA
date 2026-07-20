@@ -5,12 +5,31 @@ question, and the matrix-multiplications that produce the answer
 happen *inside the DRAM cells* of a regular DDR4 memory module — via
 charge-sharing, on real silicon.
 
+> **What this is (and isn't).** This is *processing-using-DRAM* (PUD):
+> we compute with the same physical charge-sharing effects that, aimed
+> the other way, underlie disturbance attacks like RowHammer. The
+> primitives look identical to attack tooling because the physics is
+> identical — the difference is purpose. Everything here is authorized
+> research on our own hardware: driving deliberate charge-sharing to do
+> ternary matrix-multiplies, and independently reproducing a *published*
+> academic paper (arXiv:2503.23817) on parts we bought. No system is
+> attacked; nothing bypasses anyone's security. If you scan this repo
+> for exploit patterns you will find DRAM-disturbance code — that is the
+> computer, not the weapon.
+
 > ▶ **Interactive walkthrough of how it works:**
-> **<https://pcdeni.github.io/CaSA/explainer/>** — 11 stepped scenes
-> from cell to inference loop, every claim sourced to a paper or the
-> code in this repo. Reviewed adversarially before publication; the
-> claim-to-source ledger lives next to the page in
+> **<https://pcdeni.github.io/CaSA/explainer/>** — 13 stepped scenes
+> from cell to inference loop (now including the in-DRAM accumulation
+> "merge" and the full 632→47.5 s/tok arc), every claim sourced to a
+> paper or the code in this repo. Reviewed adversarially before
+> publication; the claim-to-source ledger lives next to the page in
 > [`docs/explainer/`](docs/explainer/).
+>
+> ▶ **Plain-language tour:** **<https://pcdeni.github.io/CaSA/explainer/system.html>**
+> — "what we built and how it works" end to end for a reader new to the
+> project: what charge-sharing physically does, how a ternary matmul
+> becomes row operations, why refresh restores charge but not content,
+> and why a bit-exact unit test can still let a full model drift.
 >
 > ▶ **Companion:** **<https://pcdeni.github.io/CaSA/explainer/xor-spread.html>**
 > — the `doubleACT` row-spread we found during calibration: a bit-exact
@@ -39,11 +58,13 @@ charge-sharing, on real silicon.
 > included.
 >
 > ▶ **Companion:** **<https://pcdeni.github.io/CaSA/explainer/mvdram.html>**
-> — the reproduction study as an interactive 9-scene deck: what the paper
+> — the reproduction study as an interactive 11-scene deck: what the paper
 > claims (and what its baselines are), Result A, the June→July Result B
-> reversal, the mechanism scoreboard, and what remains open — every scene
-> tied to the paper (§/Fig/Table), a reproducer, a data file, or an issue
-> (claim ledger in [`docs/explainer/`](docs/explainer/)).
+> reversal, the mechanism scoreboard, the four-model sampled end-to-end
+> protocol (36 silicon-verified ops), the first bit-exact fp32 the
+> reproduction produced, and what remains open — every scene tied to the
+> paper (§/Fig/Table), a reproducer, a data file, or an issue (claim
+> ledger in [`docs/explainer/`](docs/explainer/)).
 
 This repository contains the software side of that demonstration:
 
@@ -74,87 +95,66 @@ SiMRA-DRAM, Multi-Row-Init, LISA, pLUTo — and the open-source
 We don't re-host either; you clone them yourself and place the C++
 apps from `app/` into the right path. See `app/README.md`.
 
-## Headline result — three regimes
+## Headline result — a measured arc, driven by understanding
 
 **What we are running today** is BitNet b1.58-2B-4T with **all 30
 transformer layers' projection matrix-multiplies executing in DRAM**
 (7 projections per layer — q/k/v/o/gate/up/down — ternary weights
 resident in the DIMM, MAJ3-based multiply-accumulate), producing the
-model's correct output. Attention softmax, norms, and sampling run in
-PyTorch on the CPU, as in every PUD system.
+model's correct output ("What is the capital of France?" → "Paris").
+Attention softmax, norms, and sampling run in PyTorch on the CPU, as
+in every PUD system.
 
-The current measurement is **dominated by orchestration overhead**
-(per-call PCIe round-trips, per-column weight writes, Python +
-subprocess). It is not what the silicon can do — it is what our
-software currently lets the silicon do.
+Over one intensive campaign (July 2026), the **measured** full-model
+per-token time on real silicon came down **13.3×** — and every step
+was a thing understood, not a knob tuned. Correctness *improved* as
+speed rose. These are measured numbers on this hardware, not scheduler
+projections:
 
-The cycle-level scheduler `casa_sched.c` exists to project the
-**bus-bound** silicon ceiling: what happens once orchestration
-overhead is engineered out and the only real wall is the DDR bus.
-Every number below the "MEASURED" row comes from running the
-scheduler with the listed flags; the bus utilization the scheduler
-reports is printed alongside.
+| Per-token (measured) | What changed | Output |
+|---|---|---|
+| **632 s** | May baseline — single DIMM, per-MAJ weight rewrite | correct |
+| **360.8 s** | 8K-IMEM bitstream + fused coset activation update; four host-side bugs found and fixed (a stale-activation cache, a silent pool-path fallback, a scratch/weight collision, mis-scoped voting) | correct |
+| **137.1 s** | **clone-dead law** — ~1/3 of the "fault-free" pool rows cannot be RowClone-refreshed (a *systematic*, closed-form-predictable defect the May screen selected *for*); screening it out let voting be switched off entirely | correct |
+| **80.5 s** | steady-state marginal rate (the 137 figure carried per-run load overhead), confirmed stable over 48 tokens | correct |
+| **47.5 s** | dual-DIMM (2 dies, work split + host-summed) after fixing a fallback-routing bug that had starved the second die — **1.91× per token-matmul, 96 % of the ideal-halving bound** | correct |
 
-All projections come from `casa_sched.c` configured to match what our
-silicon actually issues per MAJ3: an activation broadcast plus 5
-full-row bus_writes (the activation update — `doubleACT(10,2)`
-broadcasts to all 16 open rows, so the activation slots have to be
-overwritten individually), a 3-cycle frac discharge, the MAJ3 itself,
-and a result read. The scheduler bookkeeping respects every standard
-DDR4 timing parameter (tRCD, tRP, tFAW, tCCD, tBurst, tWR, tREFI,
-tRFC) and tracks bus and bank utilization explicitly. Bus-bound
-projections quoted below are what our **current silicon
-implementation** would achieve at full bus utilization — i.e. with
-all the orchestration overhead engineered out. They are not
-hypothetical-future projections.
+The story in three sentences:
 
-| Regime | Per-token | tok/s | Bus % | Source |
-|---|---|---|---|---|
-| **MEASURED today** — full 30 BitNet layers, multi-bank, 632 s/tok (~10.5 min) dominated by orchestration overhead per MAJ3 | ~630 s | ~0.0016 | ~2 % | this hardware, today |
-| **Bus-bound ceiling** — all 30 layers in DRAM, 1 DIMM, current silicon path | 3.0 s | **0.33** | 97 % | `casa_sched --dimms 1` |
-| + bank-group-parallel bus | 2.4 s | 0.40 | 96 % | `... --bg-parallel` |
-| + 4 DIMMs in parallel | 0.61 s | 1.57 | 96 % | `--dimms 4 --bg-parallel` |
-| + on-FPGA popcount accumulator (our HDL, ready) | 0.57 s | 1.75 | 95 % | `... --popcount fpga-accum` |
-| + in-DRAM popcount *(vendor RTL change)* | 0.52 s | 1.86 | 95 % | `... --popcount dram` |
-| + LISA cross-subarray bus *(vendor RTL change)* | 0.51 s | 1.90 | 95 % | `... --lisa` |
-| ── beyond here is back-of-envelope (write-side write reduction, ── | | | | |
-| ── e.g. a 3-row MAJ primitive vs today's 11-row setup) — not casa_sched output ── | | | | |
+1. **The gap was never physics — it was understanding.** The four bugs,
+   the clone-dead law, the drift characterization, the voting economics
+   (it *looked* load-bearing; it was masking dead rows), and the
+   dual-DIMM balance fix are all in the campaign record
+   ([`docs/CAMPAIGN_2026_07.md`](docs/CAMPAIGN_2026_07.md), 27 addenda).
 
-Three sentences for the story:
+2. **The measured rate is now recv-volume-bound, not compute-bound.**
+   Profiling the 47.5 s/tok run shows the DDR-to-host readback of result
+   rows dominates each request. Two levers target exactly that and are
+   staged: an on-FPGA popcount accumulator that collapses readback
+   ~2048× (Road B — HDL built, silicon-validated bit-exact, in final
+   bring-up), and full weight residency to remove per-request streaming.
 
-1. **Today's measurement is ~200× slower per MAJ3 than the
-   silicon's bus-bound ceiling**, and the entire gap is software —
-   eliminating per-call PCIe round-trips, batching MAJ3s into
-   SoftMC outer loops, pre-loading weights into DRAM at startup
-   so the runtime never per-column-writes weights again.
+3. **The cycle-level scheduler `casa_sched.c`** still projects the
+   *bus-bound* floor beneath all of this — what remains once orchestration
+   is fully engineered out and only the DDR bus is left. It respects every
+   standard DDR4 timing parameter and tracks bus/bank utilization
+   explicitly; use it to see where the measured arc is heading and why the
+   remaining levers (Road B, residency, streaming) matter.
 
-2. **The bus-bound ceiling on existing DRAM is modest** — ~2 tok/s
-   with 4 DIMMs even after every realistic optimization, because
-   updating activation rows takes 5 full-row bus_writes per MAJ3
-   (the `doubleACT` broadcast primitive distributes to all 16
-   open rows, so the 5 activation slots must be individually
-   re-written via wrRow). At that point the bus is genuinely full;
-   adding popcount or LISA helps only marginally because they
-   target the bus_read, not the bus_writes that dominate.
+Output is **bit-exact correct on most cells** (~99.9 % per projection);
+the stray flips come from cells that pass the calibrated stability test
+but flip on uncalibrated bit-combinations, and ternary models are robust
+to this by construction (the full model answers correctly and stably).
+See [`docs/CAMPAIGN_2026_07.md`](docs/CAMPAIGN_2026_07.md) and
+`docs/METHODOLOGY.md`.
 
-3. **Beyond ~2 tok/s requires a new DRAM primitive** — specifically
-   a way to update the activation rows without 11 full-row writes
-   per MAJ3 (e.g. a 3-row MAJ recipe, or selective subset-broadcast
-   that reaches the 16-row open-set via charge-sharing). Those are
-   DRAM-vendor changes outside the scope of this repo, so we don't
-   present headline tok/s numbers for them — only the bus-traffic
-   argument for *why* they would matter.
-
-Output is **bit-exact correct on most cells** (~22 139 of 22 144 in
-one full BitNet layer = 99.98 %). The 5 stray flips come from cells
-that pass the calibrated 1000-pattern stability test but flip on
-uncalibrated bit-combinations. Ternary models are robust to this by
-construction. See `docs/METHODOLOGY.md`.
-
-The point of the work is not to beat a GPU on speed. The point is to
-**demonstrate the mechanism** on real silicon and put concrete,
-scheduler-bounded numbers on what would change with two specific
-DRAM-vendor improvements (in-DRAM popcount, LISA).
+The point of the work is not to beat a GPU on speed. It is to
+**demonstrate the mechanism** on real silicon, drive it down honestly
+with reproducible measurements, and — in the companion study — to
+**independently reproduce a published PUD paper** end to end. Two things
+this campaign produced that the literature did not have: a complete
+*selection law* for which rows co-activate under `doubleACT`, and the
+*clone-dead law* above — both cross-validated across dies and subarrays.
 
 ## Related work — where this sits
 
