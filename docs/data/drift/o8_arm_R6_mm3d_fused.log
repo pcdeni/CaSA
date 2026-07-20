@@ -1,0 +1,66 @@
+[arms] batch A: loaded 80 1-round handles in 0.3s
+[arms] verify pass 'post-load': 80 handles, 19 with y-mismatch (0.6s) worst=2039
+[arms] hammered MM3D x200 on handle 1 (0.5s)
+[arms] verify pass 'post-treatment': 80 handles, 60 with y-mismatch (0.6s) worst=2040
+[arms]    h  pass1  pass2  (segs/8192 differ; 0 = clean; batch-B handles have no pass1)
+[arms]    1      0   6874
+[arms]    2      0   6925
+[arms]    3      0   6833
+[arms]    4      0   6940
+[arms]    5      0   6874
+[arms]    6      0   6917
+[arms]    7      0   6821
+[arms]    8      0   6849
+[arms]    9      0   6840
+[arms]   10      0   6896
+[arms]   11      0   6810
+[arms]   12      0   6935
+[arms]   13      0   6912
+[arms]   14      0   6894
+[arms]   15      0   6822
+[arms]   16      0   6949
+[arms]   17      0   6957
+[arms]   18      0   6922
+[arms]   19      0   6899
+[arms]   20      0   6935
+[arms]   21      0   6924
+[arms]   22      0   6839
+[arms]   23      0   6854
+[arms]   24      0   6883
+[arms]   34      0   6798
+[arms]   35      0   6893
+[arms]   47      0   6881
+[arms]   48      0   6890
+[arms]   49      0   6908
+[arms]   50      0   6833
+[arms]   51      0   6860
+[arms]   52      0   6922
+[arms]   53      0   6886
+[arms]   54      0   6922
+[arms]   55      0   6803
+[arms]   56      0   6880
+[arms]   57      0   6925
+[arms]   58      0   6864
+[arms]   59      0   6881
+[arms]   60      0   6885
+[arms]   61      0   6898
+[arms]   62      0   1769
+[arms]   63      0   2612
+[arms]   64   6857   6865
+[arms]   65      0   2520
+[arms]   66      0   2120
+[arms]   67      0   2871
+[arms]   68   6911   6911
+[arms]   69      0   2637
+[arms]   70      0   1863
+[arms]   71      0   2623
+[arms]   72   6932   6932
+[arms]   73      0   2554
+[arms]   74   6838   6838
+[arms]   75   6939   6939
+[arms]   76   6897   6897
+[arms]   77   6889   6889
+[arms]   78      0   1786
+[arms]   79      0   2645
+[arms]   80   6916   6916
+[arms] RESULT arm=mm3d fused=1 refresh=1(dflt) loadsA=80 loadsB=0: 52/80 batch-A handles transitioned (>50 segs growth); dirty-pass2 handles=60 median-level=6881/8192; y-mismatch p1=19 p2=60

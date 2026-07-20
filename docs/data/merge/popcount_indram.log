@@ -1,0 +1,16 @@
+[pc] s78 Rf=49371 Rs=49461 pol=Z2 K=16 -> 5 result bits; cols=1954; host-path reads 16 rows/tile
+[platform] BITSTREAM_IMEM in effect: 8192 (env override)
+[platform] PIM_RECV_TIMEOUT_MS in effect: 30000
+[pc] trial 5/12 (maj_ops=240)
+[pc] trial 10/12 (maj_ops=480)
+[pc] === K=16 popcount: lane-exact 0.5288% wrong, bit-err 0.1817%; 48.0 MAJ/tile; readout 5 rows vs host 16 (3.20x); 2.20 s ===
+[pc] s78 Rf=49371 Rs=49461 pol=Z2 K=32 -> 6 result bits; cols=1954; host-path reads 32 rows/tile
+[platform] BITSTREAM_IMEM in effect: 8192 (env override)
+[platform] PIM_RECV_TIMEOUT_MS in effect: 30000
+[pc] trial 5/8 (maj_ops=480)
+[pc] === K=32 popcount: lane-exact 1.0171% wrong, bit-err 0.3412%; 96.0 MAJ/tile; readout 6 rows vs host 32 (5.33x); 2.78 s ===
+[pc] s78 Rf=49371 Rs=49461 pol=Z2 K=64 -> 7 result bits; cols=1954; host-path reads 64 rows/tile
+[platform] BITSTREAM_IMEM in effect: 8192 (env override)
+[platform] PIM_RECV_TIMEOUT_MS in effect: 30000
+[pc] trial 5/5 (maj_ops=960)
+[pc] === K=64 popcount: lane-exact 1.3613% wrong, bit-err 0.4884%; 192.0 MAJ/tile; readout 7 rows vs host 64 (9.14x); 3.53 s ===

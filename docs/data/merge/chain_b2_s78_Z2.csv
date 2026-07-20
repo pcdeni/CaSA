@@ -1,0 +1,16 @@
+[chain] tuple s78 Rf=49371 Rs=49461 policy=Z2(nf=2) fit=yes block=48 cols=1954
+Opened /dev/xdma0_h2c_2 -> 3
+Opened /dev/xdma0_c2h_2 -> 4
+Successfully reset the FPGA!
+[platform] BITSTREAM_IMEM in effect: 8192 (env override)
+[platform] PIM_RECV_TIMEOUT_MS in effect: 30000
+[chain] === s78 8-bit, Z2 policy, 15632 (col,trial) samples ===
+[chain] final carry-out error: 0.0000%
+[chain]  bit0   sum 0.0704%   cbar 0.0000%   carry 0.0000%
+[chain]  bit1   sum 0.0960%   cbar 0.0000%   carry 0.0000%
+[chain]  bit2   sum 0.0768%   cbar 0.0000%   carry 0.0000%
+[chain]  bit3   sum 0.0320%   cbar 0.0000%   carry 0.0000%
+[chain]  bit4   sum 0.0256%   cbar 0.0000%   carry 0.0000%
+[chain]  bit5   sum 0.0448%   cbar 0.0000%   carry 0.0000%
+[chain]  bit6   sum 0.1024%   cbar 0.0000%   carry 0.0000%
+[chain]  bit7   sum 0.0640%   cbar 0.0000%   carry 0.0000%

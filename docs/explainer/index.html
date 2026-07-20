@@ -57,6 +57,7 @@
   .caption b { color: #ffd479; }
   .caption .ex { color: #22c1c3; font-weight: 600; }
   .caption code { background: #1f2434; padding: 1px 5px; border-radius: 3px; font-size: 12px; color: #ffd479; }
+  .caption a, .codepane a { color: #4f9bff; text-decoration: none; }
   .codepane { font-family: ui-monospace, monospace; font-size: 11.5px; color: #8a93a8; overflow: auto; max-height: 280px; }
   .codepane .hl { color: #ffd479; }
   .codepane .cm { color: #5a6178; font-style: italic; }
@@ -102,6 +103,7 @@
   <h1>BitNet PIM — DRAM as the compute substrate</h1>
   <span class="sub">Mechanism grounded in SiMRA, FracDRAM, FCDRAM, POPCNT3 + our project's server code</span>
   <a href="xor-spread.html">The doubleACT row-spread →</a>
+  <a href="mvdram.html" style="margin-left:16px">The MVDRAM reproduction →</a>
 </header>
 
 <nav id="nav"></nav>
@@ -129,7 +131,7 @@
   <button id="playBtn">▶ Play</button>
   <button id="nextBtn">Next ▶</button>
   <span class="step">Step <b id="stepNum">1</b> / <b id="stepMax">1</b></span>
-  <span class="scenefoot" id="scenefoot">Scene 1 of 10</span>
+  <span class="scenefoot" id="scenefoot">Scene 1 of 13</span>
 </div>
 
 <script>
@@ -1010,10 +1012,10 @@ for each (chunk, sign):
 // =============================================================
 const scene9 = {
   title: 'Scene 9 — Where the time goes (per-MAJ bottleneck analysis)',
-  steps: 5,
+  steps: 7,
   render(step) {
     clearScene();
-    sceneRoot.appendChild(text(500, 25, 'per MAJ, where does the wall time go?', 'label hl'));
+    if (step <= 4) sceneRoot.appendChild(text(500, 25, 'per MAJ, where does the wall time go? (production pipeline as of May 2026)', 'label hl'));
 
     // Per-MAJ phase bar
     const phases = [
@@ -1099,18 +1101,96 @@ const scene9 = {
       }
       sceneRoot.appendChild(text(500, 510, 'next scene: a wishlist for AI-memory hardware, each item mapped to a bottleneck above', 'label dim'));
     }
+    else if (step === 5) {
+      // July 2026: the two write-side levers, tool-level A/B
+      sceneRoot.appendChild(text(500, 25, 'July 2026: two levers landed on the write-side phases', 'label hl'));
+      const levers = [
+        ['1. persistent weights', 'W stays resident in its pool row; the per-MAJ weight reload (per-column write, 3 host round-trips) becomes ONE in-DRAM clone from a backup row'],
+        ['2. coset activation update', 'the 10 activation wrRows (5×x + 5×zero) become 4 wrRows + 2 in-tuple coset doubleACTs — same 5/5/5 vote balance (the unbalanced 7W/4x/4z variant is wrong: 99.7%/97.9% bad)'],
+      ];
+      for (let i = 0; i < 2; i++) {
+        const y = 60 + i * 78;
+        sceneRoot.appendChild(rect(90, y, 820, 68, '', { fill: '#1d2230', stroke: '#22c1c3', 'stroke-width': 2, rx: 4 }));
+        sceneRoot.appendChild(text(110, y + 20, levers[i][0], 'label hl', 'start'));
+        // wrap the description over two lines
+        const words = levers[i][1].split(' ');
+        const mid = Math.ceil(words.length / 2);
+        sceneRoot.appendChild(text(110, y + 40, words.slice(0, mid).join(' '), 'label', 'start'));
+        sceneRoot.appendChild(text(110, y + 56, words.slice(mid).join(' '), 'label', 'start'));
+      }
+      // A/B bars (die A): A=0.357, B2=0.089 ms/MAJ; die B: 0.556 -> 0.085
+      const bars = [
+        ['die A: production shape', 0.357, '#6b8ec9'], ['die A: both levers fused (B2)', 0.089, '#22c1c3'],
+        ['die B: production shape', 0.556, '#6b8ec9'], ['die B: both levers fused (B2)', 0.085, '#22c1c3'],
+      ];
+      const bx = 330, by0 = 250, bh = 30, scale = 900;
+      sceneRoot.appendChild(text(500, by0 - 18, 'steady-state tool A/B, iters=100, one process — verified every iteration', 'label dim'));
+      for (let i = 0; i < 4; i++) {
+        const y = by0 + i * (bh + 14);
+        const w = Math.max(4, bars[i][1] * scale);
+        sceneRoot.appendChild(text(bx - 12, y + bh / 2, bars[i][0], 'label', 'end'));
+        sceneRoot.appendChild(rect(bx, y, w, bh, '', { fill: bars[i][2], opacity: 0.8, rx: 2 }));
+        sceneRoot.appendChild(text(bx + w + 12, y + bh / 2, `${bars[i][1].toFixed(3)} ms/MAJ`, 'label hl', 'start'));
+      }
+      sceneRoot.appendChild(text(500, by0 + 4 * (bh + 14) + 18, '3.99× (die A) · 6.53× (die B) — bit-exact: 0/204,800 bad segments per die', 'label hl cyan'));
+    }
+    else if (step === 6) {
+      // July 2026: production server + real-model numbers
+      sceneRoot.appendChild(text(500, 25, 'July 2026: the same levers in the production server (PIM_FUSED_COSET=1)', 'label hl'));
+      sceneRoot.appendChild(rect(110, 70, 780, 120, '', { fill: '#1d2230', stroke: '#22c1c3', 'stroke-width': 2, rx: 4 }));
+      sceneRoot.appendChild(text(130, 94, 'per matmul (bitnet-proj-server, synthetic A/B, byte-identical requests)', 'label hl', 'start'));
+      sceneRoot.appendChild(text(130, 122, 'bank 0:   9.7–9.8  →  6.4–6.9 ms/matmul', 'label', 'start'));
+      sceneRoot.appendChild(text(130, 146, '4-bank:   9.5–9.7  →  6.1 ms/matmul', 'label', 'start'));
+      sceneRoot.appendChild(text(130, 170, '= 1.45–1.6× — every returned y bit-exact vs the host reference, both arms', 'label hl', 'start'));
+      // real model bars
+      const bars = [['baseline', 117.2, '#6b8ec9'], ['PIM_FUSED_COSET=1', 71.8, '#22c1c3']];
+      const bx = 330, by0 = 260, bh = 34, scale = 4.2;
+      sceneRoot.appendChild(text(500, by0 - 20, 'real model: BitNet b1.58-2B, layer 0 × 7 projections in DRAM, 4-bank, 8 tokens', 'label hl'));
+      for (let i = 0; i < 2; i++) {
+        const y = by0 + i * (bh + 16);
+        const w = bars[i][1] * scale;
+        sceneRoot.appendChild(text(bx - 12, y + bh / 2, bars[i][0], 'label', 'end'));
+        sceneRoot.appendChild(rect(bx, y, w, bh, '', { fill: bars[i][2], opacity: 0.8, rx: 2 }));
+        sceneRoot.appendChild(text(bx + w + 12, y + bh / 2, `${bars[i][1]} s wall`, 'label hl', 'start'));
+      }
+      sceneRoot.appendChild(text(500, by0 + 2 * (bh + 16) + 16, '1.63× wall (PIM request time 112.5 → 70.2 s) — both arms answer "Paris"', 'label hl cyan'));
+      sceneRoot.appendChild(text(500, 460, 'the write-side phases shrank; the READ + bus + host-popcount path is untouched', 'label'));
+      sceneRoot.appendChild(text(500, 484, 'so the accumulation bottleneck (steps 3-5 of this scene) now weighs even more', 'label dim'));
+    }
   },
   caption(step) {
     const c = [
-      `<b>Per MAJ, eight phases run in sequence</b> in our current pipeline: setup (RowCopy, Multi-RowCopy, per-row writes, Frac) → the MAJ itself → result transfer (READ row, XDMA, host popcount). Phases 1-5 stay inside DRAM; 6-8 leave DRAM.`,
+      `<b>Per MAJ, eight phases run in sequence</b> in the production pipeline as of May 2026: setup (RowCopy, Multi-RowCopy, per-row writes, Frac) → the MAJ itself → result transfer (READ row, XDMA, host popcount). Phases 1-5 stay inside DRAM; 6-8 leave DRAM. (Steps 6-7 of this scene: what changed in July 2026.)`,
       `<b>The two regimes have very different cost.</b> Inside DRAM, the MAJ is parallel across thousands of bitlines in the subarray. Outside, the path is serial: one row of bits leaves through the DDR bus per MAJ, then the host runs popcount.`,
       `<b>The result-transfer phase dominates at scale.</b> Each MAJ returns a full DRAM row (e.g., 8 KiB on DDR4) that the host then collapses to one integer via popcount. Multiplied across the many MAJs a single transformer layer needs, this dominates wall time.`,
       `<b>External confirmation.</b> The POPCNT3 paper independently identifies this as the binding constraint on PuD for accumulation workloads, and proposes computing the popcount inside DRAM. They report 27×–348× throughput vs an A100 GPU on bulk bitwise accumulation (348× at the smallest tested kernel, 27× at the largest). Their setup parallelises across 256 banks (4 DIMMs × 64); our project today uses ~4 banks on one DIMM, so absolute speedups don't translate directly.`,
       `<b>Where to optimise.</b> The biggest leverage is shrinking what crosses the DRAM bus per MAJ. The setup phases are already amortised in our pipeline. The host popcount disappears if the chip returns a scalar.`,
+      `<b>July 2026: two levers landed</b> — both on the write-side phases (1-3 of the May breakdown), both enabled by the co-activation-lattice addressing characterized in the <a href="xor-spread.html">companion explainer</a>. (1) <b>Persistent weights</b>: W stays resident, and the per-MAJ weight reload (per-column write, 3 host round-trips) becomes one in-DRAM clone from a backup row at a safe pair offset. (2) <b>Coset activation update</b>: the 10 activation wrRows (5×x + 5×zero) collapse to 4 wrRows + 2 in-tuple coset doubleACTs with the same 5/5/5 vote balance — the balance is a hard rule (the unbalanced 7W/4x/4z variant returns 99.7%/97.9% bad segments). Fused into one per-MAJ program: <b>0.357→0.089 ms/MAJ (3.99×, die A)</b>, 0.556→0.085 (6.53×, die B), verified bit-exact every iteration (0/204,800 bad segments per die, iters=100).`,
+      `<b>July 2026 in production.</b> The same two levers behind <code>PIM_FUSED_COSET=1</code> in the long-running server: <b>9.7–9.8→6.4–6.9 ms/matmul</b> (bank 0) and 9.5–9.7→6.1 (4-bank) = <b>1.45–1.6×</b>, with every returned result bit-exact against the host reference. On the real model (BitNet b1.58-2B, layer 0's seven projections in DRAM, 4-bank, 8 tokens): <b>117.2→71.8 s wall = 1.63×</b> (PIM request time 112.5→70.2 s); both arms answer "Paris". The read-side path (READ, bus, host popcount) is untouched — the May bottleneck analysis still stands, with even more of the remaining time now on the bus.`,
     ];
     return c[step];
   },
-  codeRef() {
+  codeRef(step) {
+    if (step >= 5) {
+      return `<span class="src">code: app/test_fused_maj.cpp (tool A/B)</span>
+<span class="cm">A  = production shape: per-col write W +</span>
+<span class="cm">     [broadcast, 11 uniform wrRows, frac×3,</span>
+<span class="cm">      MAJ3, read]</span>
+<span class="cm">B2 = fused: clone backup→Rfirst + [broadcast,</span>
+<span class="cm">     5 wrRows + 2 coset doubleACTs, frac×3,</span>
+<span class="cm">     MAJ3, read] — 5/5/5 balance kept</span>
+<span class="hl">iters=100: 0.357/0.556 → 0.089/0.085 ms/MAJ</span>
+<span class="hl">= 3.99× / 6.53×; 0/204,800 bad per die</span>
+
+<span class="src">code: app/test_bitnet_server.cpp (PIM_FUSED_COSET)</span>
+<span class="cm">coset activation update in the MAJ3 body;</span>
+<span class="cm">x on {1,5,9,13}+{4}, zeros on {2,6,10,14}+{8}</span>
+
+<span class="src">code: python/ab_fused_server.py</span>
+<span class="cm">same --seed → byte-identical requests;</span>
+<span class="cm">baseline vs PIM_FUSED_COSET=1 arm:</span>
+<span class="hl">1.45–1.6×/matmul; real model 1.63×/8-tok run</span>`;
+    }
     return `<span class="src">code: test_bitnet_server.cpp:228-300</span>
 <span class="cm">emit_bank_combined_body — the 8 phases per MAJ:</span>
 <span class="cm">  1. RowCopy   (doubleACT)</span>
@@ -1137,10 +1217,305 @@ segment_popcount(row_buf, out, n);
 };
 
 // =============================================================
-// SCENE 10 — AI-memory wishlist (NEW)
+// SCENE 10 — The merge: killing the readout wall (NEW July 2026)
+// =============================================================
+const sceneMerge = {
+  title: 'Scene 10 — Killing the readout wall: in-DRAM accumulation (the merge)',
+  steps: 5,
+  render(step) {
+    clearScene();
+    if (step === 0) {
+      sceneRoot.appendChild(text(500, 25, 'the wall, restated: every popcount input crosses the bus as a full row', 'label hl'));
+      sceneRoot.appendChild(rect(120, 90, 760, 120, '', { fill: '#1d2230', stroke: '#ffd479', rx: 4 }));
+      sceneRoot.appendChild(text(500, 118, 'one BitNet output lane at d_in = 2560 needs K = 2560 product rows popcounted', 'label'));
+      sceneRoot.appendChild(text(500, 146, 'host-popcount path: 2560 × 8 KiB row reads per lane batch', 'label hl'));
+      sceneRoot.appendChild(text(500, 174, '(Scene 9: the READ + XDMA + host-POPCNT phases dominate wall time)', 'label dim'));
+      sceneRoot.appendChild(text(500, 260, 'July 2026: the MVDRAM-reproduction machinery (companion explainer) was turned on', 'label'));
+      sceneRoot.appendChild(text(500, 284, 'our own ternary LLM\'s bottleneck — the two project tracks MERGED', 'label hl cyan'));
+      sceneRoot.appendChild(text(500, 330, 'two independent roads kill the wall; both were built and measured', 'label hl'));
+      sceneRoot.appendChild(text(320, 380, 'Road A — sum IN DRAM', 'label hl'));
+      sceneRoot.appendChild(text(320, 402, '(faithful to a real PIM substrate)', 'label dim'));
+      sceneRoot.appendChild(text(680, 380, 'Road B — sum in FPGA logic', 'label hl'));
+      sceneRoot.appendChild(text(680, 402, '(exact, rig-specific)', 'label dim'));
+    }
+    else if (step === 1) {
+      sceneRoot.appendChild(text(500, 25, 'Road A: a carry-save tree of dual-track full adders, entirely in DRAM', 'label hl'));
+      sceneRoot.appendChild(text(500, 60, 'carry = MAJ3(a,b,c)   ·   sum = MAJ5(a,b,c,¬carry,¬carry)   — K product rows → ceil(log₂(K+1)) result rows', 'label'));
+      const rows = [
+        ['K',  'lanes exact', 'result-bit err', 'rows read (in-DRAM vs host)', 'reduction'],
+        ['8',  '99.73%', '0.111%', '4 vs 8',  '2.0×'],
+        ['16', '99.47%', '0.182%', '5 vs 16', '3.2×'],
+        ['32', '98.98%', '0.341%', '6 vs 32', '5.3×'],
+        ['64', '98.64%', '0.488%', '7 vs 64', '9.1×'],
+      ];
+      const tx = 110, ty = 110, cw = [70, 150, 170, 280, 120], rh = 34;
+      for (let r = 0; r < rows.length; r++) {
+        let x = tx;
+        for (let c = 0; c < rows[r].length; c++) {
+          sceneRoot.appendChild(rect(x, ty + r*rh, cw[c], rh, '', { fill: r === 0 ? '#1d2230' : '#131722', stroke: '#2a2f3d' }));
+          sceneRoot.appendChild(text(x + cw[c]/2, ty + r*rh + rh/2, rows[r][c], r === 0 ? 'label hl' : 'label'));
+          x += cw[c];
+        }
+      }
+      sceneRoot.appendChild(text(500, ty + rows.length*rh + 40, 'measured on silicon, screened columns, ZERO+2 reference policy (die A, s78 tuple)', 'label dim'));
+      sceneRoot.appendChild(text(500, ty + rows.length*rh + 75, 'extrapolating the K/ceil(log₂(K+1)) law to BitNet\'s K = 2560:  12 result rows instead of 2560  =  213×', 'label hl cyan'));
+      sceneRoot.appendChild(text(500, ty + rows.length*rh + 100, 'the carry track stays ~exact (MAJ3), so errors do not cascade — the tree is non-accumulating by construction', 'label dim'));
+    }
+    else if (step === 2) {
+      sceneRoot.appendChild(text(500, 25, 'the honest economics: readout-ROW reduction ≠ wall-time win (yet)', 'label hl'));
+      const items = [
+        ['as measured today (host-marshalled operands)', 'in-DRAM tile is ~320× SLOWER than packed readout at K=64 (0.706 s vs ≈2.2 ms) — loading each adder\'s operands moves MORE bus data than the readout it saves', '#ff6b6b'],
+        ['measured primitive rates (packed programs)', 'row read 34.2 µs   ·   MAJ-only doubleACT 2.6 µs   →   crossover condition 3·t_MAJ < t_read holds with 4.4× margin once operands are RESIDENT', '#ffd479'],
+        ['fully-resident faithful tile (built + measured)', '58 ops/product ≈ 4–6× slower than packed readout on THIS host-round-trip rig, single-bank; bank-parallel ×4 + sparsity ≈ par. Value = mechanism fidelity + portability', '#22c1c3'],
+        ['on a streaming PIM controller (the portable claim)', 'an op costs ~100 ns of command issue, a readout costs an 8 KB transfer — 58 ops/product wins decisively. This is where the 213× becomes real', '#3a86ff'],
+      ];
+      const x0 = 90, y0 = 80, dy = 108;
+      for (let i = 0; i < items.length; i++) {
+        const y = y0 + i*dy;
+        sceneRoot.appendChild(rect(x0, y, 820, dy - 14, '', { fill: '#1d2230', stroke: items[i][2], 'stroke-width': 1.5, rx: 4 }));
+        sceneRoot.appendChild(text(x0 + 18, y + 20, items[i][0], 'label hl', 'start'));
+        const words = items[i][1].split(' ');
+        const third = Math.ceil(words.length / 3);
+        sceneRoot.appendChild(text(x0 + 18, y + 44, words.slice(0, third).join(' '), 'label', 'start'));
+        sceneRoot.appendChild(text(x0 + 18, y + 62, words.slice(third, 2*third).join(' '), 'label', 'start'));
+        sceneRoot.appendChild(text(x0 + 18, y + 80, words.slice(2*third).join(' '), 'label', 'start'));
+      }
+    }
+    else if (step === 3) {
+      sceneRoot.appendChild(text(500, 25, 'Road B: an FPGA-side popcount accumulator (popcount_accum HDL)', 'label hl'));
+      sceneRoot.appendChild(rect(140, 80, 720, 150, '', { fill: '#1d2230', stroke: '#22c1c3', rx: 4 }));
+      sceneRoot.appendChild(text(500, 108, 'the readback engine popcounts the row AS IT STREAMS BY and drains one 32-bit total', 'label'));
+      sceneRoot.appendChild(text(500, 136, '8 KiB per matmul readback  →  4 B   =   2048×, and bit-EXACT', 'label hl'));
+      sceneRoot.appendChild(text(500, 164, 'Verilator-validated 5/5 incl. the 4096-input BitNet shape; needs a bitstream rebuild', 'label dim'));
+      sceneRoot.appendChild(text(500, 192, '(co-resident fix: the stock pop_count4.v undercounts nibble 0xE — found in HDL review, fixed)', 'label dim'));
+      sceneRoot.appendChild(text(500, 280, 'silicon status (July 2026 bitstream campaign):', 'label hl'));
+      sceneRoot.appendChild(text(500, 310, 'compute datapath PROVEN on silicon — exact totals observed, incl. the 0xE fix firing', 'label'));
+      sceneRoot.appendChild(text(500, 336, 'flush accounting fixed (build3); drain-capture timing races the frontend flush pipe', 'label'));
+      sceneRoot.appendChild(text(500, 362, '→ build4 moves the capture to the quiet-cycle edge; 53/53 Verilator checks; Vivado build in flight', 'label'));
+      sceneRoot.appendChild(text(500, 410, 'until build4 lands, Road-B per-token numbers are NOT quoted — READ_MODE (the production path) is bit-identical throughout', 'label dim'));
+    }
+    else if (step === 4) {
+      sceneRoot.appendChild(text(500, 25, 'the decision (ADR-005): keep BOTH roads, publish the comparison, never blend', 'label hl'));
+      const cols = [
+        ['', 'Road A — in-DRAM adder', 'Road B — popcount_accum HDL'],
+        ['mechanism', 'CSA tree of dual-track adders in DRAM', 'FPGA-side popcount aggregator'],
+        ['readout reduction', '213× (K=2560)', '2048× (8 KiB → 4 B)'],
+        ['exactness', '98.6–99.7% lane (MAJ5 error)', 'bit-EXACT'],
+        ['bitstream', 'none needed (runs today)', 'rebuild (build4 in flight)'],
+        ['what it shows', 'faithful MVDRAM-style in-DRAM accumulation', 'rig-specific systems acceleration'],
+      ];
+      const tx = 80, ty = 70, cw = [180, 330, 330], rh = 40;
+      for (let r = 0; r < cols.length; r++) {
+        let x = tx;
+        for (let c = 0; c < 3; c++) {
+          sceneRoot.appendChild(rect(x, ty + r*rh, cw[c], rh, '', { fill: r === 0 ? '#1d2230' : '#131722', stroke: '#2a2f3d' }));
+          sceneRoot.appendChild(text(x + cw[c]/2, ty + r*rh + rh/2, cols[r][c], r === 0 || c === 0 ? 'label hl' : 'label'));
+          x += cw[c];
+        }
+      }
+      sceneRoot.appendChild(text(500, ty + cols.length*rh + 36, 'a real DRAM-PIM ASIC has no FPGA popcount logic → the reproduction claim rides Road A only', 'label'));
+      sceneRoot.appendChild(text(500, ty + cols.length*rh + 62, 'the deployed ternary LLM on THIS rig takes Road B once its bitstream lands — labelled as such', 'label'));
+      sceneRoot.appendChild(text(500, ty + cols.length*rh + 100, 'composes with multi-body packing (~2.3× from amortizing dispatch, 8K IMEM): packing cuts round-trips, the roads cut bytes', 'label hl cyan'));
+    }
+  },
+  caption(step) {
+    const c = [
+      `<b>The two project tracks merged in July 2026.</b> Scene 9 established that the result-transfer path (READ row → XDMA → host popcount) dominates. The MVDRAM reproduction (see the <a href="mvdram.html">companion explainer</a>) built and validated exactly the machinery that removes it: an in-DRAM adder. Applying that machinery to our own ternary LLM's bottleneck is the merge — plus a second, FPGA-side road built in parallel.`,
+      `<b>Road A works on silicon.</b> A carry-save tree of dual-track full adders (carry=MAJ3, sum=MAJ5 with the inverted carry twice) reduces K product rows to ceil(log₂(K+1)) result rows read out. Measured: <b>98.6–99.7% of output lanes exact at K=8..64</b>, readout reduced 2.0×→9.1×, which extrapolates to <b>213× at BitNet's K=2560</b>. The carry track is essentially error-free MAJ3 and sum bits never feed forward, so the tree does not accumulate error — the deeper reason this is viable on commodity DRAM at all.`,
+      `<b>Stated honestly: rows saved is not (yet) time saved.</b> In the host-marshalled shape measured first, loading each adder's operands costs more bus traffic than the readout it saves — ~320× slower at K=64. The measured packed-program primitive rates (34.2 µs/row-read vs 2.6 µs/MAJ) prove the crossover flips once operands are <em>resident</em>; the fully-resident faithful tile was then built and measured at 58 ops/product — still 4–6× slower than packed readout <em>on this host-round-trip FPGA rig</em>, ≈par with bank-parallelism + sparsity. Its demonstrated value is the mechanism and its portability: on a streaming PIM controller (~100 ns/op, no per-op host round-trip) 58 ops beats an 8 KB transfer decisively.`,
+      `<b>Road B is the exact, rig-specific killer.</b> An FPGA-side accumulator popcounts the readback stream and returns one 32-bit total: 8 KiB → 4 B (2048×), bit-exact in Verilator including the BitNet shape. En route it surfaced a real HDL bug (stock pop_count4.v undercounts nibble 0xE). On silicon the compute datapath is proven (exact totals, 0xE fix observed firing); the remaining blocker is drain-capture timing racing the flush pipeline — fixed at the RTL root in build4 (53/53 sim checks), Vivado build in flight. No Road-B per-token number is quoted until it lands.`,
+      `<b>Keep both — they answer different questions.</b> Road A carries the DRAM-PIM reproduction claim (a real PIM substrate has no FPGA logic); Road B is the practical exact accelerator for this rig. The comparison itself — one portable and approximate, one exact and rig-bound — is the publishable systems story, and the numbers are never blended. Both compose with multi-body packing (~2.3× from amortizing per-program dispatch on the 8K-IMEM bitstream): packing removes round-trips, the roads remove bytes.`,
+    ];
+    return c[step];
+  },
+  codeRef(step) {
+    return `<span class="src">code: app/test_popcount_indram.cpp (Road A)</span>
+<span class="cm">CSA tree of dual-track FAs over K product rows</span>
+<span class="hl">K=8..64: 99.73→98.64% lanes exact;</span>
+<span class="hl">readout K → ceil(log2(K+1)) rows = 213× @ K=2560</span>
+
+<span class="src">code: app/test_packed_maj.cpp (primitive rates)</span>
+<span class="cm">packed M=29 bodies: read 34.2 µs, MAJ 2.6 µs</span>
+<span class="cm">multi-body packing ~2.3× (7688-inst programs)</span>
+
+<span class="src">code: app/test_resident_tile.cpp (resident tile)</span>
+<span class="cm">58 ops/product measured; sim-gated schedule</span>
+
+<span class="src">hdl: popcount_accum.v + pop_count4.v 0xE fix (Road B)</span>
+<span class="cm">Verilator bit-exact 5/5; build4 = capture on</span>
+<span class="cm">quiet-cycle edge, 53/53 checks, build in flight</span>
+
+<span class="src">docs: ADR-005 readout-killer decision</span>
+<span class="cm">Road A = reproduction claim; Road B = rig claim;</span>
+<span class="cm">publish comparison, never blend</span>`;
+  }
+};
+
+// =============================================================
+// SCENE 11 — The production arc (NEW July 2026)
+// =============================================================
+const sceneArc = {
+  title: 'Scene 11 — The production arc: 632 → 47.5 s/token, with correctness going UP',
+  steps: 6,
+  render(step) {
+    clearScene();
+    const arc = [
+      ['May 2026 baseline', 632, '#6b8ec9'],
+      ['8K IMEM + fused coset (+4 bug fixes)', 360.8, '#3a86ff'],
+      ['clone-dead law → unvoted', 137.1, '#22c1c3'],
+      ['steady-state (48-token) rate', 80.5, '#ffd479'],
+      ['dual-DIMM, balanced V2 split', 47.5, '#f97316'],
+    ];
+    if (step === 0) {
+      sceneRoot.appendChild(text(500, 25, 'full-model BitNet b1.58-2B, all 30 layers × 7 projections through DRAM — seconds per token', 'label hl'));
+      const bx = 400, by0 = 80, bh = 56, scale = 0.72;
+      for (let i = 0; i < arc.length; i++) {
+        const y = by0 + i * (bh + 26);
+        const w = Math.max(10, arc[i][1] * scale);
+        sceneRoot.appendChild(text(bx - 14, y + bh/2, arc[i][0], 'label', 'end'));
+        sceneRoot.appendChild(rect(bx, y, w, bh, '', { fill: arc[i][2], opacity: 0.8, rx: 3 }));
+        sceneRoot.appendChild(text(bx + w + 14, y + bh/2, `${arc[i][1]} s/tok`, 'label hl', 'start'));
+      }
+      sceneRoot.appendChild(text(500, by0 + 5*(bh+26) + 14, '13.3× in one campaign — and the model\'s ANSWER got cleaner at every hop ("Paris", every config)', 'label hl cyan'));
+    }
+    else if (step === 1) {
+      sceneRoot.appendChild(text(500, 25, '632 → 360.8 (1.75×): the 8K-IMEM bitstream + the fused coset body — and four host bugs', 'label hl'));
+      sceneRoot.appendChild(text(500, 62, 'levers: 8192-instruction IMEM (one-variable rebuild) + PIM_FUSED_COSET (Scene 9 steps 6-7)', 'label'));
+      const bugs = [
+        ['1. relative pool-file path', 'silently fell back to an unscreened stride pool OUTSIDE the calibrated window → all weights in wrong rows', 'fix: absolute paths; unreadable explicit config is now FATAL, never a fallback'],
+        ['2. id()-keyed bitplane cache', 'the allocator recycles freed arrays\' addresses → later positions read earlier positions\' stale activations (deterministic, prompt-shape-dependent)', 'fix: content-keyed cache'],
+        ['3. V2-scratch / LOAD collision', 'scratch rows drawn over the whole pool destroyed LOAD-resident weights at full-model scale only', 'fix: reserved scratch tail (PIM_V2_SCRATCH)'],
+        ['4. mis-scoped voting extras', 'the env subarray window forced wrong-subarray pools onto the extra voting calibs → every voting trip was garbage', 'fix: window scoped per-calib'],
+      ];
+      const x0 = 70, y0 = 96, dy = 106;
+      for (let i = 0; i < bugs.length; i++) {
+        const y = y0 + i*dy;
+        sceneRoot.appendChild(rect(x0, y, 860, dy - 12, '', { fill: '#1d2230', stroke: '#ff6b6b', rx: 4 }));
+        sceneRoot.appendChild(text(x0 + 16, y + 19, bugs[i][0], 'label hl', 'start'));
+        sceneRoot.appendChild(text(x0 + 16, y + 43, bugs[i][1].slice(0, 105), 'label', 'start'));
+        if (bugs[i][1].length > 105) sceneRoot.appendChild(text(x0 + 16, y + 61, bugs[i][1].slice(105), 'label', 'start'));
+        sceneRoot.appendChild(text(x0 + 16, y + 81, bugs[i][2], 'label cyan', 'start'));
+      }
+      sceneRoot.appendChild(text(500, y0 + 4*dy + 8, 'silicon was clean throughout — every one was host-side. New rule: no production change is validated without one FULL-MODEL run', 'label dim'));
+    }
+    else if (step === 2) {
+      sceneRoot.appendChild(text(500, 25, '360.8 → 137.1 (2.6×): the clone-dead law dissolves the voting tax', 'label hl'));
+      const rows = [
+        ['config', 's/tok', 'output'],
+        ['voted, May pool (the T4 headline)', '360.8', '‘Paris’ + wander'],
+        ['UNVOTED, May pool', '134.8', 'garbage — voting looked load-bearing'],
+        ['UNVOTED, clone-ok pool', '137.1', '‘Paris’, on-topic, grammatical'],
+        ['voted, clone-ok pool', '372.5', 'BYTE-IDENTICAL text to unvoted'],
+      ];
+      const tx = 90, ty = 70, cw = [400, 110, 310], rh = 36;
+      for (let r = 0; r < rows.length; r++) {
+        let x = tx;
+        for (let c = 0; c < 3; c++) {
+          sceneRoot.appendChild(rect(x, ty + r*rh, cw[c], rh, '', { fill: r === 0 ? '#1d2230' : '#131722', stroke: '#2a2f3d' }));
+          sceneRoot.appendChild(text(x + cw[c]/2, ty + r*rh + rh/2, rows[r][c], r === 0 ? 'label hl' : (r === 3 ? 'label cyan' : 'label')));
+          x += cw[c];
+        }
+      }
+      sceneRoot.appendChild(text(500, ty + rows.length*rh + 32, 'why voting SEEMED necessary: ~17% of rows cannot RowClone into the tuple (partial clones)', 'label'));
+      sceneRoot.appendChild(text(500, ty + rows.length*rh + 56, 'and the May pool construction ANTI-selected them: clone-dead rows have fault-sweep degree 0', 'label'));
+      sceneRoot.appendChild(text(500, ty + rows.length*rh + 80, '→ 108/294 pool rows + 9/16 scratch-tail rows were partial-clone rows; voting was papering over them', 'label hl'));
+      sceneRoot.appendChild(text(500, ty + rows.length*rh + 112, 'the law is closed-form and held-out-validated 2,496/2,496 (companion explainer, Scene 6) — pools are now built by predicate', 'label hl cyan'));
+    }
+    else if (step === 3) {
+      sceneRoot.appendChild(text(500, 25, '137.1 → 80.5: not a lever — an honest measurement at steady state', 'label hl'));
+      sceneRoot.appendChild(rect(140, 90, 720, 200, '', { fill: '#1d2230', stroke: '#ffd479', rx: 4 }));
+      sceneRoot.appendChild(text(500, 120, 'the 8-token benchmark shape carries fixed costs: prefill + weight loading', 'label'));
+      sceneRoot.appendChild(text(500, 148, 'a 48-token generation amortizes them: marginal rate 80.5 s/token', 'label hl'));
+      sceneRoot.appendChild(text(500, 176, 'text stayed stable and on-topic across all 48 tokens (‘Paris’ every QA cycle)', 'label'));
+      sceneRoot.appendChild(text(500, 204, 'voting re-tested at this scale: no benefit — off by default on clone-ok pools', 'label'));
+      sceneRoot.appendChild(text(500, 232, 'production config: clone-ok pools + unvoted + fused + resident consts', 'label dim'));
+      sceneRoot.appendChild(text(500, 260, '(8-tok and 48-tok figures are DIFFERENT quantities — both reported, never mixed)', 'label dim'));
+    }
+    else if (step === 4) {
+      sceneRoot.appendChild(text(500, 25, '80.5 → 47.5 (1.91× per token-matmul): the second DIMM, actually balanced', 'label hl'));
+      const rows = [
+        ['run', 'wall', 'DIMM-0 traffic', 'DIMM-2 traffic'],
+        ['dual-DIMM, first attempt', '90.3 s/tok (WORSE)', '15,510 calls / 23.5 GB', '628 calls / 51 MB'],
+        ['dual-DIMM, balanced', '47.5 s/tok', '15,209 / 11,731.1 MB', '15,151 / 11,732.1 MB'],
+      ];
+      const tx = 60, ty = 70, cw = [240, 200, 230, 230], rh = 40;
+      for (let r = 0; r < rows.length; r++) {
+        let x = tx;
+        for (let c = 0; c < 4; c++) {
+          sceneRoot.appendChild(rect(x, ty + r*rh, cw[c], rh, '', { fill: r === 0 ? '#1d2230' : '#131722', stroke: '#2a2f3d' }));
+          sceneRoot.appendChild(text(x + cw[c]/2, ty + r*rh + rh/2, rows[r][c], r === 0 ? 'label hl' : 'label'));
+          x += cw[c];
+        }
+      }
+      sceneRoot.appendChild(text(500, ty + 3*rh + 28, 'the defect: streamed (V2) requests — 98% of production traffic — were hardwired to server[0]', 'label'));
+      sceneRoot.appendChild(text(500, ty + 3*rh + 52, 'a single-DIMM-era line the multi-DIMM plumbing never touched; DIMM 2 sat starved', 'label dim'));
+      sceneRoot.appendChild(text(500, ty + 3*rh + 84, 'fix: split every streamed request\'s contraction dim across DIMMs (concurrent halves, host adds partial sums)', 'label hl'));
+      sceneRoot.appendChild(text(500, ty + 3*rh + 108, 'per token-matmul 70.2 → 36.8 s = 1.91×, at 96% of the ideal-halving bound; text byte-identical', 'label hl cyan'));
+      sceneRoot.appendChild(text(500, ty + 3*rh + 140, 'bytes balanced to 0.01% across the two dies', 'label dim'));
+    }
+    else if (step === 5) {
+      sceneRoot.appendChild(text(500, 25, 'the through-line: every speed hop came with equal-or-better output', 'label hl'));
+      const items = [
+        ['deterministic wrongness = logic, never noise', 'byte-identical wrong output across runs pointed at the cache bug, the pool paths, the label collision — silicon was exonerated each time by a discriminator, not by assumption'],
+        ['drift physics found + hardened against', 'resident rows drift under same-subarray traffic (deposit physics, not decay); refresh restores CHARGE, not CONTENT — this predicted the resident-constants regression, fixed by a per-request content rewrite (~0.5 ms)'],
+        ['the cleanest outputs came LAST', 'the fastest configs produce the cleanest recorded text — a 13.3× speedup with correctness improving, because most of the "noise" was bugs and physics with names'],
+      ];
+      const x0 = 80, y0 = 80, dy = 128;
+      for (let i = 0; i < items.length; i++) {
+        const y = y0 + i*dy;
+        sceneRoot.appendChild(rect(x0, y, 840, dy - 16, '', { fill: '#1d2230', stroke: '#22c1c3', 'stroke-width': 1.5, rx: 4 }));
+        sceneRoot.appendChild(text(x0 + 18, y + 24, items[i][0], 'label hl', 'start'));
+        const words = items[i][1].split(' ');
+        const third = Math.ceil(words.length / 3);
+        sceneRoot.appendChild(text(x0 + 18, y + 50, words.slice(0, third).join(' '), 'label', 'start'));
+        sceneRoot.appendChild(text(x0 + 18, y + 70, words.slice(third, 2*third).join(' '), 'label', 'start'));
+        sceneRoot.appendChild(text(x0 + 18, y + 90, words.slice(2*third).join(' '), 'label', 'start'));
+      }
+      sceneRoot.appendChild(text(500, y0 + 3*dy + 12, 'remaining levers, all identified and staged: Road-B bitstream (recv volume), residency campaign, streaming-shape execution', 'label dim'));
+    }
+  },
+  caption(step) {
+    const c = [
+      `<b>One campaign, 13.3×.</b> The full model (BitNet b1.58-2B, every ternary linear of all 30 layers computed in DRAM) went from 632 s/token (May) to 47.5 s/token (July 20) in four hops. Each hop has a name, a mechanism, and a log — and none of them traded correctness for speed. The answer to "What is the capital of France?" stayed "Paris" at every hop, with the cleanest text coming from the fastest configs.`,
+      `<b>Hop 1 — infrastructure + fused coset, and the bug quartet.</b> The 8K-IMEM bitstream removed the 2048-instruction program ceiling, and the coset-addressed fused MAJ body (Scene 9) landed in production. En route, the full model failed while every layer-0 test passed — four stacked host-side bugs (config fallback, stale cache, pool collision, mis-scoped voting), each found by a discriminating experiment and fixed. <b>Silicon was clean the whole time.</b> The standing rule since: layer-0 validation cannot see pool-scale bugs; every production change gets one full-model run.`,
+      `<b>Hop 2 — the voting economics, dissolved by a law.</b> 3× voting (2.7× cost) had looked load-bearing: unvoted runs produced garbage. The clone-dead law (companion explainer) showed why: ~17% of rows can't be RowClone-loaded into the compute tuple, and the May pool construction had <em>preferentially selected</em> exactly those rows — the same weak coupling that makes a row clone-dead hides it from the fault sweep. On a clone-clean pool (built by the law's predicate), unvoted retains Paris-class output at 137.1 s/tok, and the voted arm produces <b>byte-identical text</b> — the tax bought nothing anymore. <span class="ex">EXAMPLE of scientific honesty: the voted 372.5 run is reported alongside, not hidden.</span>`,
+      `<b>Hop 3 — measuring instead of claiming.</b> 137.1 (8-token) and 80.5 (48-token marginal rate) are different quantities: the short benchmark carries prefill + weight-load overhead that a longer generation amortizes. Reporting the steady-state rate honestly required running 48 tokens and confirming text stability throughout. Voting was re-tested at this scale too: no benefit on clone-ok pools.`,
+      `<b>Hop 4 — the second DIMM was there all along.</b> The first dual-DIMM attempt made things WORSE (90.3 s/tok): the streamed-request path — 98% of production traffic — was hardwired to the first server by a single-DIMM-era line, so DIMM 2 got 0.4% of the bytes. The fix splits every streamed request's contraction dimension across DIMMs as concurrent partial sums (the same y=Σ math the resident split already used). Result: <b>47.5 s/tok, 1.91× per token-matmul, 96% of the ideal-halving bound</b>, traffic balanced to 0.01%, output byte-identical.`,
+      `<b>Why correctness rose with speed.</b> Three standing practices: (1) byte-identical wrong output across runs is treated as logic, never as silicon noise — that discipline found every bug in the quartet; (2) the drift physics (see companion explainer Scene 7: traffic-induced deposits that refresh cannot undo, because refresh restores charge, not content) was characterized before it was mitigated, and it <em>predicted</em> the one regression it later caused in production (resident constant rows), which was fixed with a per-request rewrite; (3) laws replaced screening — pools, clone sources, and coset addressing are now computed from closed-form predicates validated on held-out silicon. The result is a system that got 13.3× faster while its recorded outputs got cleaner.`,
+    ];
+    return c[step];
+  },
+  codeRef(step) {
+    return `<span class="src">the arc, with primary records</span>
+<span class="hl">632</span>    May baseline (2048-IMEM, voted)
+<span class="hl">360.8</span>  8K + fused (RESULT.md add. 18/19/19b)
+<span class="hl">137.1</span>  clone-ok unvoted (add. 22; o8 logs)
+<span class="hl">80.5</span>   48-tok steady state (O2 close)
+<span class="hl">47.5</span>   dual-DIMM split-V2 (add. 25)
+
+<span class="src">code: python/pim_linear.py</span>
+<span class="cm">content-keyed bitplane cache (bug 2 fix);</span>
+<span class="cm">d_in-split V2 dispatch + ENOSPC latch (hop 4)</span>
+
+<span class="src">code: app/test_bitnet_server.cpp</span>
+<span class="cm">V2 scratch reserve; per-calib window scoping;</span>
+<span class="cm">fatal-on-unreadable pool file; per-request</span>
+<span class="cm">const rewrite (drift hardening)</span>
+
+<span class="src">code: app/clone_law.py</span>
+<span class="cm">the clone-dead predicate (held-out 2496/2496)</span>
+
+<span class="src">data: dimm2_fault_sweep_subs_2026_07_18/</span>
+<span class="cm">o8_fullmodel_cloneok_{unvoted,voted}.log:</span>
+<span class="cm">8 tok in 1096.7 s / 2979.9 s, same text</span>`;
+  }
+};
+
+// =============================================================
+// SCENE 12 — AI-memory wishlist
 // =============================================================
 const scene10 = {
-  title: 'Scene 10 — Wishlist: what AI-specific DRAM would change',
+  title: 'Scene 12 — Wishlist: what AI-specific DRAM would change',
   steps: 7,
   render(step) {
     clearScene();
@@ -1189,7 +1564,7 @@ const scene10 = {
   caption(step) {
     const c = [
       `<b>Six wishlist items.</b> Each one points at a specific bottleneck or limitation established in earlier scenes — no speculative items.`,
-      `<b>1. In-DRAM POPCNT.</b> Today every MAJ ships a full row to the host. If the chip computes POPCNT internally and returns the count itself, the bus payload per accumulation collapses to log-of-K bits per column. Already demonstrated on COTS DDR4 by POPCNT3 (NeurIPS 2024): 27×–348× throughput vs an A100 GPU across kernel sizes.`,
+      `<b>1. In-DRAM POPCNT.</b> Today every MAJ ships a full row to the host. If the chip computes POPCNT internally and returns the count itself, the bus payload per accumulation collapses to log-of-K bits per column. Already demonstrated on COTS DDR4 by POPCNT3 (NeurIPS 2024): 27×–348× throughput vs an A100 GPU across kernel sizes — and by our own July 2026 merge (Scene 10), which runs the in-DRAM accumulation road on this project's stock DDR4.`,
       `<b>2. First-class MAJ instruction.</b> The current APA approach uses timing violations the chip wasn't designed to support — so Samsung doesn't do multi-row activation at all, and the working timing values vary across vendors. A dedicated instruction in the DDR command set removes the calibration burden and the vendor lottery.`,
       `<b>3. Larger guaranteed K.</b> SiMRA's row-decoder hypothesis caps K at 2^(predecoders) = 32 in current chips. Increasing the predecoder count would raise K, which both raises reliability (more replication per MAJ) and parallel compute per cycle.`,
       `<b>4. Native V_DD/2 cells.</b> Today Frac is a timing-trick that works only on some vendors. Native support (an instruction to set a cell to V_DD/2) makes the "neutral row" trick robust and portable.`,
@@ -1229,7 +1604,7 @@ const scene10 = {
 // SCENE 11 — Closing thought
 // =============================================================
 const scene11 = {
-  title: 'Scene 11 — Closing: using something in the way it was not intended',
+  title: 'Scene 13 — Closing: using something in the way it was not intended',
   steps: 1,
   render(step) {
     clearScene();
@@ -1270,7 +1645,7 @@ const scene11 = {
 // =============================================================
 // Scene registry + driver
 // =============================================================
-const SCENES = [scene1, scene2, scene3, scene4, scene5, scene6, scene7, scene8, scene9, scene10, scene11];
+const SCENES = [scene1, scene2, scene3, scene4, scene5, scene6, scene7, scene8, scene9, sceneMerge, sceneArc, scene10, scene11];
 let curScene = 0, curStep = 0, playTimer = null;
 
 function renderNav() {

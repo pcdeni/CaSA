@@ -1,0 +1,20 @@
+[client] starting: /home/deni/Claude/mvdram-repro/lane2-gemv-server 2 /home/deni/Claude/mvdram-repro/calib_maj5_dimm2.txt 0 86 /home/deni/Claude/mvdram-repro/colmask_dimm2_s86_robust.txt
+Opened /dev/xdma0_h2c_2 -> 4
+Opened /dev/xdma0_c2h_2 -> 5
+Successfully reset the FPGA!
+[lane2] server: bender=2 s_id=86 bank=0 pack=1 vote3=0 dualtrack=0 encode=host input colmask=1784/2048
+[platform] BITSTREAM_IMEM in effect: 8192 (env override)
+[platform] PIM_RECV_TIMEOUT_MS in effect: 15000
+[lane2] op-matched screen (3 trials): 1597/1784 reliable segments (0.0 s, 198 MAJs) -> capacity M<=51104 outputs/pass
+[lane2] ready
+[lane2] LOAD handle=1 q=4 K=256 M=1024 -> 256 x 4 bitplane rows (host-resident; streamed into the tuple per-op — see header) in 0.01 s
+[client] LOAD ok: q=4 K=256 M=1024 (131072 B payload; pack 0.00s, load 0.05s)
+[lane2]   partials plane i=0 c=0 done (0.6 s, FA=118)
+[lane2]   partials plane i=1 c=0 done (0.5 s, FA=118)
+[lane2]   partials plane i=2 c=0 done (0.5 s, FA=118)
+[lane2]   partials plane i=3 c=0 done (0.6 s, FA=118)
+[lane2] PARTIALS handle=1 K=256 M=1024 q=4 r=1 NBLK=8: 2.18 s wall, 472 FA, 944 MAJ, 15344 execs, 13456 pcwrites, 122 taps zero-skipped
+[client] PARTIALS#0: 2.2s wall  exact 8191/8192 block-partials (99.9878%)  sum-vs-GEMV-ref MISMATCH
+[client]   bad partials (first 8): (m=973,b=4) ref=-25 got=-24
+[client] RESULT: RESIDUAL — see histogram (cell-noise envelope?)
+[lane2] quit sentinel

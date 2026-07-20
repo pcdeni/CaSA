@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>A language model that answers through DRAM — the guided tour</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f1116; color: #e6e8ee; }
+  header { padding: 14px 22px; background: #161922; border-bottom: 1px solid #2a2f3d; position: sticky; top: 0; z-index: 10; }
+  header h1 { font-size: 16px; margin: 0 0 2px 0; font-weight: 600; color: #ffd479; }
+  header .sub { color: #8a93a8; font-size: 13px; }
+  nav.toc { display: flex; gap: 6px; padding: 8px 22px; background: #131722; flex-wrap: wrap; border-bottom: 1px solid #2a2f3d; position: sticky; top: 58px; z-index: 9; }
+  nav.toc a { background: #1d2230; border: 1px solid #2a2f3d; color: #c3c9d8; padding: 3px 10px; border-radius: 4px; font-size: 12px; text-decoration: none; }
+  nav.toc a:hover { background: #262d3e; }
+  main { max-width: 880px; margin: 0 auto; padding: 24px 22px 80px 22px; }
+  h2 { color: #ffd479; font-size: 20px; margin: 46px 0 6px 0; border-bottom: 1px solid #2a2f3d; padding-bottom: 8px; }
+  h2 .stop { color: #5a6178; font-size: 13px; font-weight: 400; display: block; margin-bottom: 2px; }
+  h3 { color: #22c1c3; font-size: 15px; margin: 26px 0 4px 0; }
+  p { line-height: 1.65; font-size: 14.5px; color: #c3c9d8; margin: 12px 0; }
+  p b, li b { color: #ffd479; }
+  em { color: #e6e8ee; }
+  code { background: #1f2434; padding: 1px 5px; border-radius: 3px; font-size: 13px; color: #ffd479; }
+  ul, ol { line-height: 1.65; font-size: 14.5px; color: #c3c9d8; }
+  .box { background: #131722; border: 1px solid #2a2f3d; border-left: 3px solid #3a86ff; border-radius: 5px; padding: 12px 16px; margin: 18px 0; font-size: 14px; line-height: 1.6; color: #c3c9d8; }
+  .box.key { border-left-color: #ffd479; }
+  .box.warn { border-left-color: #f97316; }
+  .box.good { border-left-color: #22c1c3; }
+  .box .t { color: #ffd479; font-weight: 600; display: block; margin-bottom: 4px; }
+  table { border-collapse: collapse; margin: 16px 0; font-size: 13.5px; width: 100%; }
+  th, td { border: 1px solid #2a2f3d; padding: 7px 10px; text-align: left; color: #c3c9d8; }
+  th { background: #1d2230; color: #ffd479; font-weight: 600; }
+  td.n { color: #22c1c3; font-family: ui-monospace, monospace; }
+  .mono { font-family: ui-monospace, monospace; font-size: 13px; color: #8a93a8; background: #131722; border: 1px solid #2a2f3d; border-radius: 5px; padding: 12px 16px; overflow-x: auto; white-space: pre; line-height: 1.55; margin: 16px 0; }
+  .mono .hl { color: #ffd479; }
+  .mono .cm { color: #5a6178; }
+  a { color: #4f9bff; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .foot { margin-top: 60px; padding-top: 16px; border-top: 1px solid #2a2f3d; color: #5a6178; font-size: 12.5px; line-height: 1.6; }
+</style>
+</head>
+<body>
+<header>
+  <h1>A language model that answers through DRAM</h1>
+  <span class="sub">The full-system tour, for a technical reader who was not in the room — July 2026 state</span>
+</header>
+<nav class="toc">
+  <a href="#stop1">1 The machine</a>
+  <a href="#stop2">2 DRAM in 3 minutes</a>
+  <a href="#stop3">3 Breaking timing</a>
+  <a href="#stop4">4 MAJ → matmul</a>
+  <a href="#stop5">5 End to end</a>
+  <a href="#stop6">6 The laws</a>
+  <a href="#stop7">7 Tests vs models</a>
+  <a href="#stop8">8 Two lanes</a>
+  <a href="#stop9">9 The scoreboard</a>
+</nav>
+<main>
+
+<p style="margin-top:26px">Ask this system "What is the capital of France?" and, some minutes later, it answers
+"Paris." Nothing exotic computed that answer. The multiplications inside the language model were carried out by
+<b>ordinary DDR4 memory sticks</b> — the same commodity parts in any desktop — coaxed, by breaking their timing
+rules on purpose, into behaving like a massively parallel analog computer. This page is the guided tour: what the
+machine is, what actually happens in the silicon, how a neural network's matrix multiply turns into memory-row
+tricks, and what we learned that we did not expect to learn. It assumes you know roughly what a transformer and a
+DRAM chip are, and nothing about this project.</p>
+
+<div class="box key"><span class="t">The one-sentence version</span>
+A ternary language model (BitNet b1.58-2B) runs end-to-end with every one of its 210 weight-matrix multiplications
+executed inside commodity DRAM by charge-sharing majority votes — and in one July 2026 campaign the time per token
+fell from 632 s to 47.5 s while the answers got <em>cleaner</em>, because most of what looked like "noise" turned
+out to be bugs and physics with names.</div>
+
+<h2 id="stop1"><span class="stop">Stop 1</span>The machine on the desk</h2>
+
+<p>The hardware is a tower PC with an FPGA card (a Xilinx VU9P on a BCU1525 board) in a PCIe slot. The FPGA does
+<em>not</em> compute anything interesting. It is a programmable <b>memory controller</b>: it holds four DDR4 DIMM
+sockets, and it issues raw DRAM commands — activate this row, precharge, read — at precisely controlled times,
+including times the DDR4 standard forbids. The open-source instrument for this is DRAM Bender (from the SAFARI
+group at ETH); this project drives a four-controller build of it.</p>
+
+<p>The host talks to the FPGA over PCIe (XDMA): it downloads little command programs (up to 8,192 instructions),
+says "run", and reads back whatever rows the program read. That's the whole interface. Everything else — the LLM,
+the request protocol, the calibration data, the laws in Stop 6 — is software built around that primitive.</p>
+
+<div class="box"><span class="t">Cast of characters</span>
+<b>The DIMMs</b>: four commodity DDR4 modules. Two ("the compute dies") support the full set of in-DRAM tricks;
+two are structurally limited (Stop 6 explains why that's now a measured fact, not a suspicion) and serve storage
+roles. <b>The server</b>: a C++ process owning the FPGA, speaking a binary protocol on stdin/stdout. <b>The
+client</b>: a Python layer that replaces the model's linear layers, so PyTorch calls DRAM without knowing it.</div>
+
+<h2 id="stop2"><span class="stop">Stop 2</span>DRAM in three minutes — and the one distinction that matters</h2>
+
+<p>A DRAM bit is a capacitor: charged = 1, empty = 0. Bits are organized into <b>rows</b> (thousands of bits that
+share a wordline); rows into <b>subarrays</b> (512–1024 rows that share local <b>sense amplifiers</b>); subarrays
+into banks. To read anything, the chip <em>activates</em> a row: every capacitor in the row dumps its tiny charge
+onto its bitline, and the sense amp — a cross-coupled amplifier — snaps the ambiguous voltage to a clean 0 or 1
+and drives it back. Reading is destructive: the act of sensing drains the capacitor, and the sense amp then
+restores it.</p>
+
+<p>Capacitors leak. Left alone, a cell forgets its bit in seconds. So DRAM constantly <b>refreshes</b>: it
+re-activates each row on a schedule, letting the sense amp top up every capacitor.</p>
+
+<div class="box key"><span class="t">The load-bearing distinction: refresh restores charge, not content</span>
+Refresh reads whatever the row holds <em>now</em> and rewrites <em>that</em>. It is charge maintenance, not a
+checksum. If something else has altered the row's contents — say, a deliberately mistimed command depositing
+another row's data into it (Stop 6) — refresh will faithfully preserve the corruption forever. Several of this
+project's most confusing weeks dissolved the moment this distinction was taken seriously: "the rows are refreshed"
+and "the rows still hold what we wrote" are different claims, and only the first one is what refresh guarantees.</div>
+
+<h2 id="stop3"><span class="stop">Stop 3</span>Breaking timing on purpose: one primitive, three operations</h2>
+
+<p>The DDR4 standard says: after activating a row, wait at least tRAS before precharging; after precharging, wait
+at least tRP before the next activate. Those waits exist so every analog transient settles. The entire compute
+substrate here is one command envelope that violates them deliberately:</p>
+
+<div class="mono"><span class="hl">doubleACT(t1, t2, R_F, R_S)</span>  =  ACT R_F · wait t1 · PRE · wait t2 · ACT R_S
+<span class="cm">with t1, t2 far below spec — what happens depends on how far</span></div>
+
+<ul>
+<li><b>RowClone (copy)</b> — long t1, tiny t2. The sense amps fully latch row R_F and are still driving the
+bitlines when R_S's wordline opens. R_S's capacitors have no say: they get overwritten with R_F's data. A
+row-to-row copy, thousands of bits at once, without a single byte crossing the memory bus.</li>
+<li><b>Multi-row activation (broadcast)</b> — because the row decoder is built from <em>predecoder</em> stages
+that each latch part of the address, a fast PRE→ACT can leave stale predecoder state latched, so the second ACT
+opens <em>many</em> wordlines at once. Copy one row into sixteen.</li>
+<li><b>MAJ3 (the compute step)</b> — both gaps tiny. Now no row gets fully latched first: many capacitors dump
+charge onto each bitline <em>simultaneously</em>, the voltages mix, and the sense amp snaps the mixture to
+whichever value the <b>majority</b> of the contributing cells held. Charge sharing is an analog vote. That's a
+majority gate — and a majority gate with one input pinned to 0 computes AND.</li>
+</ul>
+
+<p>On real chips a bare 3-row vote is too fragile (process variation moves each sense amp's threshold), so each
+logical input is <em>replicated</em>: this project's calibrated shape opens 16 rows per vote — five copies of one
+operand, five of the other, five zeros, and one reference row conditioned to sit near half-charge so it leans on
+nobody. Which 16 rows open together, and how reliably they vote, is a per-chip empirical question — the project
+maintains per-DIMM calibration files discovered by multi-day sweeps (until Stop 6's laws made much of that
+computable instead).</p>
+
+<h2 id="stop4"><span class="stop">Stop 4</span>From a majority vote to a matrix multiply</h2>
+
+<p>BitNet's weights are <b>ternary</b>: every weight is −1, 0, or +1. That is the whole trick that makes DRAM
+arithmetic plausible, because a ternary × integer dot product needs no multiplier at all:</p>
+
+<ol>
+<li>Split the weight vector into two bitmasks: <code>pos</code> (where w=+1) and <code>neg</code> (where w=−1).</li>
+<li>Quantize the activation vector to int8 and slice it into 8 <b>bitplanes</b> (all the 1s-bits, all the 2s-bits, …).</li>
+<li>For each (mask, bitplane) pair: AND the mask with the bitplane — <em>that is the MAJ3 in DRAM</em> — and
+<b>popcount</b> the result (count the 1s).</li>
+<li>Recombine on the host: weight each bitplane's count by 2<sup>b</sup> (MSB negative for two's complement),
+subtract neg-counts from pos-counts, apply the model's two scale factors. That integer is the dot product.</li>
+</ol>
+
+<p>Everything the DRAM does is step 3, done 2,048 bit-positions at a time per row. Everything else is bookkeeping.
+A full 2560→2560 projection decomposes into a few thousand MAJ operations spread across four banks; a token
+through all 30 layers is a few hundred thousand. The model's answer is the accumulation of a very large number of
+analog votes, each individually ~99.9%+ reliable on screened columns, with the model's own quantization margins
+absorbing the residue.</p>
+
+<div class="box good"><span class="t">Why this is even worth doing</span>
+A dot product's operands live in memory anyway. Conventional hardware moves them to a processor to multiply;
+here the memory array itself is the ALU, and what crosses the bus is (ideally) only results. The economics stand
+or fall on that "ideally" — which is Stop 5's story.</div>
+
+<h2 id="stop5"><span class="stop">Stop 5</span>One request, end to end — and where the time actually goes</h2>
+
+<p>Follow one projection through the stack:</p>
+
+<ol>
+<li><b>PyTorch</b> calls the substituted linear layer with an activation vector.</li>
+<li><b>The Python client</b> quantizes, packs bitplanes (content-keyed cache — the adjective matters, Stop 7),
+and sends masks + bitplanes to the server. Weights it already delivered at load time stay <em>resident</em> in
+DRAM pool rows.</li>
+<li><b>The C++ server</b> emits a SoftMC program per batch of votes: refresh the subarray's rows (charge!),
+RowClone the resident weight into the compute tuple, write the activation slots (or, with the fused-coset lever,
+deposit them with two lattice-addressed doubleACTs instead of five writes), condition the reference row, fire the
+MAJ3, read the result row back.</li>
+<li><b>The FPGA</b> streams the commands into the DIMM and DMA's the read rows to the host.</li>
+<li><b>The server popcounts</b> the returned rows, accumulates, replies; the client rescales and hands PyTorch a
+tensor. The model never learns where the math happened.</li>
+</ol>
+
+<p>Where does the time go? Not in the DRAM operations — a vote is tens of nanoseconds. It goes into
+<b>round-trips and readout</b>: every program launch costs host↔FPGA latency, and every vote's result is a full
+8 KiB row that crosses PCIe so the host can reduce it to a single count. Measured on this rig: a packed row-read
+costs ~34 µs; the MAJ itself ~2.6 µs. The system is a memory-bandwidth machine being used as a compute engine, and
+its own readout is the bottleneck — which is why the two "readout killer" roads exist (Stop 8), and why per-token
+time is quoted in seconds, not milliseconds. On a real PIM controller without the FPGA round-trip, the same
+command stream would be orders of magnitude faster; that projection is stated as a projection, never blended into
+the measurements.</p>
+
+<h2 id="stop6"><span class="stop">Stop 6</span>The laws: when calibration becomes computation</h2>
+
+<p>The project's scientific center of gravity moved in July 2026 from <em>measuring</em> this particular silicon
+to <em>predicting</em> it. Three closed-form laws now describe what the address decoder does, and each one
+retired a pile of empirical screening:</p>
+
+<h3>The co-activation lattice (whose rows open)</h3>
+<p>When a doubleACT pairs rows A and A⊕d, the candidate rows that can open are exactly the XOR lattice
+{A⊕S : S ⊆ bits(d)} — a consequence of predecoder stages latching independently. The "spread" that once looked
+like mysterious corruption is this lattice seen from the source side: the sense amps drive <em>every</em> open
+row to the source's value, including rows nobody meant to open. The same physics is a hazard (it can overwrite
+neighbors, and even a MAJ's own operands) and a tool (one doubleACT can deposit a value into a chosen set of
+rows at once — a free fan-out).</p>
+
+<h3>The selection law (which lattice members fire)</h3>
+<p>Only some lattice members actually open, and the rule is exact: the ten in-block address bits fall into
+predecoder units ({1,2}{3,4}{5,6}{7,8}, bits 0 and 9 alone), and member A⊕S fires iff every unit contributes
+either nothing or its <em>entire</em> share of d. Verified member-by-member: <b>1,691/1,691 observations on each
+of two dies, zero exceptions, invariant across all tested timings</b> — and byte-identical between dies, meaning
+it is a property of the chip design, not the specimen. Physically: each predecoder unit is a latch that either
+holds the old pattern or takes the new one whole; it cannot split. The law's scope was itself measured — it lives
+in 1024-row decoder blocks (the 640-row "subarrays" are sense-amp segments, a different partition), and one
+address bit turns out never to deposit at all.</p>
+
+<h3>The clone-dead law (which rows can feed a tuple)</h3>
+<p>Loading a compute tuple by RowClone fails for ~17% of source rows — the copy lands diluted, because the pair
+offset drags too many lattice siblings open and the restore charge splits too many ways. The rule is
+arithmetic: count the predecoder units the offset touches; five or more is dead, with one exactly-characterized
+four-unit exception family. Its validation is the project's proudest procedural artifact: predictions for an
+unseen tuple's 624 rows were <b>committed to a file before the silicon ran — 2,496/2,496 correct</b>, and
+2,494/2,496 on a second die.</p>
+
+<div class="box warn"><span class="t">The twist that dissolved the "voting tax"</span>
+The production weight pool had been built for fault-freedom: pick rows with zero fault-sweep conflicts. But
+clone-dead rows have <em>no</em> conflicts — the same weak coupling that dilutes their clone hides them from the
+sweep — so "safest first" preferentially picked unclonable rows: 108 of 294 pool rows. That is why the model
+needed 3× vote-and-median (2.7× cost) to answer correctly: it was outvoting its own half-loaded weights. On a
+law-filtered pool, the unvoted model answers Paris — and the voted run produces byte-identical text. The tax
+bought nothing anymore.</div>
+
+<h3>Drift (the lattice, seen over time)</h3>
+<p>The last law is dynamic: rows sitting resident in a subarray drift away from their loaded content under that
+subarray's compute traffic — a one-shot transition to a saturated level that is <em>ordered by the same coupling
+classes</em> (strong-coupling rows drift most). Refresh cannot help, because refresh restores charge, not content
+(Stop 2). Idle decay is a separate, additive term. This physics was characterized in controlled arms — and then
+<em>predicted a production failure</em>: the fused kernel's resident all-ones/all-zeros constant rows had been
+placed on deposit-<em>safe</em> rows, which are exactly the strong-coupling, fastest-drifting class. Protocol
+tests passed (fresh constants); the full model babbled (drifted constants). The fix — rewrite the constants'
+content each request, right after the refresh — restored byte-identical-to-control output.</p>
+
+<h2 id="stop7"><span class="stop">Stop 7</span>Why a passing test can hide a failing model</h2>
+
+<p>The campaign's hardest week produced its most transferable lesson. After the new bitstream landed, every
+protocol test passed — bit-exact — and the full model produced garbage. The causes were <b>four stacked host-side
+bugs</b>, none visible below full-model scale:</p>
+
+<ul>
+<li>A <b>relative config path</b> silently fell back to an unscreened default pool — all weights loaded into
+wrong rows, while every stat looked plausible. (Rule since: explicit config that can't be honored is fatal,
+never a fallback.)</li>
+<li>A cache keyed on a Python object's <b>memory address</b>: the allocator recycles addresses, so later token
+positions read earlier positions' cached bitplanes — deterministic, and dependent on the prompt's allocation
+choreography, so short prompts dodged it.</li>
+<li>Scratch rows for streamed requests were drawn <b>over the resident-weight pool</b> — harmless in every small
+test (which fit in the pool with room to spare), destructive at layer 15 of a real run.</li>
+<li>A global config window mis-scoped the voting calibrations' pools — every "extra" vote voted garbage,
+silently.</li>
+</ul>
+
+<div class="box key"><span class="t">The two rules this bought</span>
+(1) <b>Layer-0 validation cannot see pool-scale bugs</b>: a test that fits comfortably inside the resources it
+shares with production exercises none of the contention that breaks production. Every production change now gets
+one full-model run before it is called validated. (2) <b>Byte-identical wrong output is logic, never noise.</b>
+Analog flake varies run to run; all four bugs reproduced exactly. Refusing to say "silicon noise" until an
+experiment proved randomness is the discipline that found them — and each time, the silicon was exonerated.</div>
+
+<h2 id="stop8"><span class="stop">Stop 8</span>Two lanes and two roads — the honesty architecture</h2>
+
+<p>The project runs two deliberately separated efforts. <b>Lane 1</b> is <em>our</em> system: the BitNet ternary
+LLM, free to borrow any idea that helps. <b>Lane 2</b> is a <em>reproduction of someone else's paper</em> —
+MVDRAM (arXiv:2503.23817), the closest peer system, which ran GeMV kernels for standard LLMs inside unmodified
+DDR4. Lane 2 runs <em>their</em> models (Llama-2/3, Phi-4, via llama.cpp), their conventions, their dataflow, and
+is never allowed to quietly benefit from Lane-1 machinery that their paper doesn't describe — because a
+reproduction that borrows from its own conclusions isn't one. By July 20 the reproduction had run their four-model
+protocol at declared sampled scope (36 DRAM-verified operations inside real generations, 99.58–99.99% exact) and
+produced its first <em>bit-exact fp32</em> outputs on real Llama-2-7B tensors — while also finding, and stating,
+that the paper's own partial-sum granularity cannot produce exact fp32, and that its performance rests on a
+command-streaming shape our per-program rig deliberately does not fake (a measured ~10⁵ gap, named as the one
+open item). The full story is its own deck (<a href="mvdram.html">the MVDRAM reproduction explainer</a>).</p>
+
+<p>Within Lane 1, the same honesty pattern governs the readout bottleneck. <b>Road A</b> kills it <em>in DRAM</em>:
+a carry-save tree of majority-gate full adders reduces K product rows to log₂K result rows before anything
+crosses the bus (faithful to what a real processing-in-memory chip could do; ~99% per-lane exact; 213× fewer
+readout rows at production K — though on <em>this</em> FPGA-round-trip rig, not yet a wall-time win, which is
+stated in the same breath). <b>Road B</b> kills it in the FPGA: a popcount accumulator in the readback path
+returns 4 bytes instead of 8 KiB — bit-exact, 2048×, but it proves nothing about DRAM. The standing decision
+(ADR-005): keep both, label both, publish the comparison, never blend them into one number.</p>
+
+<h2 id="stop9"><span class="stop">Stop 9</span>The scoreboard, read honestly</h2>
+
+<table>
+<tr><th>full-model seconds per token</th><th>what changed</th><th>the answer</th></tr>
+<tr><td class="n">632</td><td>May baseline: 2K-instruction programs, 3× voting</td><td>"Paris" + wandering tail</td></tr>
+<tr><td class="n">360.8</td><td>8K programs + lattice-addressed fused kernel (+ the four bugs found and fixed)</td><td>"Paris"</td></tr>
+<tr><td class="n">137.1</td><td>clone-dead law → clean pools → voting off (it had been compensating for half-loaded weights)</td><td>"Paris", on-topic, grammatical</td></tr>
+<tr><td class="n">80.5</td><td>no lever — the honest 48-token steady-state rate once fixed costs amortize</td><td>stable all 48 tokens</td></tr>
+<tr><td class="n">47.5</td><td>second DIMM actually balanced (the streamed-request path had been hardwired to server #1)</td><td>byte-identical text</td></tr>
+</table>
+
+<p>13.3× in one campaign, with output quality rising — not because speed causes correctness, but because both
+came from the same source: replacing "noise" with named mechanisms. The remaining named levers: the Road-B
+bitstream (in flight), a residency campaign whose economics were measured and found not-yet-worth-it (a decision
+recorded with its numbers, like everything else here), and the streaming execution shape that separates this rig
+from a real PIM part.</p>
+
+<div class="box good"><span class="t">What is real, what is rig-specific, what is next</span>
+<b>Real and portable:</b> ternary LLM arithmetic by charge-sharing majority votes on stock DDR4; the address-algebra
+laws (design-level, cross-die); in-DRAM accumulation as a working mechanism. <b>Rig-specific:</b> every wall-clock
+number (the FPGA round-trip dominates); Road B. <b>Honestly open:</b> streaming-scale execution (~10⁵), exactness
+above ~99.9% without screening or voting, and everything a real controller ASIC would change. Nothing in this
+paragraph is a projection dressed as a measurement.</div>
+
+<div class="foot">
+<p><b>Going deeper, in order:</b> the <a href="index.html">BitNet PIM explainer</a> (mechanism, scene by
+scene, with a claim ledger); the <a href="xor-spread.html">row-spread &amp; laws explainer</a> (the
+address algebra of Stop 6); the <a href="mvdram.html">MVDRAM reproduction explainer</a> (Lane 2
+end-to-end). Every quantitative claim in those decks carries a ledger row pointing at its measurement file; this
+narrative's claims are grounded in the same ledgers plus <code>publish_ledger_2026_07_20.md</code>. Mechanism
+prior art: SiMRA, FracDRAM, FCDRAM, POPCNT3 (SAFARI et al.); instrument: DRAM Bender. This page describes work on
+commodity parts operated outside JEDEC specification — capability exploration, not a product claim.</p>
+</div>
+
+</main>
+</body>
+</html>

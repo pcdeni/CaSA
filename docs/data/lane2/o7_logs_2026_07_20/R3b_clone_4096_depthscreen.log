@@ -1,0 +1,24 @@
+[client] starting: /home/deni/Claude/mvdram-repro/lane2-gemv-server 2 /home/deni/Claude/mvdram-repro/calib_maj5_dimm2.txt 0 86 /home/deni/Claude/mvdram-repro/colmask_dimm2_s86_robust.txt
+Opened /dev/xdma0_h2c_2 -> 4
+Opened /dev/xdma0_c2h_2 -> 5
+Successfully reset the FPGA!
+[lane2] server: bender=2 s_id=86 bank=0 pack=1 vote3=0 dualtrack=0 encode=clone input colmask=1784/2048
+[platform] BITSTREAM_IMEM in effect: 8192 (env override)
+[platform] PIM_RECV_TIMEOUT_MS in effect: 15000
+[lane2] clone mask screen: 48/75 usable
+[lane2] clone roles (local offsets): 74 82 98 2 194 322 94 110 14 334 118 22 342 38 230
+[lane2] clone FA op-screen (3 trials): 1351/1784 reliable segments (0.1 s total init, 675 MAJs) -> capacity M<=43232 outputs/pass
+[lane2] ready
+[lane2] LOAD handle=1 q=4 K=4096 M=4096 -> 4096 x 4 bitplane rows (+inverted planes, Fig-15 dual-track) (host-resident; streamed into the tuple per-op — see header) in 0.30 s
+[client] LOAD ok: q=4 K=4096 M=4096 (8388608 B payload; pack 0.10s, load 0.34s)
+[lane2]   plane i=0 c=0 done (2.9 s, FA=2111 MAJ=18999)
+[lane2]   plane i=1 c=0 done (2.9 s, FA=4222 MAJ=37998)
+[lane2]   plane i=2 c=0 done (3.0 s, FA=6333 MAJ=56997)
+[lane2]   plane i=3 c=0 done (3.0 s, FA=8444 MAJ=75996)
+[lane2] GEMV handle=1 K=4096 M=4096 q=4 r=1: 11.90 s wall, 8444 FA, 75996 MAJ, 126588 execs, 50592 pcwrites, 1982 taps zero-skipped
+[lane2]   dual-rail consistency: 2190224 violations / 730102016 lane-checks
+[client] GEMV#0: 11.9s wall  exact 3877/4096 (94.6533%)  |err|: max=24304 mean=343.3892
+[client]   mismatch outputs (first 12 of 219): m=9 ref=-1052 got=-4095, m=11 ref=-1182 got=-4095, m=17 ref=-1187 got=-4095, m=22 ref=-1221 got=-4095, m=92 ref=-1110 got=-2200, m=119 ref=-520 got=20673, m=129 ref=-1291 got=-4095, m=133 ref=-1085 got=-4095, m=145 ref=-917 got=-4095, m=195 ref=-1084 got=17090, m=209 ref=-1025 got=-4095, m=213 ref=-933 got=-4095
+[client]   |err| histogram: 64x1, 1068x1, 1090x1, 2447x1, 2563x1, 2626x1, 2648x1, 2668x1, 2674x1, 2675x1, 2722x1, 2728x1, 2745x1, 2748x1, 2757x1, 2758x1, 2767x1, 2769x1, 2786x1, 2800x1, 2802x1, 2804x1, 2815x1, 2833x1, 2844x1, 2848x1, 2859x1, 2862x2, 2867x1, 2872x1, 2874x1, 2875x1, 2880x1, 2882x1, 2885x1, 2887x1, 2888x1, 2889x1, 2896x1, 2908x1, 2910x1, 2913x1, 2916x1, 2921x1, 2931x1, 2943x1, 2951x1, 2952x1, 2953x1, 2957x1, 2958x1, 2964x1, 2970x1, 2972x1, 2973x2, 2984x3, 2996x1, 3004x1, 3005x1, 3010x1, 3011x1, 3014x1, 3016x1, 3019x1, 3027x1, 3030x1, 3033x1, 3037x1, 3043x2, 3051x2, 3052x1, 3054x3, 3056x1, 3062x1, 3070x1, 3072x1, 3075x1, 3077x1, 3091x1, 3094x1, 3095x1, 3104x1, 3107x1, 3108x1, 3113x1, 3126x2, 3127x1, 3130x1, 3137x1, 3138x1, 3141x2, 3142x1, 3145x1, 3146x1, 3162x1, 3167x1, 3172x1, 3176x1, 3178x2, 3181x2, 3190x1, 3196x1, 3203x1, 3205x1, 3208x1, 3210x1, 3214x1, 3215x1, 3218x1, 3224x2, 3226x1, 3232x1, 3237x1, 3239x1, 3242x1, 3255x1, 3271x1, 3283x1, 3290x1, 3293x1, 3301x1, 3318x1, 3335x1, 3341x1, 3347x1, 3348x1, 3396x1, 3414x1, 3430x1, 3455x1, 3460x1, 3463x1, 3508x1, 3516x1, 3545x1, 3565x1, 3595x1, 5992x1, 6028x1, 6030x1, 6032x1, 6036x1, 6046x1, 6058x1, 6060x1, 6066x1, 6078x1, 6098x1, 6102x1, 6116x1, 6236x1, 7399x1, 8952x1, 9040x1, 9059x1, 9080x1, 9106x1, 9120x1, 9161x1, 9164x1, 11872x1, 12024x1, 12032x1, 12060x1, 12092x1, 12128x1, 12176x1, 12216x1, 12248x1, 12284x1, 12312x1, 12320x1, 12432x1, 15126x1, 15140x1, 15286x1, 15310x1, 15331x1, 15341x1, 15440x1, 18112x1, 18130x1, 18174x1, 18192x1, 18206x1, 18208x1, 18226x1, 18254x1, 18316x1, 18342x1, 18516x1, 21000x1, 21080x1, 21114x1, 21128x1, 21193x1, 21196x1, 21254x1, 21270x1, 21303x1, 21338x1, 21363x1, 21392x1, 21440x1, 24064x1, 24304x1
+[client] RESULT: RESIDUAL — see histogram (cell-noise envelope?)
+[lane2] quit sentinel

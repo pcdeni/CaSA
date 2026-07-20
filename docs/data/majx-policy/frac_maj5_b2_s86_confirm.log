@@ -1,0 +1,40 @@
+[fm5] bender=2 bank=0 s_id=86 Rf=54423 Rs=54474  n_rand=28 trials=20
+[platform] BITSTREAM_IMEM in effect: 2048 (compile-time default)
+[platform] PIM_RECV_TIMEOUT_MS in effect: 15000
+[fm5] n_frac= 0 t_frac=0 init=ONE   strict=   1/2048 soft95=  25  meanrate=40.23%
+[fm5] n_frac= 1 t_frac=0 init=ONE   strict=1320/2048 soft95=1718  meanrate=97.15%
+[fm5] n_frac= 2 t_frac=0 init=ONE   strict=1758/2048 soft95=1955  meanrate=99.31%
+[fm5] n_frac= 3 t_frac=0 init=ONE   strict=1824/2048 soft95=1997  meanrate=99.57%
+[fm5] n_frac= 4 t_frac=0 init=ONE   strict=1842/2048 soft95=2004  meanrate=99.63%
+[fm5] n_frac= 6 t_frac=0 init=ONE   strict=1855/2048 soft95=2008  meanrate=99.66%
+[fm5] n_frac= 8 t_frac=0 init=ONE   strict=1854/2048 soft95=2005  meanrate=99.65%
+[fm5] n_frac=12 t_frac=0 init=ONE   strict=1856/2048 soft95=2001  meanrate=99.64%
+[fm5] n_frac=16 t_frac=0 init=ONE   strict=1855/2048 soft95=2005  meanrate=99.64%
+[fm5] n_frac= 0 t_frac=2 init=ONE   strict=   2/2048 soft95=  20  meanrate=40.53%
+[fm5] n_frac= 1 t_frac=2 init=ONE   strict= 237/2048 soft95= 562  meanrate=78.69%
+[fm5] n_frac= 2 t_frac=2 init=ONE   strict= 368/2048 soft95= 771  meanrate=83.47%
+[fm5] n_frac= 3 t_frac=2 init=ONE   strict= 373/2048 soft95= 816  meanrate=84.41%
+[fm5] n_frac= 4 t_frac=2 init=ONE   strict= 389/2048 soft95= 838  meanrate=84.71%
+[fm5] n_frac= 6 t_frac=2 init=ONE   strict= 374/2048 soft95= 838  meanrate=84.65%
+[fm5] n_frac= 8 t_frac=2 init=ONE   strict= 377/2048 soft95= 830  meanrate=84.62%
+[fm5] n_frac=12 t_frac=2 init=ONE   strict= 384/2048 soft95= 825  meanrate=84.48%
+[fm5] n_frac=16 t_frac=2 init=ONE   strict= 393/2048 soft95= 812  meanrate=84.41%
+[fm5] n_frac= 0 t_frac=0 init=ZERO  strict=1052/2048 soft95=1163  meanrate=85.14%
+[fm5] n_frac= 1 t_frac=0 init=ZERO  strict=1842/2048 soft95=1971  meanrate=99.37%
+[fm5] n_frac= 2 t_frac=0 init=ZERO  strict=1915/2048 soft95=2010  meanrate=99.73%
+[fm5] n_frac= 3 t_frac=0 init=ZERO  strict=1875/2048 soft95=2007  meanrate=99.68%
+[fm5] n_frac= 4 t_frac=0 init=ZERO  strict=1860/2048 soft95=2007  meanrate=99.67%
+[fm5] n_frac= 6 t_frac=0 init=ZERO  strict=1839/2048 soft95=2005  meanrate=99.64%
+[fm5] n_frac= 8 t_frac=0 init=ZERO  strict=1860/2048 soft95=2003  meanrate=99.63%
+[fm5] n_frac=12 t_frac=0 init=ZERO  strict=1846/2048 soft95=2002  meanrate=99.61%
+[fm5] n_frac=16 t_frac=0 init=ZERO  strict=1834/2048 soft95=1995  meanrate=99.58%
+[fm5] n_frac= 0 t_frac=2 init=ZERO  strict=1059/2048 soft95=1167  meanrate=85.15%
+[fm5] n_frac= 1 t_frac=2 init=ZERO  strict=1438/2048 soft95=1665  meanrate=96.15%
+[fm5] n_frac= 2 t_frac=2 init=ZERO  strict=1541/2048 soft95=1719  meanrate=96.89%
+[fm5] n_frac= 3 t_frac=2 init=ZERO  strict=1532/2048 soft95=1731  meanrate=97.05%
+[fm5] n_frac= 4 t_frac=2 init=ZERO  strict=1537/2048 soft95=1739  meanrate=97.10%
+[fm5] n_frac= 6 t_frac=2 init=ZERO  strict=1521/2048 soft95=1739  meanrate=97.09%
+[fm5] n_frac= 8 t_frac=2 init=ZERO  strict=1527/2048 soft95=1740  meanrate=97.11%
+[fm5] n_frac=12 t_frac=2 init=ZERO  strict=1521/2048 soft95=1735  meanrate=97.09%
+[fm5] n_frac=16 t_frac=2 init=ZERO  strict=1557/2048 soft95=1742  meanrate=97.16%
+[fm5] DONE

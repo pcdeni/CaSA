@@ -26,6 +26,7 @@
   .caption b { color: #ffd479; }
   .caption .ex { color: #22c1c3; font-weight: 600; }
   .caption code { background: #1f2434; padding: 1px 5px; border-radius: 3px; font-size: 12px; color: #ffd479; }
+  .caption a, .codepane a { color: #4f9bff; text-decoration: none; }
   .codepane { font-family: ui-monospace, monospace; font-size: 11.5px; color: #8a93a8; overflow: auto; max-height: 280px; }
   .codepane .hl { color: #ffd479; }
   .codepane .cm { color: #5a6178; font-style: italic; }
@@ -59,6 +60,7 @@
   <h1>The SiMRA doubleACT row-spread</h1>
   <span class="sub">A cross-DIMM characterization + the MAJ3 self-pollution it causes</span>
   <a href="index.html">← BitNet PIM explainer</a>
+  <a href="mvdram.html" style="margin-left:16px">The MVDRAM reproduction →</a>
 </header>
 <div class="banner"><b>Update, July 2026:</b> a SiMRA co-author confirmed the mechanism — the spread is Multi-RowCopy's co-activation lattice seen from the source side (latched predecoders), and assessed our XOR address-algebra as new; nearest prior art is FracDRAM (MICRO'22). We verified the mapping on our own data: all 696 production tuples are exact (R<sub>F</sub>,R<sub>S</sub>) lattices; 3,941/3,941 fault records contained. Scene 2's "source-specific" property is reinterpreted as pair algebra. Exchange: <a href="https://github.com/CMU-SAFARI/DRAM-Bender/issues/12">DRAM-Bender#12</a> · <a href="https://github.com/CMU-SAFARI/SiMRA-DRAM/issues/1">our verification + open questions</a>.</div>
 <nav id="nav"></nav>
@@ -80,7 +82,7 @@
   <button id="playBtn">▶ Play</button>
   <button id="nextBtn">Next ▶</button>
   <span class="step">Step <b id="stepNum">1</b> / <b id="stepMax">1</b></span>
-  <span class="scenefoot" id="scenefoot">Scene 1 of 8</span>
+  <span class="scenefoot" id="scenefoot">Scene 1 of 11</span>
 </div>
 <script>
 const SVG_NS='http://www.w3.org/2000/svg';
@@ -181,10 +183,10 @@ popcount distribution of XOR distances:
 md5(bank0 faults) == md5(bank1) ==
 md5(bank2) == md5(bank3)   <span class="hl">✓</span>`;}};
 
-// SCENE 3 — mechanism
-const s3={ title:'Scene 3 — The mechanism: row-decoder coupling', steps:4, render(step){
+// SCENE 3 — mechanism (provenance settled July 2026: Multi-RowCopy co-activation)
+const s3={ title:'Scene 3 — The mechanism: Multi-RowCopy seen from the source side', steps:4, render(step){
   clearScene();
-  sceneRoot.appendChild(text(500,28,'confirmed: latched predecoders co-assert extra wordlines during the second ACT',(step>=1?'label hl':'label dim')));
+  sceneRoot.appendChild(text(500,28,'settled: the spread IS Multi-RowCopy\'s co-activation lattice {src⊕S : S⊆bits(src⊕dst)}',(step>=1?'label hl':'label dim')));
   // hierarchical decoder sketch
   const dx0=120;
   sceneRoot.appendChild(rect(dx0,80,180,50,'',{fill:'#1d2230',stroke:'#4f9bff',rx:4}));
@@ -201,7 +203,7 @@ const s3={ title:'Scene 3 — The mechanism: row-decoder coupling', steps:4, ren
   // wordlines
   if(step>=3){
     const wlY=320;
-    sceneRoot.appendChild(text(500,wlY-15,'when 2 predecoders latch BOTH their outputs, 2 extra wordlines fire:','label hl'));
+    sceneRoot.appendChild(text(500,wlY-15,'2 predecoder units latch both outputs → the fired set is the lattice {R⊕S : S ⊆ {b₁,b₃}}:','label hl'));
     const rows=['R','R⊕(bit of predec 1)','R⊕(bit of predec 3)','R⊕(both)'];
     for(let i=0;i<4;i++){const y=wlY+15+i*32;
       sceneRoot.appendChild(line(200,y,800,y,i==0?'row-line':'row-line'));
@@ -211,17 +213,20 @@ const s3={ title:'Scene 3 — The mechanism: row-decoder coupling', steps:4, ren
 },
 caption(step){return[
  `<b>The row decoder is hierarchical.</b> A global decoder selects the subarray; a local decoder splits the low address bits across several predecoder banks, each latching a predecoded signal that drives the wordlines.`,
- `<b>Multi-row activation comes from short timing.</b> When the PRE→ACT gap is shortened, a predecoder can latch the NEXT row address without releasing the previous one. That's how SiMRA opens many rows at once (up to 2⁵ = 32).`,
- `<b>Some predecoders latch both their outputs.</b> Depending on how the source and destination addresses differ, one or more predecoders end up driving two wordlines — the intended one plus its address-XOR sibling.`,
- `<b>The sibling wordlines fire too — and absorb the source.</b> While they're open, the sense amp drives them to the source row's value. So R's content is deposited into R⊕(1&lt;&lt;b) for exactly the bits whose predecoder doubly-latched. Source-sparsity and bit-specificity follow directly; bank-invariance follows because it's all decoder hardware.`,
+ `<b>Multi-row activation comes from short timing.</b> When the PRE→ACT gap is shortened, a predecoder can latch the NEXT row address without releasing the previous one. That is precisely how SiMRA opens many rows at once (up to 2⁵ = 32) — the documented substrate of Multi-RowCopy and MAJX.`,
+ `<b>The co-activated set is an XOR lattice.</b> When the two ACT addresses differ in bit-set <code>bits(src⊕dst)</code>, the doubly-latched predecoders assert a wordline for every combination: the co-activation lattice <code>{src ⊕ S : S ⊆ bits(src⊕dst)}</code>. The calibrated tuple is this lattice used deliberately from the <em>destination</em> side — it is SiMRA's Multi-RowCopy mechanism, not a separate effect.`,
+ `<b>The spread is the same lattice seen from the source side — provenance settled, July 2026.</b> A SiMRA co-author confirmed the identification (<a href="https://github.com/CMU-SAFARI/DRAM-Bender/issues/12">DRAM-Bender#12</a>), and we verified it on our own data: all 696 production tuples are exact (R<sub>F</sub>,R<sub>S</sub>) lattices and 3,941/3,941 recorded fault rows lie inside the pair lattice (<a href="https://github.com/CMU-SAFARI/SiMRA-DRAM/issues/1">SiMRA-DRAM#1</a>). While the sibling wordlines are open, the sense amp drives them to the source's value — so R lands in its lattice siblings. Which lattice members actually fire is Scene 5's selection law.`,
 ][step];},
-codeRef(){return `<span class="src">model confirmed by the SiMRA authors — DRAM-Bender#12 (July 2026)</span>
-<span class="cm">Local-wordline-driver coupling: the 2nd ACT</span>
-<span class="cm">asserts a subarray-wide multi-WL signal while</span>
-<span class="cm">the source LWD is still in restore. For bits</span>
-<span class="cm">where a decoder transistor sits near its</span>
-<span class="cm">metastability boundary, the signal drives the</span>
-<span class="cm">source's data into both R and R⊕(1&lt;&lt;b).</span>
+codeRef(){return `<span class="src">provenance — settled (July 2026)</span>
+<a href="https://github.com/CMU-SAFARI/DRAM-Bender/issues/12">CMU-SAFARI/DRAM-Bender#12</a>
+<span class="cm">SiMRA co-author: the spread is Multi-RowCopy's</span>
+<span class="cm">co-activation (latched predecoders), viewed</span>
+<span class="cm">from the source side of the APA pair.</span>
+<a href="https://github.com/CMU-SAFARI/SiMRA-DRAM/issues/1">CMU-SAFARI/SiMRA-DRAM#1</a>
+<span class="cm">our verification on our data: 696/696</span>
+<span class="cm">production tuples are exact (R_F,R_S)</span>
+<span class="cm">lattices; 3,941/3,941 fault records</span>
+<span class="cm">contained in the pair lattice.</span>
 
 <span class="src">supporting evidence</span>
 <span class="cm">- per-die "gap bit" differs (next scene)</span>
@@ -275,8 +280,366 @@ codeRef(){return `<span class="src">cross-DIMM (single-bit XOR sweep)</span>
 <span class="cm">have a different coupling fingerprint —</span>
 <span class="cm">not worse cells.</span>`;}};
 
-// SCENE 5 — MAJ3 self-pollution
-const s5={ title:'Scene 5 — The trap: MAJ3 pollutes its own inputs', steps:5, render(step){
+// SCENE 4b — the selection law (NEW, July 2026)
+const s4b={ title:'Scene 5 — The selection law: which lattice members fire', steps:5, render(step){
+  clearScene();
+  const heads=['the lattice predicts 2^k candidate rows — but which of them actually fire?',
+               'the law: every predecoder unit contributes ∅ or its whole share of d — nothing else',
+               'tested member-by-member: 1691/1691 explained on EACH of two dies, zero exceptions',
+               'consequence: k-decay is combinatorial, and mask screening becomes a computed predicate',
+               'scope and limits: 1024-row blocks, one dead generator bit, and dies where no law holds'];
+  sceneRoot.appendChild(text(500,26,heads[step],'label hl'));
+  // 10 address bits partitioned into predecoder units: {0} {1,2} {3,4} {5,6} {7,8} {9}
+  const units=[[0],[1,2],[3,4],[5,6],[7,8],[9]];
+  const bw=58,bh=40,bgap=6,ugap=16,y0=64;
+  let totalW=0; for(const u of units) totalW+=u.length*bw+(u.length-1)*bgap; totalW+=(units.length-1)*ugap;
+  let x=(1000-totalW)/2;
+  const dBits=[1,2,5];  // example pair offset d = {1,2,5}
+  for(const u of units){
+    const w=u.length*bw+(u.length-1)*bgap;
+    const touched=step>=1&&u.some(b=>dBits.includes(b));
+    sceneRoot.appendChild(rect(x-5,y0-7,w+10,bh+14,'',{fill:'none',stroke:touched?'#22c1c3':(u.length===2?'#4f9bff':'#5a6178'),'stroke-width':touched?2:1,'stroke-dasharray':u.length===2?'':'3 3',rx:6}));
+    sceneRoot.appendChild(text(x+w/2,y0+bh+22,u.length===2?`unit {${u[0]},${u[1]}}`:'singleton','label dim'));
+    for(let j=0;j<u.length;j++){const b=u[j];const bx=x+j*(bw+bgap);
+      const inD=dBits.includes(b);
+      sceneRoot.appendChild(rect(bx,y0,bw,bh,'',{fill:inD?'#3a2a1a':'#1d2230',stroke:inD?'#f97316':'#2a2f3d','stroke-width':inD?2:1,rx:3}));
+      sceneRoot.appendChild(text(bx+bw/2,y0+bh/2,`b${b}`,inD?'label orange':'label'));}
+    x+=w+ugap;
+  }
+  sceneRoot.appendChild(text(500,y0+bh+44,'pair (A, A⊕d) with d = {1,2,5} — k = 3, predicted lattice = 8 rows','label orange'));
+  const yT=y0+bh+70;
+  if(step===0){
+    sceneRoot.appendChild(text(500,yT+30,'Scene 1 showed deposits land at lattice rows A⊕S — but on any given pair','label'));
+    sceneRoot.appendChild(text(500,yT+54,'only SOME of the 2^k predicted members receive them. Which? Until July 2026','label'));
+    sceneRoot.appendChild(text(500,yT+78,'we screened this empirically, member by member, pair by pair.','label'));
+  }
+  if(step>=1&&step<=3){
+    // subset table for d={1,2,5}: unit shares are {1,2} (whole) and {5} (from unit {5,6})
+    sceneRoot.appendChild(text(500,yT+10,'member A⊕S fires  ⇔  for every unit g:  S∩g ∈ { ∅ , d∩g }','label hl'));
+    const subs=[['{1}','splits unit {1,2}',false],['{2}','splits unit {1,2}',false],['{5}','∅ + whole {5}',true],
+                ['{1,2}','whole {1,2} + ∅',true],['{1,5}','splits unit {1,2}',false],['{2,5}','splits unit {1,2}',false],
+                ['{1,2,5}','whole + whole (= d, the dst)',true]];
+    const colW=130,rowH=30,tx=(1000-7*colW)/2+colW/2,ty=yT+40;
+    for(let i=0;i<subs.length;i++){const [s,why,fires]=subs[i];const cx=(1000-7*colW)/2+i*colW;
+      sceneRoot.appendChild(rect(cx+4,ty,colW-8,rowH*2-4,'',{fill:fires?'#10241a':'#2a1a1a',stroke:fires?'#22c1c3':'#7f1d1d',rx:3}));
+      sceneRoot.appendChild(text(cx+colW/2,ty+13,'S='+s,fires?'label cyan':'label dim'));
+      sceneRoot.appendChild(text(cx+colW/2,ty+33,fires?'FIRES':'never',fires?'label cyan':'label dim'));}
+    sceneRoot.appendChild(text(500,ty+rowH*2+16,'fired count = 2^(#units d touches) = 2² = 4 of the 2³ = 8 predicted (incl. A itself)','label'));
+  }
+  if(step===2){
+    const yE=yT+140;
+    sceneRoot.appendChild(rect(150,yE,700,150,'',{fill:'#1d2230',stroke:'#22c1c3',rx:5}));
+    sceneRoot.appendChild(text(500,yE+26,'1691/1691 member-observations explained — on EACH of two dies','label cyan'));
+    sceneRoot.appendChild(text(500,yE+52,'zero exceptions · zero mixed (partial-copy) rows','label'));
+    sceneRoot.appendChild(text(500,yE+78,'firing set identical at all 8 timing combos: t₁₂∈{5,10,20,30} × t₂₃∈{1,2}','label'));
+    sceneRoot.appendChild(text(500,yE+104,'per-member CSVs byte-identical across the two dies','label'));
+    sceneRoot.appendChild(text(500,yE+130,'(only the device-path preamble differs)','label dim'));
+  }
+  if(step===3){
+    const data=[[1,100],[2,100],[3,75],[4,25],[5,0]];
+    const x0=250,baseY=520,barW=70,gap=40,scale=1.2;
+    sceneRoot.appendChild(text(500,yT+130,'full-set fire rate by k (4 pairs each): a pure counting prediction','label hl'));
+    for(let i=0;i<data.length;i++){const [k,v]=data[i];const bx=x0+i*(barW+gap);const h=Math.max(2,v*scale);
+      sceneRoot.appendChild(rect(bx,baseY-h,barW,h,'',{fill:v>0?'#1d4ed8':'#7f1d1d',opacity:0.85,rx:2}));
+      sceneRoot.appendChild(text(bx+barW/2,baseY-h-12,`${v}%`,'label hl'));
+      sceneRoot.appendChild(text(bx+barW/2,baseY+16,`k=${k}`,'label'));}
+    sceneRoot.appendChild(line(x0-20,baseY,x0+5*(barW+gap),baseY,'bitline'));
+    sceneRoot.appendChild(text(500,baseY+44,'full 2^k set fires ⇔ d contains no complete pair-unit — combinatorial, not stochastic','label cyan'));
+  }
+  if(step===4){
+    const items=[
+      ['the block, not the "subarray"','the law\'s address space is the low-10-bit index within a 1024-row predecoder BLOCK. 640-row units are sense-amp segments only: same-block cosets deposit EXACTLY across the 640 boundary (8/8 and 16/16 membership-exact, both directions); cross-block pairs deposit no lattice coset at all','#22c1c3'],
+      ['bit 9 is a DEAD deposit generator','clone probes: d=1, 16, 17 → 100.00% deposit; d=512, 513 → 0.00%. Bit 9 never latches a deposit on this tuple class — it retro-explains why the production pair yields a 16-row tuple, not 32','#f97316'],
+      ['the law is a full-PUD-die property','on the two partial dies, k=1 deposits work but k≥2 selection fits NO clean partition (best 61% / 42%) and is weakly timing-DEPENDENT — a third independent corroboration that those dies are structurally different, not merely "less reliable"','#7f1d1d'],
+    ];
+    const x0b=80,y0b=190,dyb=118;
+    for(let i=0;i<items.length;i++){const y=y0b+i*dyb;
+      sceneRoot.appendChild(rect(x0b,y,840,dyb-14,'',{fill:'#1d2230',stroke:items[i][2],'stroke-width':1.5,rx:4}));
+      sceneRoot.appendChild(text(x0b+16,y+22,items[i][0],'label hl','start'));
+      const words=items[i][1].split(' ');const q=Math.ceil(words.length/4);
+      sceneRoot.appendChild(text(x0b+16,y+46,words.slice(0,q).join(' '),'label','start'));
+      sceneRoot.appendChild(text(x0b+16,y+64,words.slice(q,2*q).join(' '),'label','start'));
+      sceneRoot.appendChild(text(x0b+16,y+82,words.slice(2*q,3*q).join(' '),'label','start'));
+      sceneRoot.appendChild(text(x0b+16,y+100,words.slice(3*q).join(' '),'label','start'));}
+  }
+},
+caption(step){return[
+ `<b>The question Scene 1 left open.</b> For an APA pair (A, A⊕d), the lattice predicts 2^k candidate rows <code>{A⊕S : S⊆bits(d)}</code> — but on any given pair only a subset of members actually receives the deposit. Which subset? Until July 2026 we answered this empirically, screening member by member.`,
+ `<b>The law.</b> The subarray-local address bits fall into predecoder units — on our modules the pairs <code>{1,2} {3,4} {5,6} {7,8}</code>, with bits 0 and 9 alone. Member A⊕S fires <b>iff every unit g contributes S∩g ∈ {∅, d∩g}</b>: nothing, or exactly d's whole in-group pattern. <span class="ex">d={1,2,5}: unit {1,2} is wholly inside d, unit {5,6} contributes bit 5 → exactly A⊕{5}, A⊕{1,2}, A⊕{1,2,5} fire. Subsets that split a unit never fire.</span>`,
+ `<b>Zero exceptions, two dies, timing-invariant.</b> The reproducer writes a marker to A, zeros every other predicted member, fires the doubleACT, reads every member back. The law explains <b>1691/1691 member-observations on each of two dies</b> — zero exceptions, zero mixed rows. The firing set is identical at all 8 timing combos (t₁₂∈{5,10,20,30} × t₂₃∈{1,2}), and the member CSVs are byte-identical across the dies.`,
+ `<b>Consequences.</b> The fired count is 2^(number of units d touches), so the decay of full-lattice pairs with k is combinatorial, not stochastic: the full 2^k set fires iff d contains no complete pair-unit. Measured full-set rate by k on this module (4 pairs each): <b>100 / 100 / 75 / 25 / 0%</b> for k=1..5 — the counting prediction exactly. And screening stops being a sweep: whether a placement offset is safe is now a predicate you <em>compute</em> from d.`,
+ `<b>Scope, measured — not assumed.</b> (1) "Subarray-local" turned out to mean <b>low-10-bit-local within a 1024-row predecoder block</b>: the 640-row units are sense-amp segments only, and a same-block coset deposits membership-exact ACROSS the 640 boundary (8- and 16-row cosets verified row-by-row, both directions), while cross-block pairs deposit no coset at all. Allocators must plan block-scoped. (2) <b>Bit 9 is a dead deposit generator</b> on this tuple class (d=512/513 → 0.00% vs 100.00% for d=1/16/17) — only bits {0,4} give clean single-bit scratch offsets there, and the production pair's 16-row (not 32-row) tuple is retro-explained. (3) The clean law is a <b>full-PUD-die property</b>: on the two partial dies, single-bit deposits work but multi-bit selection fits no partition better than 61%/42% and weakly depends on timing — an independent, third corroboration that those dies differ structurally.`,
+][step];},
+codeRef(step){return `<span class="src">reproducer (app/test_selection_timing.cpp)</span>
+per pair (A, A⊕d):
+1. per-col write marker → A
+2. wrRow zeros → every other predicted
+   member {A⊕S : S⊆bits(d), S≠0}
+3. doubleACT(t₁, t₂, A, A⊕d)
+4. read every member;
+   fired(S) := content == marker
+
+<span class="src">data (docs/data/selection-law/)</span>
+selection_timing_b0.csv / _b2.csv
+<span class="hl">1691/1691 rows law-consistent, per die</span>
+<span class="cm">0 exceptions · 0 mixed rows</span>
+<span class="cm">8/8 timing combos identical</span>
+<span class="cm">full-set% by k: 100/100/75/25/0</span>
+<span class="cm">(selection_timing_b2.log summary)</span>
+
+<span class="src">scope data (step 5)</span>
+<span class="cm">block scope: fcdram_b0_v2.csv — same-block</span>
+<span class="cm">cross-640 cosets 8/8, 16/16 exact</span>
+<span class="cm">bit-9 dead: gemv-encoded clone probe</span>
+<span class="cm">d=512/513 → 0.00% (RESULT.md add. 17)</span>
+<span class="cm">partial dies: seltiming_b1/b3.csv — best</span>
+<span class="cm">partition fit 61% / 42% (add. 9)</span>`;}};
+
+// SCENE 5b — the clone-dead law (NEW, July 2026)
+const sCloneLaw={ title:'Scene 6 — The clone-dead law: which rows can feed a tuple', steps:5, render(step){
+  clearScene();
+  const heads=['~17% of pool rows CANNOT RowClone into their tuple — deterministically',
+               'the closed form: count the units the pair offset touches',
+               'held-out test: 2,496/2,496 row-verdicts predicted BEFORE silicon; second die 2,494/2,496',
+               'the twist: the standard pool construction had been ANTI-selecting clone health',
+               'consequences: the voting tax dissolves; screening becomes a predicate'];
+  sceneRoot.appendChild(text(500,26,heads[step],'label hl'));
+  if(step===0){
+    const xs=140,xe=860,N=10,dx=(xe-xs)/(N+1);
+    const yR=140,yRf=300;
+    sceneRoot.appendChild(line(xs,yR,xe,yR,'row-line'));
+    sceneRoot.appendChild(text(80,yR,'pool row R','label orange'));
+    const pat=[1,0,1,1,0,1,0,0,1,0];
+    for(let i=0;i<N;i++){const x=xs+(i+1)*dx;
+      sceneRoot.appendChild(rect(x-11,yR-9,22,18,pat[i]?'cap src':'cap empty'));}
+    sceneRoot.appendChild(el('path',{d:`M 500 ${yR+20} L 500 ${yRf-20}`,class:'arrow'}));
+    sceneRoot.appendChild(text(600,(yR+yRf)/2,'RowClone (doubleACT 30/1)','label dim'));
+    sceneRoot.appendChild(line(xs,yRf,xe,yRf,'row-line dim'));
+    sceneRoot.appendChild(text(80,yRf,'Rfirst','label hl'));
+    for(let i=0;i<N;i++){const x=xs+(i+1)*dx;
+      const ok=(i%2===0);
+      sceneRoot.appendChild(rect(x-11,yRf-9,22,18,ok&&pat[i]?'cap src':'cap empty'));}
+    sceneRoot.appendChild(text(500,380,'for some source rows the clone lands PARTIAL: median 1,140 of 2,048 words match','label hl'));
+    sceneRoot.appendChild(text(500,406,'(minimum ~400 — a diluted copy, not a hard failure)','label dim'));
+    sceneRoot.appendChild(text(500,450,'12,480 clone probes across 5 tuples × 4 banks: the verdict is a function of (tuple, R⊕Rfirst)','label'));
+    sceneRoot.appendChild(text(500,476,'zero rows in both the ok- and fail-sets — per-tuple DETERMINISM is perfect','label cyan'));
+  }
+  else if(step===1){
+    sceneRoot.appendChild(text(500,64,'d_low = (R ⊕ Rfirst) & 1023   ·   u = [bit0 set] + #pair-units {1,2}{3,4}{5,6}{7,8} touched','label'));
+    const rules=[
+      ['u ≤ 3','clone OK — zero exceptions anywhere (6,128/6,128 observations)','#10241a','#22c1c3'],
+      ['u ≥ 5','clone DEAD — the 2⁶-row co-activation dilutes the source charge below threshold','#2a1a1a','#7f1d1d'],
+      ['u = 4 special case','DEAD iff bit0 AND bit9 set AND touched units exactly {G1,G2,G3} — all 27 such classes dead; the 81 siblings with another unit untouched all OK','#3a2a1a','#f97316'],
+    ];
+    const y0=110,dy=100;
+    for(let i=0;i<rules.length;i++){const y=y0+i*dy;
+      sceneRoot.appendChild(rect(120,y,760,dy-16,'',{fill:rules[i][2],stroke:rules[i][3],'stroke-width':2,rx:5}));
+      sceneRoot.appendChild(text(150,y+26,rules[i][0],'label hl','start'));
+      const words=rules[i][1].split(' ');const half=Math.ceil(words.length/2);
+      sceneRoot.appendChild(text(150,y+52,words.slice(0,half).join(' '),'label','start'));
+      sceneRoot.appendChild(text(150,y+70,words.slice(half).join(' '),'label','start'));}
+    sceneRoot.appendChild(text(500,y0+3*dy+8,'accuracy on the 9,984 even-anchor observations: 99.980% — the only 2 misses are bank-marginal rows; ZERO false-dead','label cyan'));
+    sceneRoot.appendChild(text(500,y0+3*dy+34,'two failure FAMILIES, not one ladder: u5 fails at median 1200/2048, the u4 triple-group case at 620 — bit 9 encodes something qualitatively different','label dim'));
+    sceneRoot.appendChild(text(500,y0+3*dy+58,'caveat, stated: the form is anchor-parity-conditional — the one odd-Rfirst tuple deviates both ways (97.9%) and needs its own screen','label dim'));
+  }
+  else if(step===2){
+    const rows=[
+      ['test','prediction committed','silicon verdict'],
+      ['held-out tuple (sub85), 4 banks','516 ok / 108 dead, per row, BEFORE the sweep','2,496/2,496 correct — incl. 40/40 in never-observed d classes'],
+      ['second die (DIMM 0), 4 banks','108-109/624 dead per tuple, BEFORE the sweep','2,494/2,496 (99.92%) — both misses bank-marginal, zero false-dead'],
+    ];
+    const tx=70,ty=90,cw=[240,290,330],rh=64;
+    for(let r=0;r<rows.length;r++){let x=tx;
+      for(let c=0;c<3;c++){
+        sceneRoot.appendChild(rect(x,ty+r*rh,cw[c],rh,'',{fill:r===0?'#1d2230':'#131722',stroke:'#2a2f3d'}));
+        const words=rows[r][c].split(' ');
+        if(words.length<=5) sceneRoot.appendChild(text(x+cw[c]/2,ty+r*rh+rh/2,rows[r][c],r===0?'label hl':'label'));
+        else{const half=Math.ceil(words.length/2);
+          sceneRoot.appendChild(text(x+cw[c]/2,ty+r*rh+rh/2-10,words.slice(0,half).join(' '),r===0?'label hl':'label'));
+          sceneRoot.appendChild(text(x+cw[c]/2,ty+r*rh+rh/2+10,words.slice(half).join(' '),r===0?'label hl':'label'));}
+        x+=cw[c];}}
+    sceneRoot.appendChild(text(500,ty+3*rh+30,'predictions were written to a file and committed before the silicon ran — a genuine forecast, not a fit','label cyan'));
+    sceneRoot.appendChild(text(500,ty+3*rh+56,'cross-die: the same closed form, the same 17% census, on a different physical die of the same model','label'));
+    sceneRoot.appendChild(text(500,ty+3*rh+82,'fresh subarrays (pilot campaign): same law, same 108/640 census — subarray-invariant','label'));
+  }
+  else if(step===3){
+    sceneRoot.appendChild(text(500,70,'why the production pool was 37% clone-dead','label orange'));
+    const steps2=[
+      'the pool construction takes FAULT-FREE rows: greedy independent set by ascending fault-sweep degree',
+      'but clone-dead rows have degree ≈ 0 — the same dilution that kills their clone hides them from the fault sweep',
+      'so "safest first" preferentially picked clone-dead rows: 108/294 of the production pool; 9/16 of the scratch tail',
+      'DIMM 0 is the purest form: its pools are the degree-0 sets — they swallowed EVERY dead row of the window (39%)',
+    ];
+    for(let i=0;i<steps2.length;i++){const y=120+i*90;
+      sceneRoot.appendChild(rect(110,y,780,74,'',{fill:'#1d2230',stroke:'#f97316',rx:4}));
+      const words=steps2[i].split(' ');const half=Math.ceil(words.length/2);
+      sceneRoot.appendChild(text(140,y+26,words.slice(0,half).join(' '),'label','start'));
+      sceneRoot.appendChild(text(140,y+50,words.slice(half).join(' '),'label','start'));}
+  }
+  else if(step===4){
+    const rows=[
+      ['full-model config (8 tok)','s/tok','output'],
+      ['voted, May pool','360.8','‘Paris’ + wander'],
+      ['unvoted, May pool','134.8','garbage'],
+      ['unvoted, CLONE-OK pool','137.1','‘Paris’, on-topic'],
+      ['voted, clone-ok pool','372.5','byte-identical to unvoted'],
+    ];
+    const tx=110,ty=80,cw=[330,110,340],rh=36;
+    for(let r=0;r<rows.length;r++){let x=tx;
+      for(let c=0;c<3;c++){
+        sceneRoot.appendChild(rect(x,ty+r*rh,cw[c],rh,'',{fill:r===0?'#1d2230':'#131722',stroke:'#2a2f3d'}));
+        sceneRoot.appendChild(text(x+cw[c]/2,ty+r*rh+rh/2,rows[r][c],r===0?'label hl':(r===3?'label cyan':'label')));
+        x+=cw[c];}}
+    sceneRoot.appendChild(text(500,ty+5*rh+30,'the 2.7× voting cost was compensating for computing on partial clones — not an intrinsic need','label hl'));
+    sceneRoot.appendChild(text(500,ty+5*rh+56,'with the law: pools are filtered by predicate (clone_law.py), clone screening drops out of new-subarray','label'));
+    sceneRoot.appendChild(text(500,ty+5*rh+78,'characterization entirely (compute it), and allocators place refresh/backup rows clone-safe by construction','label'));
+  }
+},
+caption(step){return[
+ `<b>The observation.</b> The persistent-weight design refreshes each compute tuple by RowClone from a pool row (one doubleACT instead of a per-column rewrite). Sweeping every candidate source row: <b>~17% of each window's rows cannot clone into their tuple's Rfirst</b> — the clone lands partial (median 1,140/2,048 words, min ~400). Across 12,480 probes (5 tuples × 4 banks) the verdict is perfectly deterministic per (tuple, R⊕Rfirst): a structural property of the pair offset, not cell noise.`,
+ `<b>The closed form.</b> Take d_low = (R⊕Rfirst)&1023 and count u = [bit0] + the number of pair-units {1,2}{3,4}{5,6}{7,8} that d touches (Scene 5's units). <b>u≤3 → clone OK, zero exceptions (6,128/6,128). u≥5 → dead</b>: the 2⁶-row co-activation splits the restore charge too many ways. <b>u=4 → dead exactly when bit0 and bit9 are set and the touched units are {G1,G2,G3}</b> — all 27 such address classes dead, all 81 near-siblings fine. Two distinct failure families (u5 median 1200/2048 vs u4-triple 620) show bit 9 gating something qualitatively different, not one more halving. <span class="ex">Caveat, stated: the closed form is anchor-parity-conditional — the one odd-Rfirst tuple deviates in both directions (97.9%) and simply gets its own per-tuple screen; per-tuple determinism is still perfect.</span>`,
+ `<b>Held out, then predicted forward.</b> The law was fit on five tuples, then predictions for a sixth tuple's 624 rows were committed to a file <em>before</em> the sweep: silicon returned <b>2,496/2,496 row-verdicts correct across 4 banks</b>, including 40/40 in d classes never observed during fitting. On the second die (different physical die, same model) the same procedure scored <b>2,494/2,496 with zero false-dead</b> — the only misses are two bank-marginal rows. Fresh, never-calibrated subarrays show the same 108/640 census. This is a die-model-level law, not a per-chip accident.`,
+ `<b>The anti-selection twist.</b> The production pool was built for fault-freedom: a greedy independent set over the fault-sweep conflict graph, lowest-degree rows first. But clone-dead rows have degree ≈ 0 — <em>the same weak coupling that dilutes their clone hides them from the fault sweep</em> — so the "safest" rows were disproportionately clone-dead: <b>108/294 of the production pool, 9/16 of the scratch tail</b>, and on the second die (whose pools are literally the degree-0 sets) every dead row of the window landed in the pool. A third of the LLM's weight-refresh traffic had been computing on partial clones all along.`,
+ `<b>What it dissolved.</b> The full model without 3× voting had produced garbage — voting looked load-bearing (2.7× cost). On a law-filtered clone-ok pool, the unvoted model answers Paris at 137.1 s/tok and the voted arm produces <b>byte-identical text</b>: the tax was compensating for partial clones, nothing more. Downstream, clone screening is deleted from new-subarray characterization (compute the predicate instead — validated subarray-invariant), and allocators place backup/refresh rows clone-safe by construction. <b>One mechanism, two faces: the coupling that makes a row a good clone <em>source</em> also makes it a strong deposit <em>receiver</em> — which is the next scene.</b>`,
+][step];},
+codeRef(step){return `<span class="src">data (dimm2_fault_sweep_subs_2026_07_18/)</span>
+<span class="cm">5 sweeps × 4 banks + held-out sub85:</span>
+<span class="hl">12,480 probes; law 12,478/12,480</span>
+<span class="hl">held-out: 2,496/2,496 (predictions committed</span>
+<span class="hl">pre-silicon: o8_sub85_clone_predictions.txt)</span>
+<span class="cm">second die: dimm0_fault_sweep_2026_07_20/</span>
+<span class="cm">2,494/2,496, zero false-dead</span>
+
+<span class="src">predicate (app/clone_law.py)</span>
+u = [bit0] + #units touched by d_low
+dead ⇔ u≥5, or u==4 ∧ bit0 ∧ bit9
+       ∧ units == {G1,G2,G3}
+
+<span class="src">production consequence</span>
+<span class="cm">pool_layout_*_cloneok_*.txt (197 rows,</span>
+<span class="cm">all clone-ok) → unvoted full model:</span>
+<span class="hl">137.1 s/tok, ‘Paris’ (o8 logs);</span>
+<span class="hl">voted arm byte-identical at 372.5</span>`;}};
+
+// SCENE 5c — drift (NEW, July 2026)
+const sDrift={ title:'Scene 7 — The same coupling over time: traffic-induced drift', steps:5, render(step){
+  clearScene();
+  const heads=['resident rows drift away from their loaded content under production traffic',
+               'what it is NOT: refresh failure, voting, or any one request type',
+               'what it IS: deposit physics — saturation level ordered by the row\'s coupling class',
+               'a separate, additive term: plain retention (only when idle)',
+               'the production bug it predicted — and the fix'];
+  sceneRoot.appendChild(text(500,26,heads[step],'label hl'));
+  if(step===0){
+    // one-shot transition then flat
+    const x0=150,y0=420,w=700,h=280;
+    sceneRoot.appendChild(line(x0,y0,x0+w,y0,'bitline'));
+    sceneRoot.appendChild(line(x0,y0,x0,y0-h,'bitline'));
+    sceneRoot.appendChild(text(x0-10,y0-h+10,'match vs loaded content','label dim','end'));
+    sceneRoot.appendChild(text(x0+w/2,y0+24,'verify passes (same-subarray traffic between them) →','label dim'));
+    // flat at 100%, drop, flat
+    const pts=[[0,1.0],[0.18,1.0],[0.22,0.84],[1.0,0.84]];
+    let dstr='M '+(x0+pts[0][0]*w)+' '+(y0-pts[0][1]*h*0.9);
+    for(let i=1;i<pts.length;i++)dstr+=' L '+(x0+pts[i][0]*w)+' '+(y0-pts[i][1]*h*0.9);
+    sceneRoot.appendChild(el('path',{d:dstr,stroke:'#f97316','stroke-width':2.5,fill:'none'}));
+    sceneRoot.appendChild(text(x0+0.2*w,y0-h*0.98,'ONE-SHOT transition','label orange'));
+    sceneRoot.appendChild(text(x0+0.62*w,y0-0.84*h*0.9+22,'then FLAT — saturated-stable for the rest of the run','label'));
+    sceneRoot.appendChild(text(500,y0+56,'every handle verifies CLEAN at first use; the drop is induced afterwards, then stops moving','label hl'));
+  }
+  else if(step===1){
+    const rows=[
+      ['suspect','test','verdict'],
+      ['refresh missing/broken','refresh-ON vs refresh-OFF arms: identical (52/80 both)','EXONERATED — twice'],
+      ['a specific request type','+streamed reqs, +200 fused MM3Ds, +200 scratch reqs: no change','not the flavor — any traffic'],
+      ['load-time corruption','handles 0/1/2 verify clean at first MM3D','not LOAD'],
+      ['cell decay alone','the verify pass ITSELF transitions ~65% of rows','traffic-induced'],
+    ];
+    const tx=60,ty=80,cw=[230,420,230],rh=52;
+    for(let r=0;r<rows.length;r++){let x=tx;
+      for(let c=0;c<3;c++){
+        sceneRoot.appendChild(rect(x,ty+r*rh,cw[c],rh,'',{fill:r===0?'#1d2230':'#131722',stroke:'#2a2f3d'}));
+        const words=rows[r][c].split(' ');
+        if(words.length<=5) sceneRoot.appendChild(text(x+cw[c]/2,ty+r*rh+rh/2,rows[r][c],r===0?'label hl':'label'));
+        else{const half=Math.ceil(words.length/2);
+          sceneRoot.appendChild(text(x+cw[c]/2,ty+r*rh+rh/2-9,words.slice(0,half).join(' '),'label'));
+          sceneRoot.appendChild(text(x+cw[c]/2,ty+r*rh+rh/2+9,words.slice(half).join(' '),'label'));}
+        x+=cw[c];}}
+    sceneRoot.appendChild(text(500,ty+5*rh+34,'the key physical point: MM3D-entry refresh restores CHARGE of whatever the row holds','label hl'));
+    sceneRoot.appendChild(text(500,ty+5*rh+58,'— it preserves DRIFTED content perfectly. Refresh is not a content checksum.','label orange'));
+  }
+  else if(step===2){
+    const bars=[['u≤3 rows (strong coupling — the clone-OK class)',6913,'#f97316'],['u5 rows (weak coupling — the clone-dead class)',2917,'#1d4ed8']];
+    const bx=420,by0=140,bh=56,scale=0.055;
+    sceneRoot.appendChild(text(500,90,'post-saturation match level vs loaded content (median words changed of 8192 segs)','label'));
+    for(let i=0;i<2;i++){const y=by0+i*(bh+30);const w=bars[i][1]*scale;
+      sceneRoot.appendChild(text(bx-14,y+bh/2,bars[i][0],'label','end'));
+      sceneRoot.appendChild(rect(bx,y,w,bh,'',{fill:bars[i][2],opacity:0.85,rx:3}));
+      sceneRoot.appendChild(text(bx+w+12,y+bh/2,`${bars[i][1]}/8192 (~${Math.round(bars[i][1]/81.92)}%)`,'label hl','start'));}
+    sceneRoot.appendChild(text(500,by0+2*(bh+30)+20,'the saturation level is ORDERED by the selection-law coupling class of the row','label hl'));
+    sceneRoot.appendChild(text(500,by0+2*(bh+30)+46,'one mechanism, two faces: a good clone source is a strong deposit receiver under tuple traffic','label cyan'));
+    sceneRoot.appendChild(text(500,by0+2*(bh+30)+84,'the flipped bits are byte-lane localized (one x8 chip: OR masks 0xff000000 / 0x66000000 classes)','label dim'));
+    sceneRoot.appendChild(text(500,by0+2*(bh+30)+108,'and late-loaded handles arrive already-transitioned: earlier handles\' traffic reached their rows first','label dim'));
+  }
+  else if(step===3){
+    sceneRoot.appendChild(rect(140,100,720,140,'',{fill:'#1d2230',stroke:'#4f9bff',rx:5}));
+    sceneRoot.appendChild(text(500,130,'idle-arm control: 300 s of NOTHING between passes (auto-refresh off)','label hl'));
+    sceneRoot.appendChild(text(500,160,'transitions 52/80 → 72/80, and 80/80 handles go result-wrong','label'));
+    sceneRoot.appendChild(text(500,190,'plain retention decay stacks ON TOP of the traffic effect — two separate terms','label'));
+    sceneRoot.appendChild(text(500,220,'(traffic term: saturating, coupling-ordered · retention term: time-driven, everywhere)','label dim'));
+    sceneRoot.appendChild(text(500,300,'compute impact, honestly: REAL at exact-check granularity (60/80 handles y-mismatch at small dims)','label'));
+    sceneRoot.appendChild(text(500,326,'while the FULL MODEL absorbs it — ternary quantization + popcount margins tolerate 18–33% drifted rows','label'));
+    sceneRoot.appendChild(text(500,352,'(the model answered Paris through all of it, unvoted included)','label cyan'));
+    sceneRoot.appendChild(text(500,400,'no allocator dodge exists — the pathway is same-subarray physics; the mitigation when exactness','label dim'));
+    sceneRoot.appendChild(text(500,424,'matters is a per-round row rewrite (surrenders most of the residency advantage)','label dim'));
+  }
+  else if(step===4){
+    sceneRoot.appendChild(text(500,70,'the prediction that came true: resident constant rows','label orange'));
+    const steps2=[
+      ['the fused body keeps all-ONE / all-ZERO constant rows resident (written once at startup)','#1d2230','#2a2f3d'],
+      ['those rows were chosen deposit-SAFE by the pair-lattice rules — i.e. from the STRONG-coupling class','#1d2230','#2a2f3d'],
+      ['exactly the class this scene says drifts hardest — the safety criterion anti-selected drift immunity','#3a2a1a','#f97316'],
+      ['full model: protocol tests pass (fresh consts), production babbles (drifted consts feeding every clone)','#2a1a1a','#7f1d1d'],
+      ['fix: rewrite the const rows\' CONTENT at every request start, after the entry refresh (~0.5 ms) → Paris, byte-identical to control','#10241a','#22c1c3'],
+    ];
+    for(let i=0;i<steps2.length;i++){const y=104+i*82;
+      sceneRoot.appendChild(rect(100,y,800,68,'',{fill:steps2[i][1],stroke:steps2[i][2],'stroke-width':1.5,rx:4}));
+      const words=steps2[i][0].split(' ');const half=Math.ceil(words.length/2);
+      sceneRoot.appendChild(text(130,y+24,words.slice(0,half).join(' '),'label','start'));
+      sceneRoot.appendChild(text(130,y+46,words.slice(half).join(' '),'label','start'));}
+  }
+},
+caption(step){return[
+ `<b>The observation.</b> With weights resident in pool rows (LOAD mode), instrumented verifies show rows drifting away from their loaded content under production traffic: each row verifies clean at first use, then takes a <b>one-shot transition and stays flat</b> — saturated-stable for the rest of the run (e.g. 0.180→0.180 changed-fraction over 7 verifies / 1,000 s). This had been a known-issue comment in the client since May; July made it a measured, law-structured phenomenon.`,
+ `<b>Elimination first.</b> Seven single-variable arms: refresh ON vs OFF — <em>identical</em> (and the label-collision bug era, where extra windows silently got no refresh at all, shows the same transitions: refresh is exonerated twice). Adding streamed requests, 200× fused matmuls, or 200× scratch-writing requests on top — <em>no change</em>; the effect saturates. The verify/compute pass itself is the treatment: ~80–160 same-subarray program bodies transition ~65% of rows. The physical point that matters system-wide: <b>refresh restores the charge of whatever the row currently holds — it preserves drifted content perfectly.</b> Refresh is charge maintenance, not a content checksum.`,
+ `<b>The mechanism signature.</b> Post-saturation match level is <b>ordered by the row's selection-law coupling class</b>: strong-coupling u≤3 rows (the clone-OK class) saturate at ~84% changed; weak-coupling u5 rows (the clone-dead class) at ~36%. The same lattice coupling that makes a row a good clone source makes it a strong deposit receiver under tuple traffic — <b>one mechanism, two faces</b> (Scene 6's law, seen dynamically). Flipped bits are byte-lane-localized (one x8 chip's lanes), and late-loaded handles arrive already-transitioned because earlier handles' traffic reached their rows first.`,
+ `<b>Retention is a separate, additive term.</b> A 300-second idle window (auto-refresh off) pushes transitions from 52/80 to 72/80 handles and drives all 80 result-wrong: plain decay stacks on top of the traffic effect. Impact, stated honestly: at exact-check granularity the drift is REAL (most handles mismatch at small test dims), while the full model absorbs it — BitNet's quantization and popcount margins tolerate the 18–33% drifted-row levels production reaches, and the model kept answering Paris, unvoted included. There is no allocator dodge (it is same-subarray physics); the exactness-grade mitigation is a per-round row rewrite, at most of LOAD-mode's advantage.`,
+ `<b>The regression it predicted.</b> The fused body keeps all-ONE/all-ZERO constant rows resident. Those rows were selected <em>deposit-safe</em> — i.e. from the strong-coupling class — exactly the class this physics says drifts hardest: the safety criterion anti-selected drift immunity. Protocol tests passed (fresh constants); the full model babbled ("I am a helpful AI assistant"), because every fused body cloned its operands from progressively degraded constant rows, and the entry refresh faithfully preserved the degradation. The fix rewrites the constant rows' <em>content</em> at every-request start after the refresh (~0.5 ms): the full model returns <b>byte-identical-to-control Paris</b> at the control's wall. A textbook case of characterized physics predicting a production failure mode before its root cause was known.`,
+][step];},
+codeRef(step){return `<span class="src">isolation arms (o8_drift_arms.py, R1–R7)</span>
+R1 nothing        : 52/80 transitioned
+R2 +overflow      : 52/80   R3 refresh-off: 52/80
+R4 idle 300 s     : <span class="hl">72/80, y-bad 80/80</span>
+R5/R6/R7 traffic flavors: 52-53/80 (saturated)
+
+<span class="src">coupling-ordered saturation</span>
+u≤3 rows → median 6913/8192 changed (~84%)
+u5 rows  → 2917/8192 (~36%)
+<span class="cm">verify-bits OR masks: 0xff000000-class</span>
+<span class="cm">(one x8 device's byte lane)</span>
+
+<span class="src">the consts regression + fix</span>
+<span class="cm">pre-fix consts full model: babble, 6021 s</span>
+<span class="cm">fixed (per-request rewrite): 'Paris',</span>
+<span class="hl">byte-identical to features-off control</span>
+<span class="cm">(o4_constsfix_silicon_2026_07_19/, in app/)</span>
+
+<span class="src">code: app/test_bitnet_server.cpp</span>
+<span class="cm">rewrite_resident_const_rows(), default</span>
+<span class="cm">every request; PIM_CONSTS_REWRITE_EVERY=0</span>
+<span class="cm">keeps the pre-fix behavior as a probe arm</span>`;}};
+
+// SCENE 5 (now Scene 8) — MAJ3 self-pollution
+const s5={ title:'Scene 8 — The trap: MAJ3 pollutes its own inputs', steps:5, render(step){
   clearScene();
   sceneRoot.appendChild(text(500,26,'the MAJ3 doubleACT itself spreads Rfirst into other rows of its OWN tuple','label hl'));
   // tuple of K open rows; Rfirst at top; show some becoming Rfirst-colored
@@ -323,8 +686,8 @@ codeRef(){return `<span class="src">measured (MAJ3-timing doubleACT, src=Rfirst)
 <span class="cm">fanout-8  tuple: 3 of 8  hit</span>
 <span class="cm">fanout-4  tuple: 1 of 4  hit</span>`;}};
 
-// SCENE 6 — signature in data
-const s6={ title:'Scene 6 — The signature in the MAJ success-rate data', steps:4, render(step){
+// SCENE 6 (now Scene 9) — signature in data
+const s6={ title:'Scene 9 — The signature in the MAJ success-rate data', steps:4, render(step){
   clearScene();
   sceneRoot.appendChild(text(500,30,'cross-tab MAJ3 stability against shadow-overlap count, on a fanout-4 chip','label hl'));
   // bar chart: overlap 0,1,2 vs stability
@@ -363,8 +726,8 @@ overlap=1 : n= 896  mean 13.5%  max 71.9%
 <span class="cm">collapse at overlap = ceil(K/2) minus the</span>
 <span class="cm">Rfirst copies already present. For K=4: 2.</span>`;}};
 
-// SCENE 7 — why it matters
-const s7={ title:'Scene 7 — Why it matters for PuD characterization', steps:3, render(step){
+// SCENE 7 (now Scene 10) — why it matters
+const s7={ title:'Scene 10 — Why it matters for PuD characterization', steps:3, render(step){
   clearScene();
   sceneRoot.appendChild(text(500,40,'the reported MAJX success rate conflates two different things','label hl'));
   const boxes=[
@@ -396,55 +759,93 @@ codeRef(){return `<span class="src">recommendation</span>
 <span class="cm">the overlap crossing K/2; the residual is</span>
 <span class="cm">the chip's real MAJX capability.</span>`;}};
 
-// SCENE 8 — two responses
-const s8={ title:'Scene 8 — Two responses: avoid it, or use it', steps:3, render(step){
+// SCENE 8 (now Scene 11) — two responses; "use it" updated July 2026 with shipped results
+const s8={ title:'Scene 11 — Two responses: avoid it, or use it', steps:4, render(step){
   clearScene();
-  sceneRoot.appendChild(text(500,36,'once characterized, the spread is a tool — not just a hazard','label hl'));
-  // left: engineer around; right: exploit
-  if(step>=1){
-    sceneRoot.appendChild(rect(90,90,400,180,'',{fill:'#10241a',stroke:'#22c1c3',rx:5}));
-    sceneRoot.appendChild(text(290,118,'ENGINEER AROUND','label cyan'));
-    sceneRoot.appendChild(text(110,150,'Build the conflict graph (u→v if u','label','start'));
-    sceneRoot.appendChild(text(110,170,'spreads into v). Take a max independent','label','start'));
-    sceneRoot.appendChild(text(110,190,'set → a fault-free row pool where no','label','start'));
-    sceneRoot.appendChild(text(110,210,'two rows are mutual shadows.','label','start'));
-    sceneRoot.appendChild(text(110,240,'Used as the persistent-weight pool.','label hl','start'));
-    sceneRoot.appendChild(text(110,258,'276 rows (DIMM A) / 294 (DIMM B) of 624.','label dim','start'));
+  const heads=['once characterized, the spread is a tool — not just a hazard',
+               'avoid it: independent-set row pools (the production path since May 2026)',
+               'use it: the lattice as an addressing system (shipped July 2026)',
+               'what the levers bought on silicon (July 2026, measured)'];
+  sceneRoot.appendChild(text(500,36,heads[step],'label hl'));
+  if(step===1){
+    sceneRoot.appendChild(rect(280,90,440,190,'',{fill:'#10241a',stroke:'#22c1c3',rx:5}));
+    sceneRoot.appendChild(text(500,118,'ENGINEER AROUND','label cyan'));
+    sceneRoot.appendChild(text(300,150,'Build the conflict graph (u→v if u','label','start'));
+    sceneRoot.appendChild(text(300,170,'spreads into v). Take a max independent','label','start'));
+    sceneRoot.appendChild(text(300,190,'set → a fault-free row pool where no','label','start'));
+    sceneRoot.appendChild(text(300,210,'two rows are mutual shadows.','label','start'));
+    sceneRoot.appendChild(text(300,240,'Used as the persistent-weight pool.','label hl','start'));
+    sceneRoot.appendChild(text(300,258,'276 rows (DIMM A) / 294 (DIMM B) of 624.','label dim','start'));
   }
-  if(step>=2){
-    sceneRoot.appendChild(rect(510,90,400,180,'',{fill:'#3a2a1a',stroke:'#f97316',rx:5}));
-    sceneRoot.appendChild(text(710,118,'EXPLOIT IT','label orange'));
-    sceneRoot.appendChild(text(530,150,'The spread is a bit-exact, deterministic','label','start'));
-    sceneRoot.appendChild(text(530,170,'free copy. One doubleACT deposits the','label','start'));
-    sceneRoot.appendChild(text(530,190,'source into several siblings at once.','label','start'));
-    sceneRoot.appendChild(text(530,220,'A free fan-out / row-replication','label hl','start'));
-    sceneRoot.appendChild(text(530,238,'primitive — populate a backup pool in','label hl','start'));
-    sceneRoot.appendChild(text(530,256,'one write instead of many.','label hl','start'));
+  if(step===2){
+    sceneRoot.appendChild(rect(150,80,700,210,'',{fill:'#3a2a1a',stroke:'#f97316',rx:5}));
+    sceneRoot.appendChild(text(500,108,'USE IT — placement by construction','label orange'));
+    sceneRoot.appendChild(text(175,140,'corruption of a co-activated group during a RowClone is a function of','label','start'));
+    sceneRoot.appendChild(text(175,160,'the PAIR OFFSET src⊕dst (Scenes 3+5)','label','start'));
+    sceneRoot.appendChild(text(175,190,'→ pick offsets free of generator subsets: the load is tuple-clean','label hl','start'));
+    sceneRoot.appendChild(text(175,210,'   BY CONSTRUCTION — no screening, no retries','label hl','start'));
+    sceneRoot.appendChild(text(175,240,'measured: 20/20 clean loads · full 16-row tuple loaded with','label cyan','start'));
+    sceneRoot.appendChild(text(175,260,'8 doubleACTs, 16/16 correct (June, wrong source-model: 5/16)','label cyan','start'));
+    sceneRoot.appendChild(text(500,330,'the same discipline re-ran MVDRAM\'s faithful computation-rows dataflow:','label'));
+    sceneRoot.appendChild(text(500,354,'June 6.1% end-to-end → July 99.98% — same DAG, only the placement changed','label hl'));
   }
-  if(step>=2){
-    sceneRoot.appendChild(text(500,330,'"Using something in the way it was not intended is not a security risk —','label hl'));
-    sceneRoot.appendChild(text(500,356,'it is creativity."','label hl'));
-    sceneRoot.appendChild(text(500,400,'The same charge-sharing physics that makes DRAM compute possible','label dim'));
-    sceneRoot.appendChild(text(500,422,'also produces this spread. Characterize it, and it cuts both ways.','label dim'));
+  if(step===3){
+    const cards=[
+      ['fused per-MAJ (tool A/B, iters=100)','0.357 → 0.089 ms/MAJ = 3.99× (die A)','0.556 → 0.085 ms/MAJ = 6.53× (die B) · bit-exact 0/204,800 per die'],
+      ['production server (PIM_FUSED_COSET=1)','1.45–1.6× per matmul, bit-exact','real model, 8 tokens: 117.2 → 71.8 s = 1.63× — both arms answer "Paris"'],
+      ['MVDRAM fastpath kernel (18-MAJ3 gate)','1.585/1.574 → 0.683/0.705 ms/gate','= 2.32×/2.23× (die A/B) · fast loading costs ~0.17% end-to-end'],
+    ];
+    for(let i=0;i<3;i++){const y=80+i*100;
+      sceneRoot.appendChild(rect(120,y,760,88,'',{fill:'#1d2230',stroke:'#f97316','stroke-width':2,rx:5}));
+      sceneRoot.appendChild(text(140,y+22,cards[i][0],'label orange','start'));
+      sceneRoot.appendChild(text(140,y+46,cards[i][1],'label hl','start'));
+      sceneRoot.appendChild(text(140,y+68,cards[i][2],'label','start'));}
+    sceneRoot.appendChild(text(500,420,'"Using something in the way it was not intended is not a security risk —','label hl'));
+    sceneRoot.appendChild(text(500,446,'it is creativity."','label hl'));
+    sceneRoot.appendChild(text(500,490,'The same co-activation that makes the hazard makes the tool.','label dim'));
   }
 },
 caption(step){return[
- `<b>Two ways to respond</b> to a deterministic, characterized side-effect: design around it, or turn it into a feature.`,
- `<b>Engineer around it.</b> Treat the (source → sibling) edges as a conflict graph and take a maximum independent set — a pool of rows where writing any one never corrupts another. <span class="ex">EXAMPLE: 276 of 624 rows on one DIMM, 294 on another.</span> This is the fault-free persistent-weight pool that lets the in-DRAM LLM run correctly.`,
- `<b>Or exploit it.</b> The spread is a bit-exact, deterministic copy. A single doubleACT deposits the source into several sibling rows at once — a free fan-out / row-replication primitive. Instead of writing N backup rows individually, write one and let the spread populate its siblings. The same physics that makes the hazard makes the tool.`,
+ `<b>Two ways to respond</b> to a deterministic, characterized side-effect: design around it, or turn it into a feature. As of July 2026 both responses are shipped and measured.`,
+ `<b>Engineer around it.</b> Treat the (source → sibling) edges as a conflict graph and take a maximum independent set — a pool of rows where writing any one never corrupts another. <span class="ex">EXAMPLE: 276 of 624 rows on one DIMM, 294 on another.</span> This is the fault-free persistent-weight pool that lets the in-DRAM LLM run correctly. <b>July 2026 amendment:</b> fault-freedom alone anti-selects clone health (Scene 6) — the current pools are built with BOTH filters: independent-set discipline AND the clone-law predicate (197 clone-ok rows on the production die).`,
+ `<b>Use it — placement by construction.</b> The pair lattice (Scene 3) plus the selection law (Scene 5) turn the spread into an addressing system. Corruption during a RowClone into a co-activated group is a function of the pair offset src⊕dst; choose an offset free of generator subsets and the load is tuple-clean <em>by construction</em>. Measured: <b>20/20</b> clean loads; the fast tuple load fills all 16 rows with 8 doubleACTs, <b>16/16</b> correct (June's source-model attempt managed 5/16). The same discipline re-ran MVDRAM's faithful computation-rows dataflow at <b>99.98%</b> end-to-end — reversing June's 6.1% verdict.`,
+ `<b>What the levers bought.</b> Persistent weights + the coset activation update, fused into one per-MAJ program: <b>0.357→0.089 ms/MAJ (3.99×, die A)</b> and 0.556→0.085 (6.53×, die B), bit-exact over 100 iterations (0/204,800 bad segments per die). In the production server (<code>PIM_FUSED_COSET=1</code>): <b>1.45–1.6× per matmul</b>, bit-exact — and <b>1.63×</b> on the real model (117.2→71.8 s for 8 tokens with layer 0's seven projections in DRAM; both arms answer "Paris"). The MVDRAM fastpath kernel runs <b>2.2–2.3×</b> faster per gate than the host-write shape.`,
 ][step];},
-codeRef(){return `<span class="src">engineer-around: independent-set pool</span>
+codeRef(step){if(step<=1)return `<span class="src">engineer-around: independent-set pool</span>
 build undirected conflict graph from the
 fault edges → greedy max-IS → pool rows
 with zero pairwise spread.
 <span class="cm">verified: 0 conflict violations in the IS.</span>
 
-<span class="src">exploit: free fan-out</span>
-<span class="cm">one per-col write + one doubleACT →</span>
-<span class="cm">source pattern at R and at R⊕(vuln bits),</span>
-<span class="cm">bit-exact. Amortizes pool population.</span>`;}};
+<span class="src">use-it results: steps 3–4 of this scene</span>`;
+if(step===2)return `<span class="src">reproducer (app/test_safe_load.cpp)</span>
+<span class="cm">phase 1: safe external RowClones —</span>
+<span class="cm">  20/20 targets clean (only dst written)</span>
+<span class="cm">phase 2: unsafe-offset controls corrupt</span>
+<span class="cm">  EXACTLY the predicted extra rows</span>
+<span class="cm">phase 4: full fast tuple load —</span>
+<span class="hl">  8 doubleACTs, 16/16 rows correct</span>
 
-const SCENES=[s1,s2,s3,s4,s5,s6,s7,s8];
+<span class="src">reproducer (app/test_mvdram_compute_rows_safe.cpp)</span>
+<span class="cm">same DAG as June, safe placement only:</span>
+<span class="hl">99.98% e2e (June: 6.1%)</span>
+<span class="cm">see docs/MVDRAM_REPRODUCTION.md §8</span>`;
+return `<span class="src">app/test_fused_maj.cpp (iters=100)</span>
+<span class="hl">A 0.357/0.556 → B2 0.089/0.085 ms/MAJ</span>
+<span class="cm">3.99× / 6.53× · 0/204,800 bad per die</span>
+
+<span class="src">app/test_bitnet_server.cpp + python/ab_fused_server.py</span>
+<span class="cm">PIM_FUSED_COSET=1: 9.7–9.8→6.4–6.9 ms/matmul</span>
+<span class="cm">(bank 0), 9.5–9.7→6.1 (4-bank) = 1.45–1.6×</span>
+<span class="cm">real model (BitNet b1.58-2B, layer-0×7,</span>
+<span class="cm">4-bank, 8 tok): 117.2→71.8 s = 1.63×</span>
+
+<span class="src">app/test_mvdram_fastpath_ab.cpp</span>
+<span class="cm">logs: docs/data/mvdram-repro/fastpath_ab_b*.log</span>
+<span class="cm">write-load 1.585/1.574 → fused clone-load</span>
+<span class="cm">0.683/0.705 ms/gate = 2.32×/2.23×</span>`;}};
+
+const SCENES=[s1,s2,s3,s4,s4b,sCloneLaw,sDrift,s5,s6,s7,s8];
 let curScene=0,curStep=0,playTimer=null;
 function renderNav(){nav.innerHTML='';SCENES.forEach((s,i)=>{const b=document.createElement('button');b.textContent=`${i+1}. ${s.title.replace(/^Scene \d+ — /,'')}`;if(i===curScene)b.classList.add('active');b.onclick=()=>{curScene=i;curStep=0;render();};nav.appendChild(b);});}
 function render(){renderNav();const s=SCENES[curScene];titleEl.textContent=s.title;s.render(curStep);captionEl.innerHTML=s.caption(curStep);codeEl.innerHTML=(s.codeRef?s.codeRef(curStep):'')||'<span class="cm">—</span>';stepNumEl.textContent=curStep+1;stepMaxEl.textContent=s.steps;sceneFoot.textContent=`Scene ${curScene+1} of ${SCENES.length}`;document.getElementById('prevBtn').disabled=(curScene===0&&curStep===0);document.getElementById('nextBtn').disabled=(curScene===SCENES.length-1&&curStep===s.steps-1);}

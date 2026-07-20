@@ -1,0 +1,22 @@
+[client] starting: /home/deni/Claude/mvdram-repro/lane2-gemv-server 2 /home/deni/Claude/mvdram-repro/calib_maj5_dimm2.txt 0 86 /home/deni/Claude/mvdram-repro/colmask_dimm2_s86_robust.txt
+Opened /dev/xdma0_h2c_2 -> 4
+Opened /dev/xdma0_c2h_2 -> 5
+Successfully reset the FPGA!
+[lane2] server: bender=2 s_id=86 bank=0 pack=1 vote3=1 dualtrack=1 encode=host input colmask=1784/2048
+[platform] BITSTREAM_IMEM in effect: 8192 (env override)
+[platform] PIM_RECV_TIMEOUT_MS in effect: 15000
+[lane2] op-matched screen (3 trials): 1616/1784 reliable segments (0.0 s, 198 MAJs) -> capacity M<=51712 outputs/pass
+[lane2] ready
+[lane2] LOAD handle=1 q=4 K=4096 M=4096 -> 4096 x 4 bitplane rows (+inverted planes, Fig-15 dual-track) (host-resident; streamed into the tuple per-op — see header) in 0.30 s
+[client] LOAD ok: q=4 K=4096 M=4096 (8388608 B payload; pack 0.10s, load 0.31s)
+[lane2]   plane i=0 c=0 done (58.2 s, FA=2111 MAJ=25332)
+[lane2]   plane i=1 c=0 done (56.8 s, FA=4222 MAJ=50664)
+[lane2]   plane i=2 c=0 done (57.1 s, FA=6333 MAJ=75996)
+[lane2]   plane i=3 c=0 done (57.6 s, FA=8444 MAJ=101328)
+[lane2] GEMV handle=1 K=4096 M=4096 q=4 r=1: 229.82 s wall, 8444 FA, 101328 MAJ, 1720848 execs, 1518192 pcwrites, 1982 taps zero-skipped
+[lane2]   dual-rail consistency: 181663 violations / 873312256 lane-checks
+[client] GEMV#0: 229.8s wall  exact 4089/4096 (99.8291%)  |err|: max=24312 mean=13.4055
+[client]   mismatch outputs (first 7 of 7): m=11 ref=-1182 got=-7140, m=840 ref=-1128 got=-25440, m=974 ref=-700 got=-4095, m=1420 ref=-1093 got=-4095, m=2191 ref=-1025 got=5079, m=2611 ref=-982 got=5102, m=3081 ref=-1069 got=4985
+[client]   |err| histogram: 3002x1, 3395x1, 5958x1, 6054x1, 6084x1, 6104x1, 24312x1
+[client] RESULT: RESIDUAL — see histogram (cell-noise envelope?)
+[lane2] quit sentinel

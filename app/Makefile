@@ -5,7 +5,11 @@ SHARED_OBJS := ${SHARED_OBJS:.c=.o}
 INCLUDE_DIRS := ../../../api ../../../../boost-lib
 CPPFLAGS += -g -std=c++17 -pthread -O3 -mavx2
 CPPFLAGS += $(foreach d,$(INCLUDE_DIRS),-I$(d))
-BOOST = -lboost_filesystem
+# boost usage is header-only on this tower; -lboost_filesystem does not
+# resolve AND a failed link deletes the existing binary (2026-07-19 trap,
+# see RUNBOOK). Default empty; override with make BOOST=-lboost_filesystem
+# on hosts that need it.
+BOOST =
 
 CC = g++
 
@@ -58,6 +62,9 @@ maj3-smoke-exe: test_maj3_smoke.o $(SHARED_OBJS)
 matvec-smoke-exe: test_matvec_smoke.o $(SHARED_OBJS)
 	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
 
+popcount-hw-exe: test_popcount_hw.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
 columnwise-smoke-exe: test_columnwise_smoke.o $(SHARED_OBJS)
 	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
 
@@ -76,6 +83,18 @@ spread-test-exe: test_spread.o $(SHARED_OBJS)
 fault-sweep-exe: test_fault_sweep.o $(SHARED_OBJS)
 	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
 
+mvdram-maj5-exe: test_mvdram_maj5.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+mvdram-adder-exe: test_mvdram_adder.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+mvdram-gemv-exe: test_mvdram_gemv.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+mvdram-popcount-exe: test_mvdram_popcount.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
 fanout-open-rows-exe: test_fanout_to_open_rows.o $(SHARED_OBJS)
 	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
 
@@ -85,12 +104,86 @@ clean:
 
 distclean: clean
 
-# --- MVDRAM reproduction study (docs/MVDRAM_REPRODUCTION.md) ---
-mvdram-rcrand-exe: test_rowclone_random.o $(SHARED_OBJS)
+mvdram-indram-exe: test_mvdram_indram.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+mvdram-gemvn-exe: test_mvdram_gemv_n.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+mvdram-rowsel-exe: test_mvdram_rowsel.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+mvdram-loaddiag-exe: test_mvdram_loaddiag.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+mvdram-triple-exe: test_mvdram_triple.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+mvdram-twolevel-exe: test_mvdram_twolevel.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+mvdram-chain-exe: test_mvdram_chain.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+mvdram-fanout-exe: test_mvdram_fanout.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+mvdram-fulladder-exe: test_mvdram_fulladder.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+mvdram-plan-exe: test_mvdram_plan.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+mvdram-gemv-inplace-exe: test_mvdram_gemv_inplace.o $(SHARED_OBJS)
 	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
 
 mvdram-compute-rows-exe: test_mvdram_compute_rows.o $(SHARED_OBJS)
 	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
 
-mvdram-gemv-inplace-exe: test_mvdram_gemv_inplace.o $(SHARED_OBJS)
+mvdram-rcrand-exe: test_rowclone_random.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+recv-timeout-test-exe: test_recv_timeout.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+mvdram-fastpath-ab-exe: test_mvdram_fastpath_ab.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+selection-timing-exe: test_selection_timing.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+frac-sweep-exe: test_frac_sweep.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+frac-maj5-exe: test_frac_maj5.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+mvdram-adder2-exe: test_mvdram_adder2.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+majx-screen-exe: test_majx_screen.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+fused-maj-exe: test_fused_maj.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+fused-colmask-exe: test_fused_colmask.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+fcdram-not-exe: test_fcdram_not.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+adder-chain-exe: test_adder_chain.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+popcount-indram-exe: test_popcount_indram.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+packed-maj-exe: test_packed_maj.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+gemv-encoded-exe: test_gemv_encoded.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+resident-tile-exe: test_resident_tile.o $(SHARED_OBJS)
 	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)

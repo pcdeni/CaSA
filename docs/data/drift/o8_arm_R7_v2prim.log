@@ -1,0 +1,67 @@
+[arms] batch A: loaded 80 1-round handles in 0.2s
+[arms] verify pass 'post-load': 80 handles, 19 with y-mismatch (0.7s) worst=2039
+[arms] hammered V2 x200 at calib_idx=0 (0.8s)
+[arms] verify pass 'post-treatment': 80 handles, 61 with y-mismatch (0.7s) worst=2042
+[arms]    h  pass1  pass2  (segs/8192 differ; 0 = clean; batch-B handles have no pass1)
+[arms]    1      0   7072
+[arms]    2      0   6928
+[arms]    3      0   6832
+[arms]    4      0   6940
+[arms]    5      0   6873
+[arms]    6      0   6922
+[arms]    7      0   6824
+[arms]    8      0   6848
+[arms]    9      0   6840
+[arms]   10      0   6895
+[arms]   11      0   6809
+[arms]   12      0   6935
+[arms]   13      0   6913
+[arms]   14      0   6896
+[arms]   15      0   6824
+[arms]   16      0   6944
+[arms]   17      0   6957
+[arms]   18      0   6927
+[arms]   19      0   6900
+[arms]   20      0   6935
+[arms]   21      0   6925
+[arms]   22      0   6841
+[arms]   23      0   6851
+[arms]   24      0   6883
+[arms]   34      0   6796
+[arms]   35      0   6890
+[arms]   37      0   7120
+[arms]   47      0   6883
+[arms]   48      0   6891
+[arms]   49      0   6913
+[arms]   50      0   6833
+[arms]   51      0   6860
+[arms]   52      0   6921
+[arms]   53      0   6888
+[arms]   54      0   6922
+[arms]   55      0   6801
+[arms]   56      0   6880
+[arms]   57      0   6923
+[arms]   58      0   6862
+[arms]   59      0   6881
+[arms]   60      0   6883
+[arms]   61      0   6896
+[arms]   62      0   1614
+[arms]   63      0   2612
+[arms]   64   6855   6862
+[arms]   65      0   2520
+[arms]   66      0   2113
+[arms]   67      0   2869
+[arms]   68   6910   6910
+[arms]   69      0   2635
+[arms]   70      0   1853
+[arms]   71      0   2615
+[arms]   72   6932   6932
+[arms]   73      0   2549
+[arms]   74   6838   6838
+[arms]   75   6938   6938
+[arms]   76   6899   6899
+[arms]   77   6888   6888
+[arms]   78      0   1773
+[arms]   79      0   2644
+[arms]   80   6919   6919
+[arms] RESULT arm=v2prim fused=? refresh=1(dflt) loadsA=80 loadsB=0: 53/80 batch-A handles transitioned (>50 segs growth); dirty-pass2 handles=61 median-level=6883/8192; y-mismatch p1=19 p2=61

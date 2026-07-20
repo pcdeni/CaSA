@@ -1,0 +1,1441 @@
+[backup_pool] loaded 294 rows from '/home/deni/Claude/SiMRA-DRAM-main/DRAM-Bender/sources/apps/DSN_AE_APPS/BitNet/pool_layout_dimm2_bank0.txt' (filtered to 294 in safe zone [45312, 45952))
+[backup_pool] per-sub pool '/home/deni/Claude/SiMRA-DRAM-main/DRAM-Bender/sources/apps/DSN_AE_APPS/BitNet/pool_layout_dimm2_sub84_bank0.txt': 192 rows in window [54144, 54784) for calib row 54148
+[backup_pool] per-sub pool '/home/deni/Claude/SiMRA-DRAM-main/DRAM-Bender/sources/apps/DSN_AE_APPS/BitNet/pool_layout_dimm2_sub71_bank0.txt': 26 rows in window [45312, 45952) for calib row 45440
+[backup_pool] per-sub pool '/home/deni/Claude/SiMRA-DRAM-main/DRAM-Bender/sources/apps/DSN_AE_APPS/BitNet/pool_layout_dimm2_sub77_bank0.txt': 77 rows in window [49152, 49792) for calib row 49291
+[backup_pool] per-sub pool '/home/deni/Claude/SiMRA-DRAM-main/DRAM-Bender/sources/apps/DSN_AE_APPS/BitNet/pool_layout_dimm2_sub76_bank0.txt': 73 rows in window [49152, 49792) for calib row 49170
+[server] bank 0: 4 extra calibs (dense clusters) sub=84(pool=192@[54144,54784)) sub=71(pool=26@[45312,45952)) sub=77(pool=77@[49152,49792)) sub=76(pool=73@[49152,49792))
+[backup_pool] loaded 294 rows from '/home/deni/Claude/SiMRA-DRAM-main/DRAM-Bender/sources/apps/DSN_AE_APPS/BitNet/pool_layout_dimm2_bank1.txt' (filtered to 294 in safe zone [45312, 45952))
+[backup_pool] per-sub pool '/home/deni/Claude/SiMRA-DRAM-main/DRAM-Bender/sources/apps/DSN_AE_APPS/BitNet/pool_layout_dimm2_sub84_bank1.txt': 192 rows in window [54144, 54784) for calib row 54148
+[backup_pool] per-sub pool '/home/deni/Claude/SiMRA-DRAM-main/DRAM-Bender/sources/apps/DSN_AE_APPS/BitNet/pool_layout_dimm2_sub71_bank1.txt': 26 rows in window [45312, 45952) for calib row 45440
+[backup_pool] per-sub pool '/home/deni/Claude/SiMRA-DRAM-main/DRAM-Bender/sources/apps/DSN_AE_APPS/BitNet/pool_layout_dimm2_sub77_bank1.txt': 77 rows in window [49152, 49792) for calib row 49291
+[backup_pool] per-sub pool '/home/deni/Claude/SiMRA-DRAM-main/DRAM-Bender/sources/apps/DSN_AE_APPS/BitNet/pool_layout_dimm2_sub76_bank1.txt': 73 rows in window [49152, 49792) for calib row 49170
+[server] bank 1: 4 extra calibs (dense clusters) sub=84(pool=192@[54144,54784)) sub=71(pool=26@[45312,45952)) sub=77(pool=77@[49152,49792)) sub=76(pool=73@[49152,49792))
+[backup_pool] loaded 294 rows from '/home/deni/Claude/SiMRA-DRAM-main/DRAM-Bender/sources/apps/DSN_AE_APPS/BitNet/pool_layout_dimm2_bank2.txt' (filtered to 294 in safe zone [45312, 45952))
+[backup_pool] per-sub pool '/home/deni/Claude/SiMRA-DRAM-main/DRAM-Bender/sources/apps/DSN_AE_APPS/BitNet/pool_layout_dimm2_sub84_bank2.txt': 192 rows in window [54144, 54784) for calib row 54148
+[backup_pool] per-sub pool '/home/deni/Claude/SiMRA-DRAM-main/DRAM-Bender/sources/apps/DSN_AE_APPS/BitNet/pool_layout_dimm2_sub71_bank2.txt': 26 rows in window [45312, 45952) for calib row 45440
+[backup_pool] per-sub pool '/home/deni/Claude/SiMRA-DRAM-main/DRAM-Bender/sources/apps/DSN_AE_APPS/BitNet/pool_layout_dimm2_sub77_bank2.txt': 77 rows in window [49152, 49792) for calib row 49291
+[backup_pool] per-sub pool '/home/deni/Claude/SiMRA-DRAM-main/DRAM-Bender/sources/apps/DSN_AE_APPS/BitNet/pool_layout_dimm2_sub76_bank2.txt': 73 rows in window [49152, 49792) for calib row 49170
+[server] bank 2: 4 extra calibs (dense clusters) sub=84(pool=192@[54144,54784)) sub=71(pool=26@[45312,45952)) sub=77(pool=77@[49152,49792)) sub=76(pool=73@[49152,49792))
+[backup_pool] loaded 294 rows from '/home/deni/Claude/SiMRA-DRAM-main/DRAM-Bender/sources/apps/DSN_AE_APPS/BitNet/pool_layout_dimm2_bank3.txt' (filtered to 294 in safe zone [45312, 45952))
+[backup_pool] per-sub pool '/home/deni/Claude/SiMRA-DRAM-main/DRAM-Bender/sources/apps/DSN_AE_APPS/BitNet/pool_layout_dimm2_sub84_bank3.txt': 192 rows in window [54144, 54784) for calib row 54148
+[backup_pool] per-sub pool '/home/deni/Claude/SiMRA-DRAM-main/DRAM-Bender/sources/apps/DSN_AE_APPS/BitNet/pool_layout_dimm2_sub71_bank3.txt': 26 rows in window [45312, 45952) for calib row 45440
+[backup_pool] per-sub pool '/home/deni/Claude/SiMRA-DRAM-main/DRAM-Bender/sources/apps/DSN_AE_APPS/BitNet/pool_layout_dimm2_sub77_bank3.txt': 77 rows in window [49152, 49792) for calib row 49291
+[backup_pool] per-sub pool '/home/deni/Claude/SiMRA-DRAM-main/DRAM-Bender/sources/apps/DSN_AE_APPS/BitNet/pool_layout_dimm2_sub76_bank3.txt': 73 rows in window [49152, 49792) for calib row 49170
+[server] bank 3: 4 extra calibs (dense clusters) sub=84(pool=192@[54144,54784)) sub=71(pool=26@[45312,45952)) sub=77(pool=77@[49152,49792)) sub=76(pool=73@[49152,49792))
+Opened /dev/xdma0_h2c_2 -> 4
+Opened /dev/xdma0_c2h_2 -> 5
+Successfully reset the FPGA!
+[server] ready: bender=2 N_banks=4 (response_fd=3)
+[server]   bank 0: s_id=72 Rfirst=45340 Rsecond=45823 backup_pool=294 rows starting at 45313
+[server]   bank 1: s_id=72 Rfirst=45340 Rsecond=45823 backup_pool=294 rows starting at 45313
+[server]   bank 2: s_id=72 Rfirst=45340 Rsecond=45823 backup_pool=294 rows starting at 45313
+[server]   bank 3: s_id=72 Rfirst=45340 Rsecond=45823 backup_pool=294 rows starting at 45313
+[server] BITSTREAM_IMEM=8192 (set BITSTREAM_IMEM=8192 on the rebuilt bitstream)
+[platform] BITSTREAM_IMEM in effect: 8192 (env override)
+[platform] PIM_RECV_TIMEOUT_MS in effect: 15000
+[load-verify] handle=1 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=1 n_chunks=2 rounds=1 pool_cursor[0]=1 (verify_load=1)
+[load-verify] handle=2 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=2 n_chunks=2 rounds=1 pool_cursor[0]=2 (verify_load=1)
+[load-verify] handle=3 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=3 n_chunks=2 rounds=1 pool_cursor[0]=3 (verify_load=1)
+[load-verify] handle=4 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=4 n_chunks=2 rounds=1 pool_cursor[0]=4 (verify_load=1)
+[load-verify] handle=5 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=5 n_chunks=2 rounds=1 pool_cursor[0]=5 (verify_load=1)
+[load-verify] handle=6 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=6 n_chunks=2 rounds=1 pool_cursor[0]=6 (verify_load=1)
+[load-verify] handle=7 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=7 n_chunks=2 rounds=1 pool_cursor[0]=7 (verify_load=1)
+[load-verify] handle=8 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=8 n_chunks=2 rounds=1 pool_cursor[0]=8 (verify_load=1)
+[load-verify] handle=9 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=9 n_chunks=2 rounds=1 pool_cursor[0]=9 (verify_load=1)
+[load-verify] handle=10 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=10 n_chunks=2 rounds=1 pool_cursor[0]=10 (verify_load=1)
+[load-verify] handle=11 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=11 n_chunks=2 rounds=1 pool_cursor[0]=11 (verify_load=1)
+[load-verify] handle=12 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=12 n_chunks=2 rounds=1 pool_cursor[0]=12 (verify_load=1)
+[load-verify] handle=13 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=13 n_chunks=2 rounds=1 pool_cursor[0]=13 (verify_load=1)
+[load-verify] handle=14 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=14 n_chunks=2 rounds=1 pool_cursor[0]=14 (verify_load=1)
+[load-verify] handle=15 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=15 n_chunks=2 rounds=1 pool_cursor[0]=15 (verify_load=1)
+[load-verify] handle=16 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=16 n_chunks=2 rounds=1 pool_cursor[0]=16 (verify_load=1)
+[load-verify] handle=17 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=17 n_chunks=2 rounds=1 pool_cursor[0]=17 (verify_load=1)
+[load-verify] handle=18 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=18 n_chunks=2 rounds=1 pool_cursor[0]=18 (verify_load=1)
+[load-verify] handle=19 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=19 n_chunks=2 rounds=1 pool_cursor[0]=19 (verify_load=1)
+[load-verify] handle=20 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=20 n_chunks=2 rounds=1 pool_cursor[0]=20 (verify_load=1)
+[load-verify] handle=21 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=21 n_chunks=2 rounds=1 pool_cursor[0]=21 (verify_load=1)
+[load-verify] handle=22 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=22 n_chunks=2 rounds=1 pool_cursor[0]=22 (verify_load=1)
+[load-verify] handle=23 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=23 n_chunks=2 rounds=1 pool_cursor[0]=23 (verify_load=1)
+[load-verify] handle=24 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=24 n_chunks=2 rounds=1 pool_cursor[0]=24 (verify_load=1)
+[load-verify] handle=25 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=25 n_chunks=2 rounds=1 pool_cursor[0]=25 (verify_load=1)
+[load-verify] handle=26 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=26 n_chunks=2 rounds=1 pool_cursor[0]=26 (verify_load=1)
+[load-verify] handle=27 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=27 n_chunks=2 rounds=1 pool_cursor[0]=27 (verify_load=1)
+[load-verify] handle=28 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=28 n_chunks=2 rounds=1 pool_cursor[0]=28 (verify_load=1)
+[load-verify] handle=29 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=29 n_chunks=2 rounds=1 pool_cursor[0]=29 (verify_load=1)
+[load-verify] handle=30 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=30 n_chunks=2 rounds=1 pool_cursor[0]=30 (verify_load=1)
+[load-verify] handle=31 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=31 n_chunks=2 rounds=1 pool_cursor[0]=31 (verify_load=1)
+[load-verify] handle=32 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=32 n_chunks=2 rounds=1 pool_cursor[0]=32 (verify_load=1)
+[load-verify] handle=33 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=33 n_chunks=2 rounds=1 pool_cursor[0]=33 (verify_load=1)
+[load-verify] handle=34 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=34 n_chunks=2 rounds=1 pool_cursor[0]=34 (verify_load=1)
+[load-verify] handle=35 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=35 n_chunks=2 rounds=1 pool_cursor[0]=35 (verify_load=1)
+[load-verify] handle=36 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=36 n_chunks=2 rounds=1 pool_cursor[0]=36 (verify_load=1)
+[load-verify] handle=37 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=37 n_chunks=2 rounds=1 pool_cursor[0]=37 (verify_load=1)
+[load-verify] handle=38 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=38 n_chunks=2 rounds=1 pool_cursor[0]=38 (verify_load=1)
+[load-verify] handle=39 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=39 n_chunks=2 rounds=1 pool_cursor[0]=39 (verify_load=1)
+[load-verify] handle=40 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=40 n_chunks=2 rounds=1 pool_cursor[0]=40 (verify_load=1)
+[load-verify] handle=41 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=41 n_chunks=2 rounds=1 pool_cursor[0]=41 (verify_load=1)
+[load-verify] handle=42 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=42 n_chunks=2 rounds=1 pool_cursor[0]=42 (verify_load=1)
+[load-verify] handle=43 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=43 n_chunks=2 rounds=1 pool_cursor[0]=43 (verify_load=1)
+[load-verify] handle=44 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=44 n_chunks=2 rounds=1 pool_cursor[0]=44 (verify_load=1)
+[load-verify] handle=45 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=45 n_chunks=2 rounds=1 pool_cursor[0]=45 (verify_load=1)
+[load-verify] handle=46 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=46 n_chunks=2 rounds=1 pool_cursor[0]=46 (verify_load=1)
+[load-verify] handle=47 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=47 n_chunks=2 rounds=1 pool_cursor[0]=47 (verify_load=1)
+[load-verify] handle=48 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=48 n_chunks=2 rounds=1 pool_cursor[0]=48 (verify_load=1)
+[load-verify] handle=49 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=49 n_chunks=2 rounds=1 pool_cursor[0]=49 (verify_load=1)
+[load-verify] handle=50 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=50 n_chunks=2 rounds=1 pool_cursor[0]=50 (verify_load=1)
+[load-verify] handle=51 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=51 n_chunks=2 rounds=1 pool_cursor[0]=51 (verify_load=1)
+[load-verify] handle=52 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=52 n_chunks=2 rounds=1 pool_cursor[0]=52 (verify_load=1)
+[load-verify] handle=53 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=53 n_chunks=2 rounds=1 pool_cursor[0]=53 (verify_load=1)
+[load-verify] handle=54 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=54 n_chunks=2 rounds=1 pool_cursor[0]=54 (verify_load=1)
+[load-verify] handle=55 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=55 n_chunks=2 rounds=1 pool_cursor[0]=55 (verify_load=1)
+[load-verify] handle=56 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=56 n_chunks=2 rounds=1 pool_cursor[0]=56 (verify_load=1)
+[load-verify] handle=57 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=57 n_chunks=2 rounds=1 pool_cursor[0]=57 (verify_load=1)
+[load-verify] handle=58 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=58 n_chunks=2 rounds=1 pool_cursor[0]=58 (verify_load=1)
+[load-verify] handle=59 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=59 n_chunks=2 rounds=1 pool_cursor[0]=59 (verify_load=1)
+[load-verify] handle=60 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=60 n_chunks=2 rounds=1 pool_cursor[0]=60 (verify_load=1)
+[load-verify] handle=61 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=61 n_chunks=2 rounds=1 pool_cursor[0]=61 (verify_load=1)
+[load-verify] handle=62 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=62 n_chunks=2 rounds=1 pool_cursor[0]=62 (verify_load=1)
+[load-verify] handle=63 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=63 n_chunks=2 rounds=1 pool_cursor[0]=63 (verify_load=1)
+[load-verify] handle=64 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=64 n_chunks=2 rounds=1 pool_cursor[0]=64 (verify_load=1)
+[load-verify] handle=65 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=65 n_chunks=2 rounds=1 pool_cursor[0]=65 (verify_load=1)
+[load-verify] handle=66 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=66 n_chunks=2 rounds=1 pool_cursor[0]=66 (verify_load=1)
+[load-verify] handle=67 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=67 n_chunks=2 rounds=1 pool_cursor[0]=67 (verify_load=1)
+[load-verify] handle=68 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=68 n_chunks=2 rounds=1 pool_cursor[0]=68 (verify_load=1)
+[load-verify] handle=69 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=69 n_chunks=2 rounds=1 pool_cursor[0]=69 (verify_load=1)
+[load-verify] handle=70 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=70 n_chunks=2 rounds=1 pool_cursor[0]=70 (verify_load=1)
+[load-verify] handle=71 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=71 n_chunks=2 rounds=1 pool_cursor[0]=71 (verify_load=1)
+[load-verify] handle=72 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=72 n_chunks=2 rounds=1 pool_cursor[0]=72 (verify_load=1)
+[load-verify] handle=73 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=73 n_chunks=2 rounds=1 pool_cursor[0]=73 (verify_load=1)
+[load-verify] handle=74 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=74 n_chunks=2 rounds=1 pool_cursor[0]=74 (verify_load=1)
+[load-verify] handle=75 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=75 n_chunks=2 rounds=1 pool_cursor[0]=75 (verify_load=1)
+[load-verify] handle=76 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=76 n_chunks=2 rounds=1 pool_cursor[0]=76 (verify_load=1)
+[load-verify] handle=77 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=77 n_chunks=2 rounds=1 pool_cursor[0]=77 (verify_load=1)
+[load-verify] handle=78 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=78 n_chunks=2 rounds=1 pool_cursor[0]=78 (verify_load=1)
+[load-verify] handle=79 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=79 n_chunks=2 rounds=1 pool_cursor[0]=79 (verify_load=1)
+[load-verify] handle=80 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=80 n_chunks=2 rounds=1 pool_cursor[0]=80 (verify_load=1)
+[mm3d-verify] handle=1 round-0 popcounts OK (8192 segs, refresh=0)
+[mm3d-verify-post] handle=1 POST-MM3D clean (8192 segs)
+[mm3d-prof #1 handle=1] total=3.4ms refresh=0.0ms verify=0.5ms exec=0.8ms (4x) recv=1.4ms pop=0.1ms other=0.6ms
+[mm3d-verify] handle=2 round-0 popcounts OK (8192 segs, refresh=0)
+[mm3d-verify-post] handle=2 POST-MM3D clean (8192 segs)
+[mm3d-prof #2 handle=2] total=2.6ms refresh=0.0ms verify=0.4ms exec=0.4ms (4x) recv=1.4ms pop=0.0ms other=0.3ms
+[mm3d-verify] handle=3 round-0 popcounts OK (8192 segs, refresh=0)
+[mm3d-verify-post] handle=3 POST-MM3D clean (8192 segs)
+[mm3d-prof #3 handle=3] total=2.6ms refresh=0.0ms verify=0.4ms exec=0.5ms (4x) recv=1.4ms pop=0.0ms other=0.3ms
+[mm3d-verify-post] handle=4 POST-MM3D clean (8192 segs)
+[mm3d-prof #4 handle=4] total=2.6ms refresh=0.0ms verify=0.4ms exec=0.4ms (4x) recv=1.4ms pop=0.0ms other=0.3ms
+[mm3d-verify-post] handle=5 POST-MM3D clean (8192 segs)
+[mm3d-prof #5 handle=5] total=3.3ms refresh=0.0ms verify=0.4ms exec=0.4ms (4x) recv=2.1ms pop=0.0ms other=0.4ms
+[mm3d-verify] handle=50 round-0 popcounts OK (8192 segs, refresh=0)
+[mm3d-verify-post] handle=50 POST-MM3D clean (8192 segs)
+[mm3d-prof #50 handle=50] total=2.8ms refresh=0.0ms verify=0.4ms exec=0.5ms (4x) recv=1.5ms pop=0.0ms other=0.4ms
+[mm3d-verify-post] handle=62 POST-MM3D CORRUPTION: 1428/8192 segs (17.43%); @bk=0 s=3 exp=0x03c0803c got=0x0380803c xor=0x00400000
+[mm3d-verify-post] handle=63 POST-MM3D CORRUPTION: 2662/8192 segs (32.50%); @bk=0 s=3 exp=0x20166729 got=0x20166129 xor=0x00000600
+[mm3d-verify-bits] handle=64 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=64 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=64 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=64 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=64 DECAY/CORRUPTION: 6875/8192 segs differ in round-0 (83.9233%); first @bk=0 s=0 exp_pc=11 got_pc=8 exp_word=0x452047d0 got_word=0x5a018009 xor=0x1f21c7d9 (refresh=0)
+[mm3d-verify-post] handle=64 POST-MM3D CORRUPTION: 6875/8192 segs (83.92%); @bk=0 s=0 exp=0x452047d0 got=0x5a018009 xor=0x1f21c7d9
+[mm3d-verify-post] handle=65 POST-MM3D CORRUPTION: 2566/8192 segs (31.32%); @bk=0 s=1 exp=0x8023845b got=0x8021845a xor=0x00020001
+[mm3d-verify-post] handle=66 POST-MM3D CORRUPTION: 2178/8192 segs (26.59%); @bk=0 s=3 exp=0x40242299 got=0x40242099 xor=0x00000200
+[mm3d-verify-bits] handle=68 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=68 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=68 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=68 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=68 DECAY/CORRUPTION: 6911/8192 segs differ in round-0 (84.3628%); first @bk=0 s=0 exp_pc=9 got_pc=10 exp_word=0x002491e4 got_word=0x852804f0 xor=0x850c9514 (refresh=0)
+[mm3d-verify-bits] handle=72 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=72 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=72 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=72 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=72 DECAY/CORRUPTION: 6927/8192 segs differ in round-0 (84.5581%); first @bk=0 s=0 exp_pc=5 got_pc=10 exp_word=0x0820a080 got_word=0x06c0aac0 xor=0x0ee00a40 (refresh=0)
+[mm3d-verify-bits] handle=74 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=74 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=74 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=74 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=74 DECAY/CORRUPTION: 6839/8192 segs differ in round-0 (83.4839%); first @bk=0 s=0 exp_pc=12 got_pc=4 exp_word=0x2c62035a got_word=0x48000120 xor=0x6462027a (refresh=0)
+[mm3d-verify-bits] handle=75 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=75 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=75 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=75 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=75 DECAY/CORRUPTION: 6937/8192 segs differ in round-0 (84.6802%); first @bk=0 s=0 exp_pc=6 got_pc=10 exp_word=0x20820a04 got_word=0x06c0aac0 xor=0x2642a0c4 (refresh=0)
+[mm3d-verify-bits] handle=76 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=76 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=76 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=76 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=76 DECAY/CORRUPTION: 6914/8192 segs differ in round-0 (84.3994%); first @bk=0 s=0 exp_pc=5 got_pc=6 exp_word=0x02061040 got_word=0x08485020 xor=0x0a4e4060 (refresh=0)
+[mm3d-verify-bits] handle=77 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=77 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=77 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=77 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=77 DECAY/CORRUPTION: 6889/8192 segs differ in round-0 (84.0942%); first @bk=0 s=0 exp_pc=9 got_pc=6 exp_word=0x30822816 got_word=0x08485020 xor=0x38ca7836 (refresh=0)
+[mm3d-verify-bits] handle=80 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=80 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=80 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=80 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=80 DECAY/CORRUPTION: 6926/8192 segs differ in round-0 (84.5459%); first @bk=0 s=0 exp_pc=9 got_pc=7 exp_word=0x40019994 got_word=0x80c92008 xor=0xc0c8b99c (refresh=0)
+[load-verify] handle=81 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=81 n_chunks=2 rounds=1 pool_cursor[0]=81 (verify_load=1)
+[load-verify] handle=82 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=82 n_chunks=2 rounds=1 pool_cursor[0]=82 (verify_load=1)
+[load-verify] handle=83 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=83 n_chunks=2 rounds=1 pool_cursor[0]=83 (verify_load=1)
+[load-verify] handle=84 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=84 n_chunks=2 rounds=1 pool_cursor[0]=84 (verify_load=1)
+[load-verify] handle=85 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=85 n_chunks=2 rounds=1 pool_cursor[0]=85 (verify_load=1)
+[load-verify] handle=86 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=86 n_chunks=2 rounds=1 pool_cursor[0]=86 (verify_load=1)
+[load-verify] handle=87 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=87 n_chunks=2 rounds=1 pool_cursor[0]=87 (verify_load=1)
+[load-verify] handle=88 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=88 n_chunks=2 rounds=1 pool_cursor[0]=88 (verify_load=1)
+[load-verify] handle=89 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=89 n_chunks=2 rounds=1 pool_cursor[0]=89 (verify_load=1)
+[load-verify] handle=90 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=90 n_chunks=2 rounds=1 pool_cursor[0]=90 (verify_load=1)
+[load-verify] handle=91 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=91 n_chunks=2 rounds=1 pool_cursor[0]=91 (verify_load=1)
+[load-verify] handle=92 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=92 n_chunks=2 rounds=1 pool_cursor[0]=92 (verify_load=1)
+[load-verify] handle=93 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=93 n_chunks=2 rounds=1 pool_cursor[0]=93 (verify_load=1)
+[load-verify] handle=94 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=94 n_chunks=2 rounds=1 pool_cursor[0]=94 (verify_load=1)
+[load-verify] handle=95 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=95 n_chunks=2 rounds=1 pool_cursor[0]=95 (verify_load=1)
+[load-verify] handle=96 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=96 n_chunks=2 rounds=1 pool_cursor[0]=96 (verify_load=1)
+[load-verify] handle=97 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=97 n_chunks=2 rounds=1 pool_cursor[0]=97 (verify_load=1)
+[load-verify] handle=98 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=98 n_chunks=2 rounds=1 pool_cursor[0]=98 (verify_load=1)
+[load-verify] handle=99 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=99 n_chunks=2 rounds=1 pool_cursor[0]=99 (verify_load=1)
+[load-verify] handle=100 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=100 n_chunks=2 rounds=1 pool_cursor[0]=100 (verify_load=1)
+[load-verify] handle=101 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=101 n_chunks=2 rounds=1 pool_cursor[0]=101 (verify_load=1)
+[load-verify] handle=102 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=102 n_chunks=2 rounds=1 pool_cursor[0]=102 (verify_load=1)
+[load-verify] handle=103 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=103 n_chunks=2 rounds=1 pool_cursor[0]=103 (verify_load=1)
+[load-verify] handle=104 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=104 n_chunks=2 rounds=1 pool_cursor[0]=104 (verify_load=1)
+[load-verify] handle=105 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=105 n_chunks=2 rounds=1 pool_cursor[0]=105 (verify_load=1)
+[load-verify] handle=106 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=106 n_chunks=2 rounds=1 pool_cursor[0]=106 (verify_load=1)
+[load-verify] handle=107 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=107 n_chunks=2 rounds=1 pool_cursor[0]=107 (verify_load=1)
+[load-verify] handle=108 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=108 n_chunks=2 rounds=1 pool_cursor[0]=108 (verify_load=1)
+[load-verify] handle=109 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=109 n_chunks=2 rounds=1 pool_cursor[0]=109 (verify_load=1)
+[load-verify] handle=110 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=110 n_chunks=2 rounds=1 pool_cursor[0]=110 (verify_load=1)
+[load-verify] handle=111 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=111 n_chunks=2 rounds=1 pool_cursor[0]=111 (verify_load=1)
+[load-verify] handle=112 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=112 n_chunks=2 rounds=1 pool_cursor[0]=112 (verify_load=1)
+[load-verify] handle=113 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=113 n_chunks=2 rounds=1 pool_cursor[0]=113 (verify_load=1)
+[load-verify] handle=114 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=114 n_chunks=2 rounds=1 pool_cursor[0]=114 (verify_load=1)
+[load-verify] handle=115 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=115 n_chunks=2 rounds=1 pool_cursor[0]=115 (verify_load=1)
+[load-verify] handle=116 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=116 n_chunks=2 rounds=1 pool_cursor[0]=116 (verify_load=1)
+[load-verify] handle=117 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=117 n_chunks=2 rounds=1 pool_cursor[0]=117 (verify_load=1)
+[load-verify] handle=118 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=118 n_chunks=2 rounds=1 pool_cursor[0]=118 (verify_load=1)
+[load-verify] handle=119 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=119 n_chunks=2 rounds=1 pool_cursor[0]=119 (verify_load=1)
+[load-verify] handle=120 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=120 n_chunks=2 rounds=1 pool_cursor[0]=120 (verify_load=1)
+[load-verify] handle=121 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=121 n_chunks=2 rounds=1 pool_cursor[0]=121 (verify_load=1)
+[load-verify] handle=122 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=122 n_chunks=2 rounds=1 pool_cursor[0]=122 (verify_load=1)
+[load-verify] handle=123 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=123 n_chunks=2 rounds=1 pool_cursor[0]=123 (verify_load=1)
+[load-verify] handle=124 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=124 n_chunks=2 rounds=1 pool_cursor[0]=124 (verify_load=1)
+[load-verify] handle=125 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=125 n_chunks=2 rounds=1 pool_cursor[0]=125 (verify_load=1)
+[load-verify] handle=126 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=126 n_chunks=2 rounds=1 pool_cursor[0]=126 (verify_load=1)
+[load-verify] handle=127 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=127 n_chunks=2 rounds=1 pool_cursor[0]=127 (verify_load=1)
+[load-verify] handle=128 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=128 n_chunks=2 rounds=1 pool_cursor[0]=128 (verify_load=1)
+[load-verify] handle=129 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=129 n_chunks=2 rounds=1 pool_cursor[0]=129 (verify_load=1)
+[load-verify] handle=130 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=130 n_chunks=2 rounds=1 pool_cursor[0]=130 (verify_load=1)
+[load-verify] handle=131 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=131 n_chunks=2 rounds=1 pool_cursor[0]=131 (verify_load=1)
+[load-verify] handle=132 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=132 n_chunks=2 rounds=1 pool_cursor[0]=132 (verify_load=1)
+[load-verify] handle=133 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=133 n_chunks=2 rounds=1 pool_cursor[0]=133 (verify_load=1)
+[load-verify] handle=134 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=134 n_chunks=2 rounds=1 pool_cursor[0]=134 (verify_load=1)
+[load-verify] handle=135 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=135 n_chunks=2 rounds=1 pool_cursor[0]=135 (verify_load=1)
+[load-verify] handle=136 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=136 n_chunks=2 rounds=1 pool_cursor[0]=136 (verify_load=1)
+[load-verify] handle=137 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=137 n_chunks=2 rounds=1 pool_cursor[0]=137 (verify_load=1)
+[load-verify] handle=138 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=138 n_chunks=2 rounds=1 pool_cursor[0]=138 (verify_load=1)
+[load-verify] handle=139 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=139 n_chunks=2 rounds=1 pool_cursor[0]=139 (verify_load=1)
+[load-verify] handle=140 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=140 n_chunks=2 rounds=1 pool_cursor[0]=140 (verify_load=1)
+[load-verify] handle=141 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=141 n_chunks=2 rounds=1 pool_cursor[0]=141 (verify_load=1)
+[load-verify] handle=142 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=142 n_chunks=2 rounds=1 pool_cursor[0]=142 (verify_load=1)
+[load-verify] handle=143 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=143 n_chunks=2 rounds=1 pool_cursor[0]=143 (verify_load=1)
+[load-verify] handle=144 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=144 n_chunks=2 rounds=1 pool_cursor[0]=144 (verify_load=1)
+[load-verify] handle=145 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=145 n_chunks=2 rounds=1 pool_cursor[0]=145 (verify_load=1)
+[load-verify] handle=146 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=146 n_chunks=2 rounds=1 pool_cursor[0]=146 (verify_load=1)
+[load-verify] handle=147 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=147 n_chunks=2 rounds=1 pool_cursor[0]=147 (verify_load=1)
+[load-verify] handle=148 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=148 n_chunks=2 rounds=1 pool_cursor[0]=148 (verify_load=1)
+[load-verify] handle=149 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=149 n_chunks=2 rounds=1 pool_cursor[0]=149 (verify_load=1)
+[load-verify] handle=150 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=150 n_chunks=2 rounds=1 pool_cursor[0]=150 (verify_load=1)
+[load-verify] handle=151 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=151 n_chunks=2 rounds=1 pool_cursor[0]=151 (verify_load=1)
+[load-verify] handle=152 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=152 n_chunks=2 rounds=1 pool_cursor[0]=152 (verify_load=1)
+[load-verify] handle=153 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=153 n_chunks=2 rounds=1 pool_cursor[0]=153 (verify_load=1)
+[load-verify] handle=154 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=154 n_chunks=2 rounds=1 pool_cursor[0]=154 (verify_load=1)
+[load-verify] handle=155 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=155 n_chunks=2 rounds=1 pool_cursor[0]=155 (verify_load=1)
+[load-verify] handle=156 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=156 n_chunks=2 rounds=1 pool_cursor[0]=156 (verify_load=1)
+[load-verify] handle=157 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=157 n_chunks=2 rounds=1 pool_cursor[0]=157 (verify_load=1)
+[load-verify] handle=158 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=158 n_chunks=2 rounds=1 pool_cursor[0]=158 (verify_load=1)
+[load-verify] handle=159 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=159 n_chunks=2 rounds=1 pool_cursor[0]=159 (verify_load=1)
+[load-verify] handle=160 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=160 n_chunks=2 rounds=1 pool_cursor[0]=160 (verify_load=1)
+[load-verify] handle=161 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=161 n_chunks=2 rounds=1 pool_cursor[0]=161 (verify_load=1)
+[load-verify] handle=162 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=162 n_chunks=2 rounds=1 pool_cursor[0]=162 (verify_load=1)
+[load-verify] handle=163 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=163 n_chunks=2 rounds=1 pool_cursor[0]=163 (verify_load=1)
+[load-verify] handle=164 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=164 n_chunks=2 rounds=1 pool_cursor[0]=164 (verify_load=1)
+[load-verify] handle=165 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=165 n_chunks=2 rounds=1 pool_cursor[0]=165 (verify_load=1)
+[load-verify] handle=166 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=166 n_chunks=2 rounds=1 pool_cursor[0]=166 (verify_load=1)
+[load-verify] handle=167 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=167 n_chunks=2 rounds=1 pool_cursor[0]=167 (verify_load=1)
+[load-verify] handle=168 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=168 n_chunks=2 rounds=1 pool_cursor[0]=168 (verify_load=1)
+[load-verify] handle=169 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=169 n_chunks=2 rounds=1 pool_cursor[0]=169 (verify_load=1)
+[load-verify] handle=170 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=170 n_chunks=2 rounds=1 pool_cursor[0]=170 (verify_load=1)
+[load-verify] handle=171 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=171 n_chunks=2 rounds=1 pool_cursor[0]=171 (verify_load=1)
+[load-verify] handle=172 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=172 n_chunks=2 rounds=1 pool_cursor[0]=172 (verify_load=1)
+[load-verify] handle=173 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=173 n_chunks=2 rounds=1 pool_cursor[0]=173 (verify_load=1)
+[load-verify] handle=174 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=174 n_chunks=2 rounds=1 pool_cursor[0]=174 (verify_load=1)
+[load-verify] handle=175 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=175 n_chunks=2 rounds=1 pool_cursor[0]=175 (verify_load=1)
+[load-verify] handle=176 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=176 n_chunks=2 rounds=1 pool_cursor[0]=176 (verify_load=1)
+[load-verify] handle=177 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=177 n_chunks=2 rounds=1 pool_cursor[0]=177 (verify_load=1)
+[load-verify] handle=178 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=178 n_chunks=2 rounds=1 pool_cursor[0]=178 (verify_load=1)
+[load-verify] handle=179 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=179 n_chunks=2 rounds=1 pool_cursor[0]=179 (verify_load=1)
+[load-verify] handle=180 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=180 n_chunks=2 rounds=1 pool_cursor[0]=180 (verify_load=1)
+[load-verify] handle=181 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=181 n_chunks=2 rounds=1 pool_cursor[0]=181 (verify_load=1)
+[load-verify] handle=182 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=182 n_chunks=2 rounds=1 pool_cursor[0]=182 (verify_load=1)
+[load-verify] handle=183 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=183 n_chunks=2 rounds=1 pool_cursor[0]=183 (verify_load=1)
+[load-verify] handle=184 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=184 n_chunks=2 rounds=1 pool_cursor[0]=184 (verify_load=1)
+[load-verify] handle=185 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=185 n_chunks=2 rounds=1 pool_cursor[0]=185 (verify_load=1)
+[load-verify] handle=186 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=186 n_chunks=2 rounds=1 pool_cursor[0]=186 (verify_load=1)
+[load-verify] handle=187 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=187 n_chunks=2 rounds=1 pool_cursor[0]=187 (verify_load=1)
+[load-verify] handle=188 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=188 n_chunks=2 rounds=1 pool_cursor[0]=188 (verify_load=1)
+[load-verify] handle=189 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=189 n_chunks=2 rounds=1 pool_cursor[0]=189 (verify_load=1)
+[load-verify] handle=190 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=190 n_chunks=2 rounds=1 pool_cursor[0]=190 (verify_load=1)
+[load-verify] handle=191 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=191 n_chunks=2 rounds=1 pool_cursor[0]=191 (verify_load=1)
+[load-verify] handle=192 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=192 n_chunks=2 rounds=1 pool_cursor[0]=192 (verify_load=1)
+[load-verify] handle=193 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=193 n_chunks=2 rounds=1 pool_cursor[0]=193 (verify_load=1)
+[load-verify] handle=194 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=194 n_chunks=2 rounds=1 pool_cursor[0]=194 (verify_load=1)
+[load-verify] handle=195 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=195 n_chunks=2 rounds=1 pool_cursor[0]=195 (verify_load=1)
+[load-verify] handle=196 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=196 n_chunks=2 rounds=1 pool_cursor[0]=196 (verify_load=1)
+[load-verify] handle=197 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=197 n_chunks=2 rounds=1 pool_cursor[0]=197 (verify_load=1)
+[load-verify] handle=198 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=198 n_chunks=2 rounds=1 pool_cursor[0]=198 (verify_load=1)
+[load-verify] handle=199 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=199 n_chunks=2 rounds=1 pool_cursor[0]=199 (verify_load=1)
+[load-verify] handle=200 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=200 n_chunks=2 rounds=1 pool_cursor[0]=200 (verify_load=1)
+[load-verify] handle=201 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=201 n_chunks=2 rounds=1 pool_cursor[0]=201 (verify_load=1)
+[load-verify] handle=202 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=202 n_chunks=2 rounds=1 pool_cursor[0]=202 (verify_load=1)
+[load-verify] handle=203 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=203 n_chunks=2 rounds=1 pool_cursor[0]=203 (verify_load=1)
+[load-verify] handle=204 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=204 n_chunks=2 rounds=1 pool_cursor[0]=204 (verify_load=1)
+[load-verify] handle=205 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=205 n_chunks=2 rounds=1 pool_cursor[0]=205 (verify_load=1)
+[load-verify] handle=206 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=206 n_chunks=2 rounds=1 pool_cursor[0]=206 (verify_load=1)
+[load-verify] handle=207 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=207 n_chunks=2 rounds=1 pool_cursor[0]=207 (verify_load=1)
+[load-verify] handle=208 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=208 n_chunks=2 rounds=1 pool_cursor[0]=208 (verify_load=1)
+[load-verify] handle=209 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=209 n_chunks=2 rounds=1 pool_cursor[0]=209 (verify_load=1)
+[load-verify] handle=210 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=210 n_chunks=2 rounds=1 pool_cursor[0]=210 (verify_load=1)
+[load-verify] handle=211 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=211 n_chunks=2 rounds=1 pool_cursor[0]=211 (verify_load=1)
+[load-verify] handle=212 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=212 n_chunks=2 rounds=1 pool_cursor[0]=212 (verify_load=1)
+[load-verify] handle=213 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=213 n_chunks=2 rounds=1 pool_cursor[0]=213 (verify_load=1)
+[load-verify] handle=214 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=214 n_chunks=2 rounds=1 pool_cursor[0]=214 (verify_load=1)
+[load-verify] handle=215 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=215 n_chunks=2 rounds=1 pool_cursor[0]=215 (verify_load=1)
+[load-verify] handle=216 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=216 n_chunks=2 rounds=1 pool_cursor[0]=216 (verify_load=1)
+[load-verify] handle=217 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=217 n_chunks=2 rounds=1 pool_cursor[0]=217 (verify_load=1)
+[load-verify] handle=218 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=218 n_chunks=2 rounds=1 pool_cursor[0]=218 (verify_load=1)
+[load-verify] handle=219 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=219 n_chunks=2 rounds=1 pool_cursor[0]=219 (verify_load=1)
+[load-verify] handle=220 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=220 n_chunks=2 rounds=1 pool_cursor[0]=220 (verify_load=1)
+[load-verify] handle=221 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=221 n_chunks=2 rounds=1 pool_cursor[0]=221 (verify_load=1)
+[load-verify] handle=222 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=222 n_chunks=2 rounds=1 pool_cursor[0]=222 (verify_load=1)
+[load-verify] handle=223 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=223 n_chunks=2 rounds=1 pool_cursor[0]=223 (verify_load=1)
+[load-verify] handle=224 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=224 n_chunks=2 rounds=1 pool_cursor[0]=224 (verify_load=1)
+[load-verify] handle=225 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=225 n_chunks=2 rounds=1 pool_cursor[0]=225 (verify_load=1)
+[load-verify] handle=226 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=226 n_chunks=2 rounds=1 pool_cursor[0]=226 (verify_load=1)
+[load-verify] handle=227 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=227 n_chunks=2 rounds=1 pool_cursor[0]=227 (verify_load=1)
+[load-verify] handle=228 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=228 n_chunks=2 rounds=1 pool_cursor[0]=228 (verify_load=1)
+[load-verify] handle=229 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=229 n_chunks=2 rounds=1 pool_cursor[0]=229 (verify_load=1)
+[load-verify] handle=230 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=230 n_chunks=2 rounds=1 pool_cursor[0]=230 (verify_load=1)
+[load-verify] handle=231 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=231 n_chunks=2 rounds=1 pool_cursor[0]=231 (verify_load=1)
+[load-verify] handle=232 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=232 n_chunks=2 rounds=1 pool_cursor[0]=232 (verify_load=1)
+[load-verify] handle=233 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=233 n_chunks=2 rounds=1 pool_cursor[0]=233 (verify_load=1)
+[load-verify] handle=234 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=234 n_chunks=2 rounds=1 pool_cursor[0]=234 (verify_load=1)
+[load-verify] handle=235 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=235 n_chunks=2 rounds=1 pool_cursor[0]=235 (verify_load=1)
+[load-verify] handle=236 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=236 n_chunks=2 rounds=1 pool_cursor[0]=236 (verify_load=1)
+[load-verify] handle=237 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=237 n_chunks=2 rounds=1 pool_cursor[0]=237 (verify_load=1)
+[load-verify] handle=238 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=238 n_chunks=2 rounds=1 pool_cursor[0]=238 (verify_load=1)
+[load-verify] handle=239 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=239 n_chunks=2 rounds=1 pool_cursor[0]=239 (verify_load=1)
+[load-verify] handle=240 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=240 n_chunks=2 rounds=1 pool_cursor[0]=240 (verify_load=1)
+[load-verify] handle=241 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=241 n_chunks=2 rounds=1 pool_cursor[0]=241 (verify_load=1)
+[load-verify] handle=242 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=242 n_chunks=2 rounds=1 pool_cursor[0]=242 (verify_load=1)
+[load-verify] handle=243 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=243 n_chunks=2 rounds=1 pool_cursor[0]=243 (verify_load=1)
+[load-verify] handle=244 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=244 n_chunks=2 rounds=1 pool_cursor[0]=244 (verify_load=1)
+[load-verify] handle=245 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=245 n_chunks=2 rounds=1 pool_cursor[0]=245 (verify_load=1)
+[load-verify] handle=246 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=246 n_chunks=2 rounds=1 pool_cursor[0]=246 (verify_load=1)
+[load-verify] handle=247 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=247 n_chunks=2 rounds=1 pool_cursor[0]=247 (verify_load=1)
+[load-verify] handle=248 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=248 n_chunks=2 rounds=1 pool_cursor[0]=248 (verify_load=1)
+[load-verify] handle=249 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=249 n_chunks=2 rounds=1 pool_cursor[0]=249 (verify_load=1)
+[load-verify] handle=250 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=250 n_chunks=2 rounds=1 pool_cursor[0]=250 (verify_load=1)
+[load-verify] handle=251 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=251 n_chunks=2 rounds=1 pool_cursor[0]=251 (verify_load=1)
+[load-verify] handle=252 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=252 n_chunks=2 rounds=1 pool_cursor[0]=252 (verify_load=1)
+[load-verify] handle=253 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=253 n_chunks=2 rounds=1 pool_cursor[0]=253 (verify_load=1)
+[load-verify] handle=254 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=254 n_chunks=2 rounds=1 pool_cursor[0]=254 (verify_load=1)
+[load-verify] handle=255 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=255 n_chunks=2 rounds=1 pool_cursor[0]=255 (verify_load=1)
+[load-verify] handle=256 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=256 n_chunks=2 rounds=1 pool_cursor[0]=256 (verify_load=1)
+[load-verify] handle=257 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=257 n_chunks=2 rounds=1 pool_cursor[0]=257 (verify_load=1)
+[load-verify] handle=258 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=258 n_chunks=2 rounds=1 pool_cursor[0]=258 (verify_load=1)
+[load-verify] handle=259 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=259 n_chunks=2 rounds=1 pool_cursor[0]=259 (verify_load=1)
+[load-verify] handle=260 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=260 n_chunks=2 rounds=1 pool_cursor[0]=260 (verify_load=1)
+[load-verify] handle=261 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=261 n_chunks=2 rounds=1 pool_cursor[0]=261 (verify_load=1)
+[load-verify] handle=262 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=262 n_chunks=2 rounds=1 pool_cursor[0]=262 (verify_load=1)
+[load-verify] handle=263 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=263 n_chunks=2 rounds=1 pool_cursor[0]=263 (verify_load=1)
+[load-verify] handle=264 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=264 n_chunks=2 rounds=1 pool_cursor[0]=264 (verify_load=1)
+[load-verify] handle=265 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=265 n_chunks=2 rounds=1 pool_cursor[0]=265 (verify_load=1)
+[load-verify] handle=266 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=266 n_chunks=2 rounds=1 pool_cursor[0]=266 (verify_load=1)
+[load-verify] handle=267 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=267 n_chunks=2 rounds=1 pool_cursor[0]=267 (verify_load=1)
+[load-verify] handle=268 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=268 n_chunks=2 rounds=1 pool_cursor[0]=268 (verify_load=1)
+[load-verify] handle=269 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=269 n_chunks=2 rounds=1 pool_cursor[0]=269 (verify_load=1)
+[load-verify] handle=270 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=270 n_chunks=2 rounds=1 pool_cursor[0]=270 (verify_load=1)
+[load-verify] handle=271 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=271 n_chunks=2 rounds=1 pool_cursor[0]=271 (verify_load=1)
+[load-verify] handle=272 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=272 n_chunks=2 rounds=1 pool_cursor[0]=272 (verify_load=1)
+[load-verify] handle=273 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=273 n_chunks=2 rounds=1 pool_cursor[0]=273 (verify_load=1)
+[load-verify] handle=274 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=274 n_chunks=2 rounds=1 pool_cursor[0]=274 (verify_load=1)
+[load-verify] handle=275 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=275 n_chunks=2 rounds=1 pool_cursor[0]=275 (verify_load=1)
+[load-verify] handle=276 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=276 n_chunks=2 rounds=1 pool_cursor[0]=276 (verify_load=1)
+[load-verify] handle=277 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=277 n_chunks=2 rounds=1 pool_cursor[0]=277 (verify_load=1)
+[load-verify] handle=278 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=278 n_chunks=2 rounds=1 pool_cursor[0]=278 (verify_load=1)
+[server] LOAD_WEIGHTS handle=279 bank 0: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=279 bank 1: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=279 bank 2: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=279 bank 3: overflowed 1/1 rounds into extra-subarray pools
+[load-verify] handle=279 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=279 n_chunks=2 rounds=1 pool_cursor[0]=278 (verify_load=1)
+[server] LOAD_WEIGHTS handle=280 bank 0: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=280 bank 1: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=280 bank 2: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=280 bank 3: overflowed 1/1 rounds into extra-subarray pools
+[load-verify] handle=280 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=280 n_chunks=2 rounds=1 pool_cursor[0]=278 (verify_load=1)
+[server] LOAD_WEIGHTS handle=281 bank 0: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=281 bank 1: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=281 bank 2: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=281 bank 3: overflowed 1/1 rounds into extra-subarray pools
+[load-verify] handle=281 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=281 n_chunks=2 rounds=1 pool_cursor[0]=278 (verify_load=1)
+[server] LOAD_WEIGHTS handle=282 bank 0: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=282 bank 1: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=282 bank 2: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=282 bank 3: overflowed 1/1 rounds into extra-subarray pools
+[load-verify] handle=282 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=282 n_chunks=2 rounds=1 pool_cursor[0]=278 (verify_load=1)
+[server] LOAD_WEIGHTS handle=283 bank 0: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=283 bank 1: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=283 bank 2: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=283 bank 3: overflowed 1/1 rounds into extra-subarray pools
+[load-verify] handle=283 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=283 n_chunks=2 rounds=1 pool_cursor[0]=278 (verify_load=1)
+[server] LOAD_WEIGHTS handle=284 bank 0: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=284 bank 1: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=284 bank 2: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=284 bank 3: overflowed 1/1 rounds into extra-subarray pools
+[load-verify] handle=284 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=284 n_chunks=2 rounds=1 pool_cursor[0]=278 (verify_load=1)
+[server] LOAD_WEIGHTS handle=285 bank 0: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=285 bank 1: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=285 bank 2: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=285 bank 3: overflowed 1/1 rounds into extra-subarray pools
+[load-verify] handle=285 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=285 n_chunks=2 rounds=1 pool_cursor[0]=278 (verify_load=1)
+[server] LOAD_WEIGHTS handle=286 bank 0: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=286 bank 1: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=286 bank 2: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=286 bank 3: overflowed 1/1 rounds into extra-subarray pools
+[load-verify] handle=286 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=286 n_chunks=2 rounds=1 pool_cursor[0]=278 (verify_load=1)
+[server] LOAD_WEIGHTS handle=287 bank 0: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=287 bank 1: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=287 bank 2: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=287 bank 3: overflowed 1/1 rounds into extra-subarray pools
+[load-verify] handle=287 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=287 n_chunks=2 rounds=1 pool_cursor[0]=278 (verify_load=1)
+[server] LOAD_WEIGHTS handle=288 bank 0: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=288 bank 1: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=288 bank 2: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=288 bank 3: overflowed 1/1 rounds into extra-subarray pools
+[load-verify] handle=288 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=288 n_chunks=2 rounds=1 pool_cursor[0]=278 (verify_load=1)
+[server] LOAD_WEIGHTS handle=289 bank 0: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=289 bank 1: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=289 bank 2: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=289 bank 3: overflowed 1/1 rounds into extra-subarray pools
+[load-verify] handle=289 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=289 n_chunks=2 rounds=1 pool_cursor[0]=278 (verify_load=1)
+[server] LOAD_WEIGHTS handle=290 bank 0: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=290 bank 1: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=290 bank 2: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=290 bank 3: overflowed 1/1 rounds into extra-subarray pools
+[load-verify] handle=290 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=290 n_chunks=2 rounds=1 pool_cursor[0]=278 (verify_load=1)
+[server] LOAD_WEIGHTS handle=291 bank 0: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=291 bank 1: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=291 bank 2: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=291 bank 3: overflowed 1/1 rounds into extra-subarray pools
+[load-verify] handle=291 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=291 n_chunks=2 rounds=1 pool_cursor[0]=278 (verify_load=1)
+[server] LOAD_WEIGHTS handle=292 bank 0: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=292 bank 1: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=292 bank 2: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=292 bank 3: overflowed 1/1 rounds into extra-subarray pools
+[load-verify] handle=292 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=292 n_chunks=2 rounds=1 pool_cursor[0]=278 (verify_load=1)
+[server] LOAD_WEIGHTS handle=293 bank 0: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=293 bank 1: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=293 bank 2: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=293 bank 3: overflowed 1/1 rounds into extra-subarray pools
+[load-verify] handle=293 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=293 n_chunks=2 rounds=1 pool_cursor[0]=278 (verify_load=1)
+[server] LOAD_WEIGHTS handle=294 bank 0: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=294 bank 1: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=294 bank 2: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=294 bank 3: overflowed 1/1 rounds into extra-subarray pools
+[load-verify] handle=294 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=294 n_chunks=2 rounds=1 pool_cursor[0]=278 (verify_load=1)
+[server] LOAD_WEIGHTS handle=295 bank 0: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=295 bank 1: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=295 bank 2: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=295 bank 3: overflowed 1/1 rounds into extra-subarray pools
+[load-verify] handle=295 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=295 n_chunks=2 rounds=1 pool_cursor[0]=278 (verify_load=1)
+[server] LOAD_WEIGHTS handle=296 bank 0: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=296 bank 1: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=296 bank 2: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=296 bank 3: overflowed 1/1 rounds into extra-subarray pools
+[load-verify] handle=296 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=296 n_chunks=2 rounds=1 pool_cursor[0]=278 (verify_load=1)
+[server] LOAD_WEIGHTS handle=297 bank 0: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=297 bank 1: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=297 bank 2: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=297 bank 3: overflowed 1/1 rounds into extra-subarray pools
+[load-verify] handle=297 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=297 n_chunks=2 rounds=1 pool_cursor[0]=278 (verify_load=1)
+[server] LOAD_WEIGHTS handle=298 bank 0: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=298 bank 1: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=298 bank 2: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=298 bank 3: overflowed 1/1 rounds into extra-subarray pools
+[load-verify] handle=298 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=298 n_chunks=2 rounds=1 pool_cursor[0]=278 (verify_load=1)
+[server] LOAD_WEIGHTS handle=299 bank 0: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=299 bank 1: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=299 bank 2: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=299 bank 3: overflowed 1/1 rounds into extra-subarray pools
+[load-verify] handle=299 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=299 n_chunks=2 rounds=1 pool_cursor[0]=278 (verify_load=1)
+[server] LOAD_WEIGHTS handle=300 bank 0: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=300 bank 1: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=300 bank 2: overflowed 1/1 rounds into extra-subarray pools
+[server] LOAD_WEIGHTS handle=300 bank 3: overflowed 1/1 rounds into extra-subarray pools
+[load-verify] handle=300 write-readback summary: 0/8192 segs mismatched (0.0000%)
+[server] LOAD_WEIGHTS handle=300 n_chunks=2 rounds=1 pool_cursor[0]=278 (verify_load=1)
+[mm3d-verify-bits] handle=1 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=1 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=1 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=1 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=1 DECAY/CORRUPTION: 6888/8192 segs differ in round-0 (84.0820%); first @bk=0 s=0 exp_pc=11 got_pc=8 exp_word=0x034d2425 got_word=0x8402101b xor=0x874f343e (refresh=0)
+[mm3d-verify-post] handle=1 POST-MM3D CORRUPTION: 6888/8192 segs (84.08%); @bk=0 s=0 exp=0x034d2425 got=0x8402101b xor=0x874f343e
+[mm3d-verify-bits] handle=2 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=2 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=2 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=2 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=2 DECAY/CORRUPTION: 6922/8192 segs differ in round-0 (84.4971%); first @bk=0 s=0 exp_pc=4 got_pc=7 exp_word=0x08100808 got_word=0x80c92008 xor=0x88d92800 (refresh=0)
+[mm3d-verify-bits] handle=3 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=3 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=3 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=3 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=3 DECAY/CORRUPTION: 6833/8192 segs differ in round-0 (83.4106%); first @bk=0 s=0 exp_pc=5 got_pc=4 exp_word=0x18010600 got_word=0x00200405 xor=0x18210205 (refresh=0)
+[mm3d-verify-bits] handle=4 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=4 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=4 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=4 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=4 DECAY/CORRUPTION: 6935/8192 segs differ in round-0 (84.6558%); first @bk=0 s=0 exp_pc=11 got_pc=10 exp_word=0x2286a838 got_word=0x852804f0 xor=0xa7aeacc8 (refresh=0)
+[mm3d-verify-bits] handle=5 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=5 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=5 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=5 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=5 DECAY/CORRUPTION: 6885/8192 segs differ in round-0 (84.0454%); first @bk=0 s=0 exp_pc=8 got_pc=4 exp_word=0x1045010d got_word=0x48000120 xor=0x5845002d (refresh=0)
+[mm3d-verify-bits] handle=6 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=6 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=6 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=6 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=6 DECAY/CORRUPTION: 6914/8192 segs differ in round-0 (84.3994%); first @bk=0 s=0 exp_pc=11 got_pc=10 exp_word=0x222d0cc2 got_word=0x06c0aac0 xor=0x24eda602 (refresh=0)
+[mm3d-verify-bits] handle=7 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=7 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=7 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=7 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=7 DECAY/CORRUPTION: 6827/8192 segs differ in round-0 (83.3374%); first @bk=0 s=0 exp_pc=13 got_pc=5 exp_word=0x07c9d0a2 got_word=0x41201002 xor=0x46e9c0a0 (refresh=0)
+[mm3d-verify-bits] handle=8 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=8 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=8 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=8 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=8 DECAY/CORRUPTION: 6862/8192 segs differ in round-0 (83.7646%); first @bk=0 s=1 exp_pc=8 got_pc=9 exp_word=0x0cc00852 got_word=0x64508218 xor=0x68908a4a (refresh=0)
+[mm3d-verify-bits] handle=9 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=9 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=9 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=9 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=9 DECAY/CORRUPTION: 6849/8192 segs differ in round-0 (83.6060%); first @bk=0 s=0 exp_pc=11 got_pc=7 exp_word=0xa08c02ad got_word=0x48544080 xor=0xe8d8422d (refresh=0)
+[mm3d-verify-bits] handle=10 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=10 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=10 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=10 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=10 DECAY/CORRUPTION: 6892/8192 segs differ in round-0 (84.1309%); first @bk=0 s=0 exp_pc=8 got_pc=7 exp_word=0x81002c51 got_word=0x48544080 xor=0xc9546cd1 (refresh=0)
+[mm3d-verify-bits] handle=11 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=11 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=11 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=11 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=11 DECAY/CORRUPTION: 6823/8192 segs differ in round-0 (83.2886%); first @bk=0 s=0 exp_pc=3 got_pc=4 exp_word=0x42020000 got_word=0x00200405 xor=0x42220405 (refresh=0)
+[mm3d-verify-bits] handle=12 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=12 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=12 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=12 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=12 DECAY/CORRUPTION: 6937/8192 segs differ in round-0 (84.6802%); first @bk=0 s=0 exp_pc=9 got_pc=10 exp_word=0x20523920 got_word=0x852804f0 xor=0xa57a3dd0 (refresh=0)
+[mm3d-verify-bits] handle=13 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=13 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=13 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=13 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=13 DECAY/CORRUPTION: 6905/8192 segs differ in round-0 (84.2896%); first @bk=0 s=0 exp_pc=4 got_pc=12 exp_word=0x02081200 got_word=0x44c82ba4 xor=0x46c039a4 (refresh=0)
+[mm3d-verify-bits] handle=14 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=14 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=14 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=14 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=14 DECAY/CORRUPTION: 6903/8192 segs differ in round-0 (84.2651%); first @bk=0 s=0 exp_pc=8 got_pc=12 exp_word=0xa01aa008 got_word=0x44c82ba4 xor=0xe4d28bac (refresh=0)
+[mm3d-verify-bits] handle=15 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=15 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=15 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=15 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=15 DECAY/CORRUPTION: 6829/8192 segs differ in round-0 (83.3618%); first @bk=0 s=0 exp_pc=12 got_pc=4 exp_word=0x4516508d got_word=0x48000120 xor=0x0d1651ad (refresh=0)
+[mm3d-verify-bits] handle=16 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=16 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=16 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=16 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=16 DECAY/CORRUPTION: 6941/8192 segs differ in round-0 (84.7290%); first @bk=0 s=0 exp_pc=9 got_pc=10 exp_word=0x99304440 got_word=0x06c0aac0 xor=0x9ff0ee80 (refresh=0)
+[mm3d-verify-bits] handle=17 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=17 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=17 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=17 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=17 DECAY/CORRUPTION: 6958/8192 segs differ in round-0 (84.9365%); first @bk=0 s=0 exp_pc=7 got_pc=6 exp_word=0x06101049 got_word=0x08485020 xor=0x0e584069 (refresh=0)
+[mm3d-verify-bits] handle=18 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=18 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=18 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=18 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=18 DECAY/CORRUPTION: 6927/8192 segs differ in round-0 (84.5581%); first @bk=0 s=0 exp_pc=7 got_pc=6 exp_word=0xc080410a got_word=0x08485020 xor=0xc8c8112a (refresh=0)
+[mm3d-verify-bits] handle=19 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=19 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=19 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=19 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=19 DECAY/CORRUPTION: 6881/8192 segs differ in round-0 (83.9966%); first @bk=0 s=0 exp_pc=3 got_pc=4 exp_word=0x00002012 got_word=0x48000120 xor=0x48002132 (refresh=0)
+[mm3d-verify-bits] handle=20 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=20 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=20 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=20 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=20 DECAY/CORRUPTION: 6928/8192 segs differ in round-0 (84.5703%); first @bk=0 s=0 exp_pc=11 got_pc=10 exp_word=0x40b048d5 got_word=0x06c0aac0 xor=0x4670e215 (refresh=0)
+[mm3d-prof #100 handle=20] total=2.7ms refresh=0.0ms verify=0.4ms exec=0.4ms (4x) recv=1.5ms pop=0.0ms other=0.3ms
+[mm3d-verify-bits] handle=21 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=21 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=21 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=21 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=21 DECAY/CORRUPTION: 6921/8192 segs differ in round-0 (84.4849%); first @bk=0 s=0 exp_pc=3 got_pc=6 exp_word=0x1000a000 got_word=0x08485020 xor=0x1848f020 (refresh=0)
+[mm3d-verify-post] handle=21 POST-MM3D CORRUPTION: 6921/8192 segs (84.48%); @bk=0 s=0 exp=0x1000a000 got=0x08485020 xor=0x1848f020
+[mm3d-verify-bits] handle=22 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=22 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=22 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=22 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=22 DECAY/CORRUPTION: 6848/8192 segs differ in round-0 (83.5938%); first @bk=0 s=0 exp_pc=4 got_pc=8 exp_word=0x02820002 got_word=0x8402101b xor=0x86801019 (refresh=0)
+[mm3d-verify-bits] handle=23 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=23 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=23 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=23 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=23 DECAY/CORRUPTION: 6854/8192 segs differ in round-0 (83.6670%); first @bk=0 s=0 exp_pc=5 got_pc=7 exp_word=0x40614000 got_word=0x80c92008 xor=0xc0a86008 (refresh=0)
+[mm3d-verify-bits] handle=24 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=24 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=24 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=24 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=24 DECAY/CORRUPTION: 6886/8192 segs differ in round-0 (84.0576%); first @bk=0 s=0 exp_pc=10 got_pc=7 exp_word=0x0950c522 got_word=0x80c92008 xor=0x8999e52a (refresh=0)
+[mm3d-verify-bits] handle=34 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=34 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=34 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=34 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=34 DECAY/CORRUPTION: 6802/8192 segs differ in round-0 (83.0322%); first @bk=0 s=1 exp_pc=5 got_pc=9 exp_word=0x00403408 got_word=0x92230a08 xor=0x92633e00 (refresh=0)
+[mm3d-verify-bits] handle=35 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=35 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=35 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=35 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=35 DECAY/CORRUPTION: 6905/8192 segs differ in round-0 (84.2896%); first @bk=0 s=0 exp_pc=5 got_pc=7 exp_word=0x000c0540 got_word=0x80c92008 xor=0x80c52548 (refresh=0)
+[mm3d-verify-bits] handle=47 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=47 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=47 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=47 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=47 DECAY/CORRUPTION: 6885/8192 segs differ in round-0 (84.0454%); first @bk=0 s=0 exp_pc=6 got_pc=8 exp_word=0x20820c40 got_word=0x8402101b xor=0xa4801c5b (refresh=0)
+[mm3d-verify-bits] handle=48 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=48 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=48 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=48 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=48 DECAY/CORRUPTION: 6902/8192 segs differ in round-0 (84.2529%); first @bk=0 s=0 exp_pc=8 got_pc=7 exp_word=0x22009690 got_word=0x80c92008 xor=0xa2c9b698 (refresh=0)
+[mm3d-verify-bits] handle=49 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=49 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=49 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=49 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=49 DECAY/CORRUPTION: 6894/8192 segs differ in round-0 (84.1553%); first @bk=0 s=0 exp_pc=8 got_pc=7 exp_word=0x4061220a got_word=0x80c92008 xor=0xc0a80202 (refresh=0)
+[mm3d-verify-bits] handle=50 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=50 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=50 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=50 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=50 DECAY/CORRUPTION: 6826/8192 segs differ in round-0 (83.3252%); first @bk=0 s=0 exp_pc=5 got_pc=7 exp_word=0x0a000105 got_word=0x48544080 xor=0x42544185 (refresh=0)
+[mm3d-verify-bits] handle=51 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=51 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=51 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=51 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=51 DECAY/CORRUPTION: 6852/8192 segs differ in round-0 (83.6426%); first @bk=0 s=0 exp_pc=6 got_pc=4 exp_word=0x844c0010 got_word=0x00200405 xor=0x846c0415 (refresh=0)
+[mm3d-verify-bits] handle=52 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=52 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=52 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=52 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=52 DECAY/CORRUPTION: 6901/8192 segs differ in round-0 (84.2407%); first @bk=0 s=0 exp_pc=6 got_pc=10 exp_word=0x01014242 got_word=0x852804f0 xor=0x842946b2 (refresh=0)
+[mm3d-verify-bits] handle=53 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=53 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=53 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=53 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=53 DECAY/CORRUPTION: 6890/8192 segs differ in round-0 (84.1064%); first @bk=0 s=1 exp_pc=9 got_pc=8 exp_word=0x18013318 got_word=0x57004060 xor=0x4f017378 (refresh=0)
+[mm3d-verify-bits] handle=54 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=54 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=54 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=54 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=54 DECAY/CORRUPTION: 6911/8192 segs differ in round-0 (84.3628%); first @bk=0 s=0 exp_pc=5 got_pc=12 exp_word=0x80830008 got_word=0x44c82ba4 xor=0xc44b2bac (refresh=0)
+[mm3d-verify-bits] handle=55 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=55 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=55 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=55 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=55 DECAY/CORRUPTION: 6803/8192 segs differ in round-0 (83.0444%); first @bk=0 s=0 exp_pc=5 got_pc=4 exp_word=0x40200e00 got_word=0x48000120 xor=0x08200f20 (refresh=0)
+[mm3d-verify-bits] handle=56 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=56 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=56 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=56 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=56 DECAY/CORRUPTION: 6880/8192 segs differ in round-0 (83.9844%); first @bk=0 s=0 exp_pc=9 got_pc=10 exp_word=0xc001094e got_word=0x06c0aac0 xor=0xc6c1a38e (refresh=0)
+[mm3d-verify-bits] handle=57 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=57 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=57 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=57 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=57 DECAY/CORRUPTION: 6920/8192 segs differ in round-0 (84.4727%); first @bk=0 s=0 exp_pc=8 got_pc=6 exp_word=0x02208741 got_word=0x08485020 xor=0x0a68d761 (refresh=0)
+[mm3d-verify-bits] handle=58 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=58 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=58 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=58 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=58 DECAY/CORRUPTION: 6868/8192 segs differ in round-0 (83.8379%); first @bk=0 s=0 exp_pc=9 got_pc=6 exp_word=0x15446006 got_word=0x08485020 xor=0x1d0c3026 (refresh=0)
+[mm3d-verify-bits] handle=59 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=59 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=59 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=59 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=59 DECAY/CORRUPTION: 6882/8192 segs differ in round-0 (84.0088%); first @bk=0 s=0 exp_pc=7 got_pc=8 exp_word=0x01150c08 got_word=0x8402101b xor=0x85171c13 (refresh=0)
+[mm3d-verify-bits] handle=60 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=60 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=60 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=60 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=60 DECAY/CORRUPTION: 6896/8192 segs differ in round-0 (84.1797%); first @bk=0 s=0 exp_pc=8 got_pc=7 exp_word=0x406c0184 got_word=0x80c92008 xor=0xc0a5218c (refresh=0)
+[mm3d-verify-bits] handle=61 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=61 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=61 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=61 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=61 DECAY/CORRUPTION: 6910/8192 segs differ in round-0 (84.3506%); first @bk=0 s=1 exp_pc=6 got_pc=5 exp_word=0x04810406 got_word=0xc0404008 xor=0xc4c1440e (refresh=0)
+[mm3d-verify-post] handle=61 POST-MM3D CORRUPTION: 6910/8192 segs (84.35%); @bk=0 s=1 exp=0x04810406 got=0xc0404008 xor=0xc4c1440e
+[mm3d-verify-bits] handle=62 bk=0 OR_set_bits_in_mismatch=0x00000000 XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=62 bk=1 OR_set_bits_in_mismatch=0x00000000 XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=62 bk=2 OR_set_bits_in_mismatch=0x00000000 XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=62 bk=3 OR_set_bits_in_mismatch=0x00000000 XOR_flipped=0x7fffffff
+[mm3d-verify] handle=62 DECAY/CORRUPTION: 1428/8192 segs differ in round-0 (17.4316%); first @bk=0 s=3 exp_pc=9 got_pc=8 exp_word=0x03c0803c got_word=0x0380803c xor=0x00400000 (refresh=0)
+[mm3d-verify-bits] handle=63 bk=0 OR_set_bits_in_mismatch=0x00000000 XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=63 bk=1 OR_set_bits_in_mismatch=0x00000000 XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=63 bk=2 OR_set_bits_in_mismatch=0x00000000 XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=63 bk=3 OR_set_bits_in_mismatch=0x00000000 XOR_flipped=0xffffffff
+[mm3d-verify] handle=63 DECAY/CORRUPTION: 2662/8192 segs differ in round-0 (32.4951%); first @bk=0 s=3 exp_pc=12 got_pc=10 exp_word=0x20166729 got_word=0x20166129 xor=0x00000600 (refresh=0)
+[mm3d-verify-bits] handle=64 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=64 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=64 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=64 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=64 DECAY/CORRUPTION: 6882/8192 segs differ in round-0 (84.0088%); first @bk=0 s=0 exp_pc=11 got_pc=8 exp_word=0x452047d0 got_word=0x5a018009 xor=0x1f21c7d9 (refresh=0)
+[mm3d-verify-bits] handle=65 bk=0 OR_set_bits_in_mismatch=0x00000000 XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=65 bk=1 OR_set_bits_in_mismatch=0x00000000 XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=65 bk=2 OR_set_bits_in_mismatch=0x00000000 XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=65 bk=3 OR_set_bits_in_mismatch=0x00000000 XOR_flipped=0xffffffff
+[mm3d-verify] handle=65 DECAY/CORRUPTION: 2566/8192 segs differ in round-0 (31.3232%); first @bk=0 s=1 exp_pc=11 got_pc=9 exp_word=0x8023845b got_word=0x8021845a xor=0x00020001 (refresh=0)
+[mm3d-verify-bits] handle=66 bk=0 OR_set_bits_in_mismatch=0x00000000 XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=66 bk=1 OR_set_bits_in_mismatch=0x00000000 XOR_flipped=0x7fffffff
+[mm3d-verify-bits] handle=66 bk=2 OR_set_bits_in_mismatch=0x00000000 XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=66 bk=3 OR_set_bits_in_mismatch=0x00000000 XOR_flipped=0xfbffffff
+[mm3d-verify] handle=66 DECAY/CORRUPTION: 2178/8192 segs differ in round-0 (26.5869%); first @bk=0 s=3 exp_pc=9 got_pc=8 exp_word=0x40242299 got_word=0x40242099 xor=0x00000200 (refresh=0)
+[mm3d-verify-bits] handle=67 bk=0 OR_set_bits_in_mismatch=0x08000000 XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=67 bk=1 OR_set_bits_in_mismatch=0x00000000 XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=67 bk=2 OR_set_bits_in_mismatch=0xc2000000 XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=67 bk=3 OR_set_bits_in_mismatch=0x00000000 XOR_flipped=0xffffffff
+[mm3d-verify] handle=67 DECAY/CORRUPTION: 2919/8192 segs differ in round-0 (35.6323%); first @bk=0 s=1 exp_pc=6 got_pc=5 exp_word=0x03024201 got_word=0x03004201 xor=0x00020000 (refresh=0)
+[mm3d-verify-bits] handle=68 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=68 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=68 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=68 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=68 DECAY/CORRUPTION: 6911/8192 segs differ in round-0 (84.3628%); first @bk=0 s=0 exp_pc=9 got_pc=10 exp_word=0x002491e4 got_word=0x852804f0 xor=0x850c9514 (refresh=0)
+[mm3d-verify-bits] handle=69 bk=0 OR_set_bits_in_mismatch=0x40000000 XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=69 bk=1 OR_set_bits_in_mismatch=0x00000000 XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=69 bk=2 OR_set_bits_in_mismatch=0x01000000 XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=69 bk=3 OR_set_bits_in_mismatch=0x00000000 XOR_flipped=0xffffffff
+[mm3d-verify] handle=69 DECAY/CORRUPTION: 2659/8192 segs differ in round-0 (32.4585%); first @bk=0 s=1 exp_pc=9 got_pc=8 exp_word=0x57044060 got_word=0x57004060 xor=0x00040000 (refresh=0)
+[mm3d-verify-bits] handle=70 bk=0 OR_set_bits_in_mismatch=0x00000000 XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=70 bk=1 OR_set_bits_in_mismatch=0x00000000 XOR_flipped=0x7fffffff
+[mm3d-verify-bits] handle=70 bk=2 OR_set_bits_in_mismatch=0x00000000 XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=70 bk=3 OR_set_bits_in_mismatch=0x00000000 XOR_flipped=0xffffffff
+[mm3d-verify] handle=70 DECAY/CORRUPTION: 1923/8192 segs differ in round-0 (23.4741%); first @bk=0 s=3 exp_pc=6 got_pc=5 exp_word=0x50021048 got_word=0x50001048 xor=0x00020000 (refresh=0)
+[mm3d-prof #150 handle=70] total=3.3ms refresh=0.0ms verify=1.1ms exec=0.5ms (4x) recv=1.4ms pop=0.0ms other=0.3ms
+[mm3d-verify-bits] handle=71 bk=0 OR_set_bits_in_mismatch=0x85000000 XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=71 bk=1 OR_set_bits_in_mismatch=0x00000000 XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=71 bk=2 OR_set_bits_in_mismatch=0x04000000 XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=71 bk=3 OR_set_bits_in_mismatch=0x00000000 XOR_flipped=0x7fffffff
+[mm3d-verify] handle=71 DECAY/CORRUPTION: 2668/8192 segs differ in round-0 (32.5684%); first @bk=0 s=1 exp_pc=6 got_pc=5 exp_word=0x44601010 got_word=0x44601000 xor=0x00000010 (refresh=0)
+[mm3d-verify-bits] handle=72 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=72 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=72 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=72 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=72 DECAY/CORRUPTION: 6927/8192 segs differ in round-0 (84.5581%); first @bk=0 s=0 exp_pc=5 got_pc=10 exp_word=0x0820a080 got_word=0x06c0aac0 xor=0x0ee00a40 (refresh=0)
+[mm3d-verify-bits] handle=73 bk=0 OR_set_bits_in_mismatch=0x40000000 XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=73 bk=1 OR_set_bits_in_mismatch=0x00000000 XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=73 bk=2 OR_set_bits_in_mismatch=0x01000000 XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=73 bk=3 OR_set_bits_in_mismatch=0x00000000 XOR_flipped=0xffffffff
+[mm3d-verify] handle=73 DECAY/CORRUPTION: 2591/8192 segs differ in round-0 (31.6284%); first @bk=0 s=1 exp_pc=8 got_pc=5 exp_word=0xc0484308 got_word=0xc0404008 xor=0x00080300 (refresh=0)
+[mm3d-verify-bits] handle=74 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=74 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=74 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=74 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=74 DECAY/CORRUPTION: 6839/8192 segs differ in round-0 (83.4839%); first @bk=0 s=0 exp_pc=12 got_pc=4 exp_word=0x2c62035a got_word=0x48000120 xor=0x6462027a (refresh=0)
+[mm3d-verify-bits] handle=75 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=75 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=75 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=75 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=75 DECAY/CORRUPTION: 6937/8192 segs differ in round-0 (84.6802%); first @bk=0 s=0 exp_pc=6 got_pc=10 exp_word=0x20820a04 got_word=0x06c0aac0 xor=0x2642a0c4 (refresh=0)
+[mm3d-verify-bits] handle=76 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=76 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=76 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=76 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=76 DECAY/CORRUPTION: 6914/8192 segs differ in round-0 (84.3994%); first @bk=0 s=0 exp_pc=5 got_pc=6 exp_word=0x02061040 got_word=0x08485020 xor=0x0a4e4060 (refresh=0)
+[mm3d-verify-bits] handle=77 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=77 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=77 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=77 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=77 DECAY/CORRUPTION: 6889/8192 segs differ in round-0 (84.0942%); first @bk=0 s=0 exp_pc=9 got_pc=6 exp_word=0x30822816 got_word=0x08485020 xor=0x38ca7836 (refresh=0)
+[mm3d-verify-bits] handle=78 bk=0 OR_set_bits_in_mismatch=0x00000000 XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=78 bk=1 OR_set_bits_in_mismatch=0x00000000 XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=78 bk=2 OR_set_bits_in_mismatch=0x00000000 XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=78 bk=3 OR_set_bits_in_mismatch=0x00000000 XOR_flipped=0xfbffffff
+[mm3d-verify] handle=78 DECAY/CORRUPTION: 1851/8192 segs differ in round-0 (22.5952%); first @bk=0 s=3 exp_pc=6 got_pc=5 exp_word=0x40007050 got_word=0x40005050 xor=0x00002000 (refresh=0)
+[mm3d-verify-bits] handle=79 bk=0 OR_set_bits_in_mismatch=0x40000000 XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=79 bk=1 OR_set_bits_in_mismatch=0x00000000 XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=79 bk=2 OR_set_bits_in_mismatch=0x00000000 XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=79 bk=3 OR_set_bits_in_mismatch=0x00000000 XOR_flipped=0xffffffff
+[mm3d-verify] handle=79 DECAY/CORRUPTION: 2681/8192 segs differ in round-0 (32.7271%); first @bk=0 s=1 exp_pc=5 got_pc=4 exp_word=0x000820c2 got_word=0x00082082 xor=0x00000040 (refresh=0)
+[mm3d-verify-bits] handle=80 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=80 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=80 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=80 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=80 DECAY/CORRUPTION: 6926/8192 segs differ in round-0 (84.5459%); first @bk=0 s=0 exp_pc=9 got_pc=7 exp_word=0x40019994 got_word=0x80c92008 xor=0xc0c8b99c (refresh=0)
+[mm3d-verify-post] handle=81 POST-MM3D CORRUPTION: 2746/8192 segs (33.52%); @bk=0 s=5 exp=0x03029830 got=0x03029030 xor=0x00000800
+[mm3d-verify-bits] handle=84 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=84 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=84 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=84 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=84 DECAY/CORRUPTION: 6962/8192 segs differ in round-0 (84.9854%); first @bk=0 s=1 exp_pc=6 got_pc=5 exp_word=0x84410840 got_word=0x0200e400 xor=0x8641ec40 (refresh=0)
+[mm3d-verify-bits] handle=88 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=88 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=88 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=88 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=88 DECAY/CORRUPTION: 6958/8192 segs differ in round-0 (84.9365%); first @bk=0 s=0 exp_pc=1 got_pc=4 exp_word=0x01000000 got_word=0x88001004 xor=0x89001004 (refresh=0)
+[mm3d-verify-bits] handle=90 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=90 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=90 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=90 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=90 DECAY/CORRUPTION: 6874/8192 segs differ in round-0 (83.9111%); first @bk=0 s=0 exp_pc=11 got_pc=8 exp_word=0x0208b63c got_word=0x80f00062 xor=0x82f8b65e (refresh=0)
+[mm3d-verify-bits] handle=91 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=91 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=91 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=91 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=91 DECAY/CORRUPTION: 6979/8192 segs differ in round-0 (85.1929%); first @bk=0 s=0 exp_pc=10 got_pc=4 exp_word=0x02101b55 got_word=0x88001004 xor=0x8a100b51 (refresh=0)
+[mm3d-verify-bits] handle=92 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=92 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=92 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=92 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=92 DECAY/CORRUPTION: 6988/8192 segs differ in round-0 (85.3027%); first @bk=0 s=0 exp_pc=12 got_pc=10 exp_word=0x061e9710 got_word=0x0ba0806c xor=0x0dbe177c (refresh=0)
+[mm3d-verify-bits] handle=93 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=93 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=93 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=93 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=93 DECAY/CORRUPTION: 6972/8192 segs differ in round-0 (85.1074%); first @bk=0 s=0 exp_pc=5 got_pc=10 exp_word=0x00148440 got_word=0x0ba0806c xor=0x0bb4042c (refresh=0)
+[mm3d-verify] handle=94 round-0 popcounts OK (8192 segs, refresh=0)
+[mm3d-verify-bits] handle=96 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=96 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=96 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=96 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=96 DECAY/CORRUPTION: 6925/8192 segs differ in round-0 (84.5337%); first @bk=0 s=0 exp_pc=7 got_pc=11 exp_word=0x88310500 got_word=0xa268cc02 xor=0x2a59c902 (refresh=0)
+[mm3d-verify-bits] handle=100 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=100 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=100 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=100 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=100 DECAY/CORRUPTION: 6976/8192 segs differ in round-0 (85.1562%); first @bk=0 s=0 exp_pc=11 got_pc=6 exp_word=0x423e2046 got_word=0x08401411 xor=0x4a7e3457 (refresh=0)
+[mm3d-verify-post] handle=101 POST-MM3D CORRUPTION: 2596/8192 segs (31.69%); @bk=0 s=3 exp=0x96009d01 got=0x96008d01 xor=0x00001000
+[mm3d-verify-bits] handle=104 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=104 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=104 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=104 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=104 DECAY/CORRUPTION: 6992/8192 segs differ in round-0 (85.3516%); first @bk=0 s=0 exp_pc=10 got_pc=13 exp_word=0xc0c06906 got_word=0xa0b2d50a xor=0x6072bc0c (refresh=0)
+[mm3d-verify-bits] handle=106 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=106 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=106 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=106 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=106 DECAY/CORRUPTION: 6885/8192 segs differ in round-0 (84.0454%); first @bk=0 s=1 exp_pc=6 got_pc=7 exp_word=0x40040146 got_word=0x66000412 xor=0x26040554 (refresh=0)
+[mm3d-verify-bits] handle=107 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=107 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=107 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=107 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=107 DECAY/CORRUPTION: 6921/8192 segs differ in round-0 (84.4849%); first @bk=0 s=0 exp_pc=10 got_pc=13 exp_word=0x4a0c0c26 got_word=0xa0b2d50a xor=0xeabed92c (refresh=0)
+[mm3d-verify-bits] handle=108 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=108 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=108 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=108 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=108 DECAY/CORRUPTION: 6884/8192 segs differ in round-0 (84.0332%); first @bk=0 s=0 exp_pc=9 got_pc=3 exp_word=0x04451710 got_word=0x81000040 xor=0x85451750 (refresh=0)
+[mm3d-verify-bits] handle=109 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=109 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=109 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=109 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=109 DECAY/CORRUPTION: 6897/8192 segs differ in round-0 (84.1919%); first @bk=0 s=0 exp_pc=7 got_pc=3 exp_word=0x800a008d got_word=0x81000040 xor=0x010a00cd (refresh=0)
+[mm3d-prof #200 handle=120] total=2.6ms refresh=0.0ms verify=0.4ms exec=0.4ms (4x) recv=1.5ms pop=0.0ms other=0.3ms
+[mm3d-verify-bits] handle=127 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=127 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=127 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=127 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=127 DECAY/CORRUPTION: 6876/8192 segs differ in round-0 (83.9355%); first @bk=0 s=0 exp_pc=4 got_pc=6 exp_word=0x00181100 got_word=0x0001090e xor=0x0019180e (refresh=0)
+[mm3d-verify-bits] handle=131 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=131 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=131 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=131 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=131 DECAY/CORRUPTION: 6938/8192 segs differ in round-0 (84.6924%); first @bk=0 s=0 exp_pc=7 got_pc=6 exp_word=0x0380009a got_word=0x050a0240 xor=0x068a02da (refresh=0)
+[mm3d-verify-bits] handle=135 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=135 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=135 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=135 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=135 DECAY/CORRUPTION: 6978/8192 segs differ in round-0 (85.1807%); first @bk=0 s=0 exp_pc=9 got_pc=6 exp_word=0x010c0965 got_word=0x09080241 xor=0x08040b24 (refresh=0)
+[mm3d-verify-post] handle=136 POST-MM3D CORRUPTION: 2489/8192 segs (30.38%); @bk=0 s=1 exp=0x82090090 got=0x82080090 xor=0x00010000
+[mm3d-verify-bits] handle=137 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=137 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=137 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=137 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=137 DECAY/CORRUPTION: 6881/8192 segs differ in round-0 (83.9966%); first @bk=0 s=0 exp_pc=7 got_pc=8 exp_word=0x42902408 got_word=0xa0087180 xor=0xe2985588 (refresh=0)
+[mm3d-verify-bits] handle=138 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=138 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=138 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=138 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=138 DECAY/CORRUPTION: 6910/8192 segs differ in round-0 (84.3506%); first @bk=0 s=0 exp_pc=7 got_pc=6 exp_word=0x02188068 got_word=0x09080241 xor=0x0b108229 (refresh=0)
+[mm3d-verify-bits] handle=139 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=139 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=139 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=139 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=139 DECAY/CORRUPTION: 6925/8192 segs differ in round-0 (84.5337%); first @bk=0 s=0 exp_pc=10 got_pc=7 exp_word=0x82436181 got_word=0x42094201 xor=0xc04a2380 (refresh=0)
+[mm3d-verify-bits] handle=140 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=140 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=140 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=140 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=140 DECAY/CORRUPTION: 6946/8192 segs differ in round-0 (84.7900%); first @bk=0 s=0 exp_pc=10 got_pc=7 exp_word=0x40062f82 got_word=0x42094201 xor=0x020f6d83 (refresh=0)
+[mm3d-verify-bits] handle=143 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=143 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=143 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=143 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=143 DECAY/CORRUPTION: 6961/8192 segs differ in round-0 (84.9731%); first @bk=0 s=0 exp_pc=6 got_pc=8 exp_word=0x19010410 got_word=0x2305c400 xor=0x3a04c010 (refresh=0)
+[mm3d-verify-bits] handle=147 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=147 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=147 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=147 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=147 DECAY/CORRUPTION: 6901/8192 segs differ in round-0 (84.2407%); first @bk=0 s=0 exp_pc=8 got_pc=10 exp_word=0x14720204 got_word=0x64318209 xor=0x7043800d (refresh=0)
+[mm3d-verify-bits] handle=151 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=151 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=151 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=151 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=151 DECAY/CORRUPTION: 6936/8192 segs differ in round-0 (84.6680%); first @bk=0 s=0 exp_pc=6 got_pc=16 exp_word=0x0018900a got_word=0x16754ce5 xor=0x166ddcef (refresh=0)
+[mm3d-verify-bits] handle=153 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=153 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=153 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=153 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=153 DECAY/CORRUPTION: 6905/8192 segs differ in round-0 (84.2896%); first @bk=0 s=0 exp_pc=10 got_pc=7 exp_word=0x009c65a0 got_word=0x11209204 xor=0x11bcf7a4 (refresh=0)
+[mm3d-verify-bits] handle=154 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=154 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=154 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=154 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=154 DECAY/CORRUPTION: 6978/8192 segs differ in round-0 (85.1807%); first @bk=0 s=0 exp_pc=10 got_pc=16 exp_word=0x59031601 got_word=0x16754ce5 xor=0x4f765ae4 (refresh=0)
+[mm3d-verify-bits] handle=155 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=155 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=155 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=155 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=155 DECAY/CORRUPTION: 6973/8192 segs differ in round-0 (85.1196%); first @bk=0 s=0 exp_pc=8 got_pc=10 exp_word=0x32090441 got_word=0x0446089b xor=0x364f0cda (refresh=0)
+[mm3d-verify-bits] handle=156 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=156 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=156 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=156 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=156 DECAY/CORRUPTION: 6946/8192 segs differ in round-0 (84.7900%); first @bk=0 s=0 exp_pc=6 got_pc=10 exp_word=0x100030c4 got_word=0x0446089b xor=0x1446385f (refresh=0)
+[mm3d-verify-post] handle=156 POST-MM3D CORRUPTION: 6946/8192 segs (84.79%); @bk=0 s=0 exp=0x100030c4 got=0x0446089b xor=0x1446385f
+[mm3d-verify-bits] handle=159 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=159 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=159 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=159 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=159 DECAY/CORRUPTION: 6917/8192 segs differ in round-0 (84.4360%); first @bk=0 s=0 exp_pc=6 got_pc=3 exp_word=0x280022c0 got_word=0x80200100 xor=0xa82023c0 (refresh=0)
+[mm3d-verify-bits] handle=163 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=163 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=163 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=163 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=163 DECAY/CORRUPTION: 6968/8192 segs differ in round-0 (85.0586%); first @bk=0 s=0 exp_pc=6 got_pc=7 exp_word=0x60004091 got_word=0x20085484 xor=0x40081415 (refresh=0)
+[mm3d-verify-bits] handle=167 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=167 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=167 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=167 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=167 DECAY/CORRUPTION: 6930/8192 segs differ in round-0 (84.5947%); first @bk=0 s=0 exp_pc=8 got_pc=9 exp_word=0xb1003180 got_word=0x0af00222 xor=0xbbf033a2 (refresh=0)
+[mm3d-verify] handle=168 round-0 popcounts OK (8192 segs, refresh=0)
+[mm3d-verify-bits] handle=169 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=169 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=169 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=169 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=169 DECAY/CORRUPTION: 6901/8192 segs differ in round-0 (84.2407%); first @bk=0 s=0 exp_pc=8 got_pc=6 exp_word=0x0064a212 got_word=0x12180280 xor=0x127ca092 (refresh=0)
+[mm3d-verify-bits] handle=170 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=170 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=170 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=170 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=170 DECAY/CORRUPTION: 6977/8192 segs differ in round-0 (85.1685%); first @bk=0 s=0 exp_pc=13 got_pc=9 exp_word=0x90ca8d91 got_word=0x0af00222 xor=0x9a3a8fb3 (refresh=0)
+[mm3d-prof #250 handle=170] total=2.6ms refresh=0.0ms verify=0.4ms exec=0.4ms (4x) recv=1.5ms pop=0.0ms other=0.3ms
+[mm3d-verify-bits] handle=171 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=171 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=171 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=171 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=171 DECAY/CORRUPTION: 6932/8192 segs differ in round-0 (84.6191%); first @bk=0 s=2 exp_pc=6 got_pc=8 exp_word=0x008888a0 got_word=0x10c09114 xor=0x104819b4 (refresh=0)
+[mm3d-verify-bits] handle=172 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=172 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=172 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=172 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=172 DECAY/CORRUPTION: 6968/8192 segs differ in round-0 (85.0586%); first @bk=0 s=0 exp_pc=10 got_pc=8 exp_word=0x98d0010b got_word=0x0c41b020 xor=0x9491b12b (refresh=0)
+[mm3d-verify-post] handle=176 POST-MM3D clean (8192 segs)
+[mm3d-verify-bits] handle=188 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=188 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=188 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=188 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=188 DECAY/CORRUPTION: 6905/8192 segs differ in round-0 (84.2896%); first @bk=0 s=1 exp_pc=5 got_pc=6 exp_word=0x02280401 got_word=0x10440601 xor=0x126c0200 (refresh=0)
+[mm3d-verify-post] handle=189 POST-MM3D CORRUPTION: 2328/8192 segs (28.42%); @bk=0 s=11 exp=0xe8100323 got=0xe8100321 xor=0x00000002
+[mm3d-verify-bits] handle=192 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=192 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=192 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=192 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=192 DECAY/CORRUPTION: 6948/8192 segs differ in round-0 (84.8145%); first @bk=0 s=0 exp_pc=14 got_pc=8 exp_word=0x61f64514 got_word=0x12028348 xor=0x73f4c65c (refresh=0)
+[mm3d-verify-bits] handle=196 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=196 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=196 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=196 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=196 DECAY/CORRUPTION: 6868/8192 segs differ in round-0 (83.8379%); first @bk=0 s=0 exp_pc=7 got_pc=3 exp_word=0x002142a8 got_word=0x40000104 xor=0x402143ac (refresh=0)
+[mm3d-verify-bits] handle=198 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=198 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=198 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=198 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=198 DECAY/CORRUPTION: 6795/8192 segs differ in round-0 (82.9468%); first @bk=0 s=0 exp_pc=4 got_pc=10 exp_word=0x04020108 got_word=0x0ae20238 xor=0x0ee00330 (refresh=0)
+[mm3d-verify-bits] handle=199 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=199 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=199 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=199 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=199 DECAY/CORRUPTION: 6862/8192 segs differ in round-0 (83.7646%); first @bk=0 s=0 exp_pc=5 got_pc=3 exp_word=0x004022c0 got_word=0x40000104 xor=0x404023c4 (refresh=0)
+[mm3d-verify-bits] handle=200 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=200 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=200 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=200 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=200 DECAY/CORRUPTION: 6949/8192 segs differ in round-0 (84.8267%); first @bk=0 s=0 exp_pc=8 got_pc=7 exp_word=0x46010c09 got_word=0x4302c004 xor=0x0503cc0d (refresh=0)
+[mm3d-verify-bits] handle=201 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=201 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=201 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=201 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=201 DECAY/CORRUPTION: 6892/8192 segs differ in round-0 (84.1309%); first @bk=0 s=0 exp_pc=8 got_pc=7 exp_word=0x4a028805 got_word=0x4302c004 xor=0x09004801 (refresh=0)
+[mm3d-verify-bits] handle=204 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=204 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=204 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=204 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=204 DECAY/CORRUPTION: 6876/8192 segs differ in round-0 (83.9355%); first @bk=0 s=0 exp_pc=14 got_pc=7 exp_word=0x3e558906 got_word=0x40c8004c xor=0x7e9d894a (refresh=0)
+[mm3d-verify-bits] handle=208 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=208 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=208 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=208 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=208 DECAY/CORRUPTION: 6906/8192 segs differ in round-0 (84.3018%); first @bk=0 s=0 exp_pc=7 got_pc=10 exp_word=0x0408242a got_word=0x65128406 xor=0x611aa02c (refresh=0)
+[mm3d-verify-post] handle=209 POST-MM3D CORRUPTION: 2472/8192 segs (30.18%); @bk=0 s=1 exp=0x84d00009 got=0x84100001 xor=0x00c00008
+[mm3d-verify-bits] handle=212 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=212 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=212 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=212 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=212 DECAY/CORRUPTION: 6980/8192 segs differ in round-0 (85.2051%); first @bk=0 s=0 exp_pc=6 got_pc=8 exp_word=0x08c10014 got_word=0x34680500 xor=0x3ca90514 (refresh=0)
+[mm3d-verify-bits] handle=214 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=214 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=214 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=214 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=214 DECAY/CORRUPTION: 6887/8192 segs differ in round-0 (84.0698%); first @bk=0 s=0 exp_pc=3 got_pc=9 exp_word=0x01010020 got_word=0x0e440845 xor=0x0f450865 (refresh=0)
+[mm3d-verify-bits] handle=215 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=215 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=215 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=215 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=215 DECAY/CORRUPTION: 6944/8192 segs differ in round-0 (84.7656%); first @bk=0 s=0 exp_pc=9 got_pc=8 exp_word=0x11a42128 got_word=0x34680500 xor=0x25cc2428 (refresh=0)
+[mm3d-verify-bits] handle=216 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=216 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=216 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=216 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=216 DECAY/CORRUPTION: 6966/8192 segs differ in round-0 (85.0342%); first @bk=0 s=0 exp_pc=8 got_pc=10 exp_word=0xa7040810 got_word=0x0024ba91 xor=0xa720b281 (refresh=0)
+[mm3d-verify-bits] handle=217 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=217 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=217 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=217 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=217 DECAY/CORRUPTION: 6958/8192 segs differ in round-0 (84.9365%); first @bk=0 s=0 exp_pc=8 got_pc=10 exp_word=0x37420800 got_word=0x0024ba91 xor=0x3766b291 (refresh=0)
+[mm3d-verify-bits] handle=220 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=220 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=220 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=220 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=220 DECAY/CORRUPTION: 6900/8192 segs differ in round-0 (84.2285%); first @bk=0 s=0 exp_pc=8 got_pc=5 exp_word=0x24e00190 got_word=0x08401820 xor=0x2ca019b0 (refresh=0)
+[mm3d-prof #300 handle=220] total=2.7ms refresh=0.0ms verify=0.4ms exec=0.5ms (4x) recv=1.4ms pop=0.0ms other=0.3ms
+[mm3d-verify-bits] handle=224 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=224 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=224 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=224 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=224 DECAY/CORRUPTION: 6944/8192 segs differ in round-0 (84.7656%); first @bk=0 s=0 exp_pc=6 got_pc=11 exp_word=0x02210442 got_word=0x1e8120a9 xor=0x1ca024eb (refresh=0)
+[mm3d-verify-bits] handle=228 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=228 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=228 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=228 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=228 DECAY/CORRUPTION: 6941/8192 segs differ in round-0 (84.7290%); first @bk=0 s=0 exp_pc=7 got_pc=11 exp_word=0x001880e1 got_word=0x2380c30d xor=0x239843ec (refresh=0)
+[mm3d-verify-post] handle=229 POST-MM3D CORRUPTION: 2147/8192 segs (26.21%); @bk=0 s=1 exp=0x02210139 got=0x02010139 xor=0x00200000
+[mm3d-verify-bits] handle=230 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=230 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=230 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=230 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=230 DECAY/CORRUPTION: 6956/8192 segs differ in round-0 (84.9121%); first @bk=0 s=0 exp_pc=7 got_pc=9 exp_word=0xc1400b00 got_word=0x0151414c xor=0xc0114a4c (refresh=0)
+[mm3d-verify-bits] handle=231 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=231 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=231 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=231 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=231 DECAY/CORRUPTION: 6932/8192 segs differ in round-0 (84.6191%); first @bk=0 s=0 exp_pc=8 got_pc=11 exp_word=0x3c005048 got_word=0x2380c30d xor=0x1f809345 (refresh=0)
+[mm3d-verify] handle=241 round-0 popcounts OK (8192 segs, refresh=0)
+[mm3d-verify-bits] handle=249 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=249 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=249 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=249 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=249 DECAY/CORRUPTION: 6895/8192 segs differ in round-0 (84.1675%); first @bk=0 s=0 exp_pc=8 got_pc=14 exp_word=0x0d122021 got_word=0xad810d3a xor=0xa0932d1b (refresh=0)
+[mm3d-verify-bits] handle=253 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=253 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=253 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=253 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=253 DECAY/CORRUPTION: 6900/8192 segs differ in round-0 (84.2285%); first @bk=0 s=0 exp_pc=9 got_pc=8 exp_word=0x8290380c got_word=0x100aa160 xor=0x929a996c (refresh=0)
+[mm3d-verify-bits] handle=257 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=257 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=257 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=257 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=257 DECAY/CORRUPTION: 6985/8192 segs differ in round-0 (85.2661%); first @bk=0 s=0 exp_pc=9 got_pc=5 exp_word=0x68990410 got_word=0x22041040 xor=0x4a9d1450 (refresh=0)
+[mm3d-verify-bits] handle=259 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=259 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=259 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=259 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=259 DECAY/CORRUPTION: 6897/8192 segs differ in round-0 (84.1919%); first @bk=0 s=0 exp_pc=5 got_pc=8 exp_word=0x01049800 got_word=0x10051d20 xor=0x11018520 (refresh=0)
+[mm3d-verify-bits] handle=260 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=260 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=260 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=260 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=260 DECAY/CORRUPTION: 6953/8192 segs differ in round-0 (84.8755%); first @bk=0 s=0 exp_pc=10 got_pc=5 exp_word=0x124c1c48 got_word=0x22041040 xor=0x30480c08 (refresh=0)
+[mm3d-verify-bits] handle=261 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=261 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=261 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=261 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=261 DECAY/CORRUPTION: 6847/8192 segs differ in round-0 (83.5815%); first @bk=0 s=0 exp_pc=10 got_pc=9 exp_word=0x01209719 got_word=0x00b98803 xor=0x01991f1a (refresh=0)
+[mm3d-verify-bits] handle=262 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=262 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=262 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=262 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=262 DECAY/CORRUPTION: 6902/8192 segs differ in round-0 (84.2529%); first @bk=0 s=0 exp_pc=10 got_pc=9 exp_word=0x406204d9 got_word=0x00b98803 xor=0x40db8cda (refresh=0)
+[mm3d-verify-post] handle=264 POST-MM3D CORRUPTION: 3323/8192 segs (40.56%); @bk=0 s=2 exp=0x1a02c484 got=0x1a02c480 xor=0x00000004
+[mm3d-verify-bits] handle=265 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=265 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=265 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=265 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=265 DECAY/CORRUPTION: 6881/8192 segs differ in round-0 (83.9966%); first @bk=0 s=0 exp_pc=7 got_pc=8 exp_word=0x060d0012 got_word=0x8122082a xor=0x872f0838 (refresh=0)
+[mm3d-verify-bits] handle=269 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=269 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=269 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=269 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=269 DECAY/CORRUPTION: 6948/8192 segs differ in round-0 (84.8145%); first @bk=0 s=0 exp_pc=10 got_pc=6 exp_word=0xc415a014 got_word=0x90002062 xor=0x54158076 (refresh=0)
+[mm3d-prof #350 handle=270] total=2.7ms refresh=0.0ms verify=0.4ms exec=0.5ms (4x) recv=1.4ms pop=0.0ms other=0.3ms
+[mm3d-verify-bits] handle=273 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=273 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=273 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=273 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=273 DECAY/CORRUPTION: 6957/8192 segs differ in round-0 (84.9243%); first @bk=0 s=0 exp_pc=5 got_pc=7 exp_word=0x50008180 got_word=0x82a01012 xor=0xd2a09192 (refresh=0)
+[mm3d-verify-bits] handle=275 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=275 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=275 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=275 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=275 DECAY/CORRUPTION: 6875/8192 segs differ in round-0 (83.9233%); first @bk=0 s=0 exp_pc=10 got_pc=5 exp_word=0x0a174b00 got_word=0x84100011 xor=0x8e074b11 (refresh=0)
+[mm3d-verify-bits] handle=276 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=276 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=276 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=276 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=276 DECAY/CORRUPTION: 6960/8192 segs differ in round-0 (84.9609%); first @bk=0 s=0 exp_pc=9 got_pc=7 exp_word=0x06401d41 got_word=0x82a01012 xor=0x84e00d53 (refresh=0)
+[mm3d-verify-bits] handle=277 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=277 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=277 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=277 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=277 DECAY/CORRUPTION: 6945/8192 segs differ in round-0 (84.7778%); first @bk=0 s=1 exp_pc=12 got_pc=9 exp_word=0x13234878 got_word=0xc4144424 xor=0xd7370c5c (refresh=0)
+[mm3d-verify-bits] handle=278 bk=0 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=278 bk=1 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=278 bk=2 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify-bits] handle=278 bk=3 OR_set_bits_in_mismatch=0xffffffff XOR_flipped=0xffffffff
+[mm3d-verify] handle=278 DECAY/CORRUPTION: 6972/8192 segs differ in round-0 (85.1074%); first @bk=0 s=0 exp_pc=10 got_pc=8 exp_word=0xe04b8210 got_word=0x58812900 xor=0xb8caab10 (refresh=0)
+[server] quit sentinel received

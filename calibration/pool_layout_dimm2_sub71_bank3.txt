@@ -1,0 +1,34 @@
+# Fault-free pool layout for DIMM 2 / extra calib sub-cluster 71 (Rfirst=45464)
+# window 45312 45952
+# 26 rows. SCRATCH-ONLY (shares the primary s72 window, whose production 294-row
+# pool is a maximal IS): rows have no DIRECTED fault edge into any production pool row
+# under the sub71 tuple's graph; intra-pool edges permitted (V2 write-before-use).
+# Never allocate LOAD-resident data here — the server skips primary-window extras in overflow.
+# All rows: RowClone-into-Rfirst verified on all 4 banks; pattern+antipattern write/read screened.
+# Generated 2026-07-19 from dimm2_fault_sweep_subs_2026_07_18/ (task O1).
+45312
+45316
+45336
+45337
+45338
+45368
+45372
+45444
+45466
+45468
+45469
+45470
+45500
+45592
+45594
+45596
+45598
+45720
+45721
+45722
+45828
+45850
+45852
+45853
+45854
+45884

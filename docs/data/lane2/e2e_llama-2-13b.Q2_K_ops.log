@@ -1,0 +1,4 @@
+[mvdram-pim] OP#1 tensor=blk.39.ffn_gate.weight type=q3_K K=5120 M=13824 repack=0 r=8 handles=1 load=0.76s gemv=0.7s int-exact=13823/13824 (99.9928%) max|err|=288 mean|err|=0.0208 plane_density=0.002 route=c2(dst=CPU)
+[mvdram-pim] OP#2 tensor=blk.6.ffn_down.weight type=q3_K K=13824 M=5120 repack=0 r=8 handles=1 load=0.76s gemv=596.9s int-exact=5112/5120 (99.8438%) max|err|=17456 mean|err|=5.6902 plane_density=0.433 route=c2(dst=CPU)
+[mvdram-pim] OP#3 tensor=blk.15.attn_output.weight type=q3_K K=5120 M=5120 repack=0 r=8 handles=1 load=0.27s gemv=246.6s int-exact=5115/5120 (99.9023%) max|err|=1267 mean|err|=0.4330 plane_density=0.484 route=c2(dst=CPU)
+[mvdram-pim] OP#4 tensor=blk.24.attn_q.weight type=q2_K K=5120 M=5120 repack=0 r=8 handles=1 load=0.18s gemv=163.9s int-exact=5112/5120 (99.8438%) max|err|=2042 mean|err|=0.6924 plane_density=0.482 route=c2(dst=CPU)

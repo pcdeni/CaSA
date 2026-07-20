@@ -1,0 +1,51 @@
+[fp32] tensor blk.0.attn_q.weight: using M=4096 of 4096, K=4096, 128 blocks/row
+[fp32] activations: q8_0 ints, |x|max=127, plane densities ['0.509', '0.505', '0.491', '0.513', '0.502', '0.506', '0.481', '0.487']
+[fp32] starting: /home/deni/Claude/mvdram-repro/lane2-gemv-server 2 /home/deni/Claude/mvdram-repro/calib_maj5_dimm2.txt 0 86 /home/deni/Claude/mvdram-repro/colmask_dimm2_s86_robust.txt (vote3=1)
+Opened /dev/xdma0_h2c_2 -> 4
+Opened /dev/xdma0_c2h_2 -> 5
+Successfully reset the FPGA!
+[lane2] server: bender=2 s_id=86 bank=0 pack=1 vote3=1 dualtrack=0 encode=host input colmask=1784/2048
+[platform] BITSTREAM_IMEM in effect: 8192 (env override)
+[platform] PIM_RECV_TIMEOUT_MS in effect: 15000
+[lane2] op-matched screen (3 trials): 1606/1784 reliable segments (0.0 s, 198 MAJs) -> capacity M<=51392 outputs/pass
+[lane2] ready
+[lane2] LOAD handle=1 q=4 K=4096 M=4096 -> 4096 x 4 bitplane rows (host-resident; streamed into the tuple per-op — see header) in 0.25 s
+[fp32] LOAD ok (0.35s)
+[lane2]   partials plane i=0 c=0 done (23.3 s, FA=1762)
+[lane2]   partials plane i=0 c=1 done (23.3 s, FA=1757)
+[lane2]   partials plane i=0 c=2 done (22.1 s, FA=1688)
+[lane2]   partials plane i=0 c=3 done (23.8 s, FA=1781)
+[lane2]   partials plane i=0 c=4 done (23.3 s, FA=1745)
+[lane2]   partials plane i=0 c=5 done (23.5 s, FA=1760)
+[lane2]   partials plane i=0 c=6 done (22.2 s, FA=1681)
+[lane2]   partials plane i=0 c=7 done (22.4 s, FA=1673)
+[lane2]   partials plane i=1 c=0 done (23.9 s, FA=1762)
+[lane2]   partials plane i=1 c=1 done (23.3 s, FA=1757)
+[lane2]   partials plane i=1 c=2 done (22.6 s, FA=1688)
+[lane2]   partials plane i=1 c=3 done (23.5 s, FA=1781)
+[lane2]   partials plane i=1 c=4 done (22.9 s, FA=1745)
+[lane2]   partials plane i=1 c=5 done (23.2 s, FA=1760)
+[lane2]   partials plane i=1 c=6 done (21.7 s, FA=1681)
+[lane2]   partials plane i=1 c=7 done (22.6 s, FA=1673)
+[lane2]   partials plane i=2 c=0 done (23.4 s, FA=1762)
+[lane2]   partials plane i=2 c=1 done (23.5 s, FA=1757)
+[lane2]   partials plane i=2 c=2 done (22.3 s, FA=1688)
+[lane2]   partials plane i=2 c=3 done (23.9 s, FA=1781)
+[lane2]   partials plane i=2 c=4 done (23.3 s, FA=1745)
+[lane2]   partials plane i=2 c=5 done (23.6 s, FA=1760)
+[lane2]   partials plane i=2 c=6 done (22.6 s, FA=1681)
+[lane2]   partials plane i=2 c=7 done (22.0 s, FA=1673)
+[lane2]   partials plane i=3 c=0 done (22.9 s, FA=1762)
+[lane2]   partials plane i=3 c=1 done (23.0 s, FA=1757)
+[lane2]   partials plane i=3 c=2 done (22.1 s, FA=1688)
+[lane2]   partials plane i=3 c=3 done (23.4 s, FA=1781)
+[lane2]   partials plane i=3 c=4 done (22.6 s, FA=1745)
+[lane2]   partials plane i=3 c=5 done (22.9 s, FA=1760)
+[lane2]   partials plane i=3 c=6 done (22.2 s, FA=1681)
+[lane2]   partials plane i=3 c=7 done (21.7 s, FA=1673)
+[lane2] PARTIALS handle=1 K=4096 M=4096 q=4 r=8 NBLK=128: 732.84 s wall, 55388 FA, 332328 MAJ, 5441544 execs, 4776888 pcwrites, 2013 taps zero-skipped
+[fp32] PARTIALS: 732.8s wall  int-exact 524288/524288 (100.00000%)
+[fp32] fp32 reconstruction: BIT-EXACT vs CPU fp32 reference (4096/4096 outputs bit-identical)
+[fp32] fp64 dequant oracle: max rel diff vs reference 2.272e-04 (fp32-accumulation rounding; sanity only)
+[fp32] RESULT: PASS — first exact fp32 from the reproduction
+[lane2] quit sentinel

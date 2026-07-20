@@ -60,3 +60,29 @@ this generalizes to other DIMMs is open — different silicon batches
 may need per-bank timing characterization. Run the
 `rowclone-smoke-exe` and `persistent-smoke-exe` on each bank of a new
 DIMM before assuming the timings carry over.
+
+## July 2026 pool families (clone-law-filtered)
+
+The May `pool_layout_dimm{0,2}_bank*.txt` files above are the original
+production pools. The July campaign added several screened families:
+
+| Family | Files | What it is |
+|---|---|---|
+| Clone-ok primary | `pool_layout_dimm{0,2}_cloneok_bank{0-3}.txt` | The production pool re-derived through a **double filter**: (1) the *clone-law* predicate (`app/clone_law.py`) drops every "clone-dead" row — one whose calibrated `doubleACT` clone silently fails — and (2) a greedy **ascending-degree independent set** over the survivors (the construction that reproduces the 294-row DIMM-2 s72 production pool byte-for-byte). Held out 2,496/2,496 on DIMM 2 sub85; cross-die 2,494/2,496 on DIMM 0 (addenda 22b/24). |
+| Per-subarray extras | `pool_layout_dimm2_sub{71,73,76,77,79,84,85}_bank{0-3}.txt` | Small screened pools for voting extras + LOAD-overflow, one per extra calib subarray; `sub73`/`sub79` are the O9 pilot's two fresh subarrays. |
+| D0 fused colmask | `fused_colmask_dimm0_bank{0-3}.txt` | v3 column-repair set for the DIMM-0 fused layout (`PIM_FUSED_COLMASK_FILE`); one good-column index per line. |
+| MAJ5 reference-policy | `colmasks_maj5_zero_2026_07_17/maj5_best_b{0,2}_bank{0-3}.txt` (+ `_ranking.csv`) | The reference-policy MAJ5 colmasks (per-tuple ZERO vs ZERO+2 winner in the CSV); full tuple provenance in each `.txt` header. |
+
+### Pool-file header rule (`fgets(64)`)
+
+The server's sub-pool loader (`app/test_bitnet_server.cpp`, the
+`PIM_POOL_LIST_FILE_SUB` path) reads each line into a fixed `char line[64]`
+with `fgets` and skips a line only when its first non-blank byte is `#`.
+**A comment/header line longer than 63 bytes is split by `fgets`; the
+second chunk does not start with `#`, so if it begins with a digit it is
+`atoi`'d into a phantom pool row.** In the shipped files this is harmless
+*only* because the loader's subarray-window filter (`PIM_SUB_START` /
+`PIM_SUB_END`, else the `(any_open/640)*640` default) discards the
+low-valued phantoms — they fall far outside every DIMM-2 subarray window.
+When authoring your own pool files: keep every `#` header line ≤ 63 bytes,
+and always set the subarray window explicitly.

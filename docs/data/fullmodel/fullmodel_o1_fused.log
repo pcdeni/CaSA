@@ -1,0 +1,439 @@
+[bnet] PIM config: PIM_USE_LOAD_WEIGHTS=1, banks=0,1,2,3, layout=pool_layout_dimm2_bank{bank}.txt
+[bnet] loading microsoft/bitnet-b1.58-2B-4T (cache=/home/deni/bitnet_weights)
+You don't have a GPU available to load the model, the inference will be slow because of weight unpacking
+[bnet] loaded in 9.0s (2.41B params)
+[bnet] PIM-substituting 210/210 BitLinears = 100.0% of model BitLinears (LM head + embeddings stay in PyTorch — that's the irreducible non-BitLinear ~5%)
+[pim] substituted layer 0.self_attn.q_proj (2560 → 2560)
+[pim] substituted layer 0.self_attn.k_proj (2560 → 640)
+[pim] substituted layer 0.self_attn.v_proj (2560 → 640)
+[pim] substituted layer 0.self_attn.o_proj (2560 → 2560)
+[pim] substituted layer 0.mlp.gate_proj (2560 → 6912)
+[pim] substituted layer 0.mlp.up_proj (2560 → 6912)
+[pim] substituted layer 0.mlp.down_proj (6912 → 2560)
+[pim] substituted layer 1.self_attn.q_proj (2560 → 2560)
+[pim] substituted layer 1.self_attn.k_proj (2560 → 640)
+[pim] substituted layer 1.self_attn.v_proj (2560 → 640)
+[pim] substituted layer 1.self_attn.o_proj (2560 → 2560)
+[pim] substituted layer 1.mlp.gate_proj (2560 → 6912)
+[pim] substituted layer 1.mlp.up_proj (2560 → 6912)
+[pim] substituted layer 1.mlp.down_proj (6912 → 2560)
+[pim] substituted layer 2.self_attn.q_proj (2560 → 2560)
+[pim] substituted layer 2.self_attn.k_proj (2560 → 640)
+[pim] substituted layer 2.self_attn.v_proj (2560 → 640)
+[pim] substituted layer 2.self_attn.o_proj (2560 → 2560)
+[pim] substituted layer 2.mlp.gate_proj (2560 → 6912)
+[pim] substituted layer 2.mlp.up_proj (2560 → 6912)
+[pim] substituted layer 2.mlp.down_proj (6912 → 2560)
+[pim] substituted layer 3.self_attn.q_proj (2560 → 2560)
+[pim] substituted layer 3.self_attn.k_proj (2560 → 640)
+[pim] substituted layer 3.self_attn.v_proj (2560 → 640)
+[pim] substituted layer 3.self_attn.o_proj (2560 → 2560)
+[pim] substituted layer 3.mlp.gate_proj (2560 → 6912)
+[pim] substituted layer 3.mlp.up_proj (2560 → 6912)
+[pim] substituted layer 3.mlp.down_proj (6912 → 2560)
+[pim] substituted layer 4.self_attn.q_proj (2560 → 2560)
+[pim] substituted layer 4.self_attn.k_proj (2560 → 640)
+[pim] substituted layer 4.self_attn.v_proj (2560 → 640)
+[pim] substituted layer 4.self_attn.o_proj (2560 → 2560)
+[pim] substituted layer 4.mlp.gate_proj (2560 → 6912)
+[pim] substituted layer 4.mlp.up_proj (2560 → 6912)
+[pim] substituted layer 4.mlp.down_proj (6912 → 2560)
+[pim] substituted layer 5.self_attn.q_proj (2560 → 2560)
+[pim] substituted layer 5.self_attn.k_proj (2560 → 640)
+[pim] substituted layer 5.self_attn.v_proj (2560 → 640)
+[pim] substituted layer 5.self_attn.o_proj (2560 → 2560)
+[pim] substituted layer 5.mlp.gate_proj (2560 → 6912)
+[pim] substituted layer 5.mlp.up_proj (2560 → 6912)
+[pim] substituted layer 5.mlp.down_proj (6912 → 2560)
+[pim] substituted layer 6.self_attn.q_proj (2560 → 2560)
+[pim] substituted layer 6.self_attn.k_proj (2560 → 640)
+[pim] substituted layer 6.self_attn.v_proj (2560 → 640)
+[pim] substituted layer 6.self_attn.o_proj (2560 → 2560)
+[pim] substituted layer 6.mlp.gate_proj (2560 → 6912)
+[pim] substituted layer 6.mlp.up_proj (2560 → 6912)
+[pim] substituted layer 6.mlp.down_proj (6912 → 2560)
+[pim] substituted layer 7.self_attn.q_proj (2560 → 2560)
+[pim] substituted layer 7.self_attn.k_proj (2560 → 640)
+[pim] substituted layer 7.self_attn.v_proj (2560 → 640)
+[pim] substituted layer 7.self_attn.o_proj (2560 → 2560)
+[pim] substituted layer 7.mlp.gate_proj (2560 → 6912)
+[pim] substituted layer 7.mlp.up_proj (2560 → 6912)
+[pim] substituted layer 7.mlp.down_proj (6912 → 2560)
+[pim] substituted layer 8.self_attn.q_proj (2560 → 2560)
+[pim] substituted layer 8.self_attn.k_proj (2560 → 640)
+[pim] substituted layer 8.self_attn.v_proj (2560 → 640)
+[pim] substituted layer 8.self_attn.o_proj (2560 → 2560)
+[pim] substituted layer 8.mlp.gate_proj (2560 → 6912)
+[pim] substituted layer 8.mlp.up_proj (2560 → 6912)
+[pim] substituted layer 8.mlp.down_proj (6912 → 2560)
+[pim] substituted layer 9.self_attn.q_proj (2560 → 2560)
+[pim] substituted layer 9.self_attn.k_proj (2560 → 640)
+[pim] substituted layer 9.self_attn.v_proj (2560 → 640)
+[pim] substituted layer 9.self_attn.o_proj (2560 → 2560)
+[pim] substituted layer 9.mlp.gate_proj (2560 → 6912)
+[pim] substituted layer 9.mlp.up_proj (2560 → 6912)
+[pim] substituted layer 9.mlp.down_proj (6912 → 2560)
+[pim] substituted layer 10.self_attn.q_proj (2560 → 2560)
+[pim] substituted layer 10.self_attn.k_proj (2560 → 640)
+[pim] substituted layer 10.self_attn.v_proj (2560 → 640)
+[pim] substituted layer 10.self_attn.o_proj (2560 → 2560)
+[pim] substituted layer 10.mlp.gate_proj (2560 → 6912)
+[pim] substituted layer 10.mlp.up_proj (2560 → 6912)
+[pim] substituted layer 10.mlp.down_proj (6912 → 2560)
+[pim] substituted layer 11.self_attn.q_proj (2560 → 2560)
+[pim] substituted layer 11.self_attn.k_proj (2560 → 640)
+[pim] substituted layer 11.self_attn.v_proj (2560 → 640)
+[pim] substituted layer 11.self_attn.o_proj (2560 → 2560)
+[pim] substituted layer 11.mlp.gate_proj (2560 → 6912)
+[pim] substituted layer 11.mlp.up_proj (2560 → 6912)
+[pim] substituted layer 11.mlp.down_proj (6912 → 2560)
+[pim] substituted layer 12.self_attn.q_proj (2560 → 2560)
+[pim] substituted layer 12.self_attn.k_proj (2560 → 640)
+[pim] substituted layer 12.self_attn.v_proj (2560 → 640)
+[pim] substituted layer 12.self_attn.o_proj (2560 → 2560)
+[pim] substituted layer 12.mlp.gate_proj (2560 → 6912)
+[pim] substituted layer 12.mlp.up_proj (2560 → 6912)
+[pim] substituted layer 12.mlp.down_proj (6912 → 2560)
+[pim] substituted layer 13.self_attn.q_proj (2560 → 2560)
+[pim] substituted layer 13.self_attn.k_proj (2560 → 640)
+[pim] substituted layer 13.self_attn.v_proj (2560 → 640)
+[pim] substituted layer 13.self_attn.o_proj (2560 → 2560)
+[pim] substituted layer 13.mlp.gate_proj (2560 → 6912)
+[pim] substituted layer 13.mlp.up_proj (2560 → 6912)
+[pim] substituted layer 13.mlp.down_proj (6912 → 2560)
+[pim] substituted layer 14.self_attn.q_proj (2560 → 2560)
+[pim] substituted layer 14.self_attn.k_proj (2560 → 640)
+[pim] substituted layer 14.self_attn.v_proj (2560 → 640)
+[pim] substituted layer 14.self_attn.o_proj (2560 → 2560)
+[pim] substituted layer 14.mlp.gate_proj (2560 → 6912)
+[pim] substituted layer 14.mlp.up_proj (2560 → 6912)
+[pim] substituted layer 14.mlp.down_proj (6912 → 2560)
+[pim] substituted layer 15.self_attn.q_proj (2560 → 2560)
+[pim] substituted layer 15.self_attn.k_proj (2560 → 640)
+[pim] substituted layer 15.self_attn.v_proj (2560 → 640)
+[pim] substituted layer 15.self_attn.o_proj (2560 → 2560)
+[pim] substituted layer 15.mlp.gate_proj (2560 → 6912)
+[pim] substituted layer 15.mlp.up_proj (2560 → 6912)
+[pim] substituted layer 15.mlp.down_proj (6912 → 2560)
+[pim] substituted layer 16.self_attn.q_proj (2560 → 2560)
+[pim] substituted layer 16.self_attn.k_proj (2560 → 640)
+[pim] substituted layer 16.self_attn.v_proj (2560 → 640)
+[pim] substituted layer 16.self_attn.o_proj (2560 → 2560)
+[pim] substituted layer 16.mlp.gate_proj (2560 → 6912)
+[pim] substituted layer 16.mlp.up_proj (2560 → 6912)
+[pim] substituted layer 16.mlp.down_proj (6912 → 2560)
+[pim] substituted layer 17.self_attn.q_proj (2560 → 2560)
+[pim] substituted layer 17.self_attn.k_proj (2560 → 640)
+[pim] substituted layer 17.self_attn.v_proj (2560 → 640)
+[pim] substituted layer 17.self_attn.o_proj (2560 → 2560)
+[pim] substituted layer 17.mlp.gate_proj (2560 → 6912)
+[pim] substituted layer 17.mlp.up_proj (2560 → 6912)
+[pim] substituted layer 17.mlp.down_proj (6912 → 2560)
+[pim] substituted layer 18.self_attn.q_proj (2560 → 2560)
+[pim] substituted layer 18.self_attn.k_proj (2560 → 640)
+[pim] substituted layer 18.self_attn.v_proj (2560 → 640)
+[pim] substituted layer 18.self_attn.o_proj (2560 → 2560)
+[pim] substituted layer 18.mlp.gate_proj (2560 → 6912)
+[pim] substituted layer 18.mlp.up_proj (2560 → 6912)
+[pim] substituted layer 18.mlp.down_proj (6912 → 2560)
+[pim] substituted layer 19.self_attn.q_proj (2560 → 2560)
+[pim] substituted layer 19.self_attn.k_proj (2560 → 640)
+[pim] substituted layer 19.self_attn.v_proj (2560 → 640)
+[pim] substituted layer 19.self_attn.o_proj (2560 → 2560)
+[pim] substituted layer 19.mlp.gate_proj (2560 → 6912)
+[pim] substituted layer 19.mlp.up_proj (2560 → 6912)
+[pim] substituted layer 19.mlp.down_proj (6912 → 2560)
+[pim] substituted layer 20.self_attn.q_proj (2560 → 2560)
+[pim] substituted layer 20.self_attn.k_proj (2560 → 640)
+[pim] substituted layer 20.self_attn.v_proj (2560 → 640)
+[pim] substituted layer 20.self_attn.o_proj (2560 → 2560)
+[pim] substituted layer 20.mlp.gate_proj (2560 → 6912)
+[pim] substituted layer 20.mlp.up_proj (2560 → 6912)
+[pim] substituted layer 20.mlp.down_proj (6912 → 2560)
+[pim] substituted layer 21.self_attn.q_proj (2560 → 2560)
+[pim] substituted layer 21.self_attn.k_proj (2560 → 640)
+[pim] substituted layer 21.self_attn.v_proj (2560 → 640)
+[pim] substituted layer 21.self_attn.o_proj (2560 → 2560)
+[pim] substituted layer 21.mlp.gate_proj (2560 → 6912)
+[pim] substituted layer 21.mlp.up_proj (2560 → 6912)
+[pim] substituted layer 21.mlp.down_proj (6912 → 2560)
+[pim] substituted layer 22.self_attn.q_proj (2560 → 2560)
+[pim] substituted layer 22.self_attn.k_proj (2560 → 640)
+[pim] substituted layer 22.self_attn.v_proj (2560 → 640)
+[pim] substituted layer 22.self_attn.o_proj (2560 → 2560)
+[pim] substituted layer 22.mlp.gate_proj (2560 → 6912)
+[pim] substituted layer 22.mlp.up_proj (2560 → 6912)
+[pim] substituted layer 22.mlp.down_proj (6912 → 2560)
+[pim] substituted layer 23.self_attn.q_proj (2560 → 2560)
+[pim] substituted layer 23.self_attn.k_proj (2560 → 640)
+[pim] substituted layer 23.self_attn.v_proj (2560 → 640)
+[pim] substituted layer 23.self_attn.o_proj (2560 → 2560)
+[pim] substituted layer 23.mlp.gate_proj (2560 → 6912)
+[pim] substituted layer 23.mlp.up_proj (2560 → 6912)
+[pim] substituted layer 23.mlp.down_proj (6912 → 2560)
+[pim] substituted layer 24.self_attn.q_proj (2560 → 2560)
+[pim] substituted layer 24.self_attn.k_proj (2560 → 640)
+[pim] substituted layer 24.self_attn.v_proj (2560 → 640)
+[pim] substituted layer 24.self_attn.o_proj (2560 → 2560)
+[pim] substituted layer 24.mlp.gate_proj (2560 → 6912)
+[pim] substituted layer 24.mlp.up_proj (2560 → 6912)
+[pim] substituted layer 24.mlp.down_proj (6912 → 2560)
+[pim] substituted layer 25.self_attn.q_proj (2560 → 2560)
+[pim] substituted layer 25.self_attn.k_proj (2560 → 640)
+[pim] substituted layer 25.self_attn.v_proj (2560 → 640)
+[pim] substituted layer 25.self_attn.o_proj (2560 → 2560)
+[pim] substituted layer 25.mlp.gate_proj (2560 → 6912)
+[pim] substituted layer 25.mlp.up_proj (2560 → 6912)
+[pim] substituted layer 25.mlp.down_proj (6912 → 2560)
+[pim] substituted layer 26.self_attn.q_proj (2560 → 2560)
+[pim] substituted layer 26.self_attn.k_proj (2560 → 640)
+[pim] substituted layer 26.self_attn.v_proj (2560 → 640)
+[pim] substituted layer 26.self_attn.o_proj (2560 → 2560)
+[pim] substituted layer 26.mlp.gate_proj (2560 → 6912)
+[pim] substituted layer 26.mlp.up_proj (2560 → 6912)
+[pim] substituted layer 26.mlp.down_proj (6912 → 2560)
+[pim] substituted layer 27.self_attn.q_proj (2560 → 2560)
+[pim] substituted layer 27.self_attn.k_proj (2560 → 640)
+[pim] substituted layer 27.self_attn.v_proj (2560 → 640)
+[pim] substituted layer 27.self_attn.o_proj (2560 → 2560)
+[pim] substituted layer 27.mlp.gate_proj (2560 → 6912)
+[pim] substituted layer 27.mlp.up_proj (2560 → 6912)
+[pim] substituted layer 27.mlp.down_proj (6912 → 2560)
+[pim] substituted layer 28.self_attn.q_proj (2560 → 2560)
+[pim] substituted layer 28.self_attn.k_proj (2560 → 640)
+[pim] substituted layer 28.self_attn.v_proj (2560 → 640)
+[pim] substituted layer 28.self_attn.o_proj (2560 → 2560)
+[pim] substituted layer 28.mlp.gate_proj (2560 → 6912)
+[pim] substituted layer 28.mlp.up_proj (2560 → 6912)
+[pim] substituted layer 28.mlp.down_proj (6912 → 2560)
+[pim] substituted layer 29.self_attn.q_proj (2560 → 2560)
+[pim] substituted layer 29.self_attn.k_proj (2560 → 640)
+[pim] substituted layer 29.self_attn.v_proj (2560 → 640)
+[pim] substituted layer 29.self_attn.o_proj (2560 → 2560)
+[pim] substituted layer 29.mlp.gate_proj (2560 → 6912)
+[pim] substituted layer 29.mlp.up_proj (2560 → 6912)
+[pim] substituted layer 29.mlp.down_proj (6912 → 2560)
+[pim] 210 projections now run on PIM (server)
+
+[bnet] user: 'What is the capital of France?'
+[bnet] 8 input tokens, generating up to 8...
+The following generation flags are not valid and may be ignored: ['temperature', 'top_p']. Set `TRANSFORMERS_VERBOSITY=info` for more details.
+
+[bnet] response (8 tok in 2914.2s, 0.00 tok/s):
+   ' Answer: Paris. The capital of France'
+
+=== PIM forward-path timing summary ===
+layer projection               forward    quant    matmul     xbp    body   request   parse  #calls  #tok  #req
+    0 self_attn.q_proj         6102.4     1.0   6100.5   44.1  104.9   5993.6    0.0       8    15   300
+    0 self_attn.k_proj         1542.0     1.4   1539.8    0.1   33.9   1504.1    0.0       8    15    75
+    0 self_attn.v_proj         1541.1     1.5   1538.9    0.1   36.4   1500.7    0.0       8    15    75
+    0 self_attn.o_proj         6031.7     0.6   6030.3   48.9  115.2   5912.9    0.0       8    15   300
+    0 mlp.gate_proj           22507.4     1.2  22505.1   44.9  159.6  22344.3    0.0       8    15   750
+    0 mlp.up_proj             25474.4     1.4  25471.9    0.1  114.3  25356.4    0.0       8    15   750
+    0 mlp.down_proj           25478.0     1.3  25475.8  107.0  114.4  25359.2    0.0       8    15    60
+    1 self_attn.q_proj         9466.9     1.5   9464.5   53.4   54.3   9408.1    0.0       8    15    60
+    1 self_attn.k_proj         1891.9     1.6   1889.4    0.1    0.3   1887.0    0.0       8    15    15
+    1 self_attn.v_proj         1873.7     1.6   1871.2    0.1    0.3   1869.1    0.0       8    15    15
+    1 self_attn.o_proj         9490.3     0.5   9488.9   48.1   48.9   9437.7    0.0       8    15    60
+    1 mlp.gate_proj           24622.1     1.2  24619.7   41.5   42.8  24575.7    0.0       8    15   150
+    1 mlp.up_proj             24623.5     1.7  24620.7    0.1    1.9  24617.5    0.0       8    15   150
+    1 mlp.down_proj           25421.0     1.3  25418.8  118.4  119.5  25297.1    0.0       8    15    60
+    2 self_attn.q_proj         9499.3     1.4   9497.0   49.1   49.8   9444.9    0.0       8    15    60
+    2 self_attn.k_proj         1885.2     1.7   1882.7    0.1    0.4   1880.4    0.0       8    15    15
+    2 self_attn.v_proj         1877.0     1.7   1874.5    0.1    0.4   1872.3    0.0       8    15    15
+    2 self_attn.o_proj         9483.0     0.7   9481.5   69.3   70.3   9409.0    0.0       8    15    60
+    2 mlp.gate_proj           24620.2     1.4  24617.6   50.5   52.1  24564.3    0.0       8    15   150
+    2 mlp.up_proj             24532.2     1.5  24529.6    0.1    1.5  24526.9    0.0       8    15   150
+    2 mlp.down_proj           25563.0     1.5  25560.7  100.9  101.7  25457.0    0.0       8    15    60
+    3 self_attn.q_proj         9444.3     1.3   9442.2   50.5   51.2   9388.9    0.0       8    15    60
+    3 self_attn.k_proj         1900.8     1.5   1898.5    0.1    0.4   1896.2    0.0       8    15    15
+    3 self_attn.v_proj         1895.7     1.6   1893.3    0.1    0.3   1891.1    0.0       8    15    15
+    3 self_attn.o_proj         9450.7     0.5   9449.2   43.1   44.0   9403.1    0.0       8    15    60
+    3 mlp.gate_proj           24610.3     1.4  24607.8   54.2   55.6  24551.1    0.0       8    15   150
+    3 mlp.up_proj             24658.6     1.5  24656.1    0.1    1.4  24653.6    0.0       8    15   150
+    3 mlp.down_proj           25580.7     1.3  25578.4  119.1  119.9  25456.4    0.0       8    15    60
+    4 self_attn.q_proj         9483.7     1.3   9481.5   54.8   55.6   9423.7    0.0       8    15    60
+    4 self_attn.k_proj         1870.8     1.7   1868.3    0.1    0.5   1865.9    0.0       8    15    15
+    4 self_attn.v_proj         1863.3     1.6   1860.9    0.1    0.3   1858.7    0.0       8    15    15
+    4 self_attn.o_proj         9447.2     0.5   9445.8   48.5   49.3   9394.4    0.0       8    15    60
+    4 mlp.gate_proj           24647.1     1.2  24644.6   52.5   53.9  24589.5    0.0       8    15   150
+    4 mlp.up_proj             24640.2     1.4  24637.7    0.1    1.4  24635.2    0.0       8    15   150
+    4 mlp.down_proj           25445.9     1.2  25443.8  123.7  124.5  25317.3    0.0       8    15    60
+    5 self_attn.q_proj         9446.2     1.4   9443.9   53.1   53.8   9388.0    0.0       8    15    60
+    5 self_attn.k_proj         1854.4     1.6   1851.8    0.1    0.4   1849.3    0.0       8    15    15
+    5 self_attn.v_proj         1911.9     1.5   1909.6    0.1    0.3   1907.4    0.0       8    15    15
+    5 self_attn.o_proj         9555.1     0.6   9553.6   65.2   66.1   9485.4    0.0       8    15    60
+    5 mlp.gate_proj           24556.9     1.3  24554.4   53.6   55.2  24498.0    0.0       8    15   150
+    5 mlp.up_proj             24549.4     1.4  24546.7    0.1    1.9  24543.6    0.0       8    15   150
+    5 mlp.down_proj           25498.9     1.4  25496.5  145.5  146.3  25348.1    0.0       8    15    60
+    6 self_attn.q_proj         9453.6     1.4   9451.3   65.6   66.4   9382.8    0.0       8    15    60
+    6 self_attn.k_proj         1890.1     1.5   1887.7    0.1    0.4   1885.3    0.0       8    15    15
+    6 self_attn.v_proj         1878.0     1.7   1875.4    0.1    0.4   1873.0    0.0       8    15    15
+    6 self_attn.o_proj         9610.2     0.5   9608.8   51.9   52.7   9553.9    0.0       8    15    60
+    6 mlp.gate_proj           24626.3     1.7  24623.4   58.0   59.8  24562.5    0.0       8    15   150
+    6 mlp.up_proj             24552.9     1.6  24550.0    0.1    1.5  24547.3    0.0       8    15   150
+    6 mlp.down_proj           25432.6     1.4  25430.2  125.9  127.2  25300.9    0.0       8    15    60
+    7 self_attn.q_proj         9535.2     1.6   9532.6   56.8   57.6   9472.8    0.0       8    15    60
+    7 self_attn.k_proj         1888.2     1.6   1885.8    0.1    0.3   1883.6    0.0       8    15    15
+    7 self_attn.v_proj         1872.8     1.4   1870.6    0.1    0.3   1868.4    0.0       8    15    15
+    7 self_attn.o_proj         9441.6     0.6   9440.1   49.2   49.9   9388.2    0.0       8    15    60
+    7 mlp.gate_proj           24674.5     1.2  24672.2   63.7   65.4  24605.7    0.0       8    15   150
+    7 mlp.up_proj             24536.9     1.4  24534.3    0.1    1.5  24531.7    0.0       8    15   150
+    7 mlp.down_proj           25405.7     1.3  25403.5  133.2  134.1  25267.4    0.0       8    15    60
+    8 self_attn.q_proj         9487.6     1.3   9485.3   54.4   55.2   9428.0    0.0       8    15    60
+    8 self_attn.k_proj         1893.5     1.6   1891.1    0.1    0.3   1888.9    0.0       8    15    15
+    8 self_attn.v_proj         1867.3     5.5   1860.9    0.1    0.4   1858.7    0.0       8    15    15
+    8 self_attn.o_proj         9515.6     0.5   9514.1   57.9   58.6   9453.5    0.0       8    15    60
+    8 mlp.gate_proj           24595.1     1.5  24592.4   53.0   54.4  24536.8    0.0       8    15   150
+    8 mlp.up_proj             24635.3     1.5  24632.6    0.1    1.5  24629.9    0.0       8    15   150
+    8 mlp.down_proj           25595.4     1.1  25593.3  127.5  128.5  25462.6    0.0       8    15    60
+    9 self_attn.q_proj         9431.1     1.3   9428.9   47.6   48.4   9378.4    0.0       8    15    60
+    9 self_attn.k_proj         1888.9     1.5   1886.4    0.1    0.3   1884.0    0.0       8    15    15
+    9 self_attn.v_proj         1862.7     1.6   1860.2    0.1    0.4   1857.9    0.0       8    15    15
+    9 self_attn.o_proj         9481.3     0.6   9479.8   49.2   50.2   9427.5    0.0       8    15    60
+    9 mlp.gate_proj           24617.9     1.2  24615.5   45.6   47.4  24566.9    0.0       8    15   150
+    9 mlp.up_proj             24782.3     1.7  24779.4    0.1    1.5  24776.7    0.0       8    15   150
+    9 mlp.down_proj           25519.9     1.3  25517.7  117.3  118.2  25397.2    0.0       8    15    60
+   10 self_attn.q_proj         9489.8     1.2   9487.7   46.2   46.9   9438.7    0.0       8    15    60
+   10 self_attn.k_proj         1867.0     1.6   1864.5    0.1    0.3   1862.1    0.0       8    15    15
+   10 self_attn.v_proj         1869.6     1.7   1867.0    0.1    0.4   1864.6    0.0       8    15    15
+   10 self_attn.o_proj         9550.9     0.6   9549.4   55.3   56.0   9491.2    0.0       8    15    60
+   10 mlp.gate_proj           24615.8     1.3  24613.3   47.2   48.8  24563.4    0.0       8    15   150
+   10 mlp.up_proj             24524.4     1.5  24521.7    0.1    1.6  24519.0    0.0       8    15   150
+   10 mlp.down_proj           25694.3     1.3  25692.1  125.1  125.8  25564.1    0.0       8    15    60
+   11 self_attn.q_proj         9475.8     1.4   9473.5   57.0   57.8   9413.7    0.0       8    15    60
+   11 self_attn.k_proj         1842.6     1.6   1840.2    0.1    0.3   1838.0    0.0       8    15    15
+   11 self_attn.v_proj         1849.3     1.6   1846.9    0.1    0.3   1844.8    0.0       8    15    15
+   11 self_attn.o_proj         9471.1     0.6   9469.7   65.7   66.5   9401.1    0.0       8    15    60
+   11 mlp.gate_proj           24731.7     1.2  24729.3   61.9   63.5  24664.7    0.0       8    15   150
+   11 mlp.up_proj             24803.3     1.5  24800.6    0.1    1.6  24797.8    0.0       8    15   150
+   11 mlp.down_proj           25526.7     1.3  25524.4  129.5  130.2  25392.1    0.0       8    15    60
+   12 self_attn.q_proj         9417.4     1.3   9415.2   57.7   58.4   9354.7    0.0       8    15    60
+   12 self_attn.k_proj         1863.6     1.7   1861.1    0.1    0.3   1859.0    0.0       8    15    15
+   12 self_attn.v_proj         1856.1     1.4   1853.8    0.1    0.3   1851.7    0.0       8    15    15
+   12 self_attn.o_proj         9501.2     0.6   9499.6   61.6   62.5   9434.9    0.0       8    15    60
+   12 mlp.gate_proj           24782.9     1.5  24780.1   55.3   56.8  24722.0    0.0       8    15   150
+   12 mlp.up_proj             24668.6     1.6  24665.9    0.1    2.0  24662.7    0.0       8    15   150
+   12 mlp.down_proj           25596.6     1.3  25594.2  140.0  140.8  25451.2    0.0       8    15    60
+   13 self_attn.q_proj         9479.2     1.4   9476.9   49.7   51.0   9423.9    0.0       8    15    60
+   13 self_attn.k_proj         1858.9     1.5   1856.5    0.1    0.3   1854.3    0.0       8    15    15
+   13 self_attn.v_proj         1857.4     1.5   1855.1    0.1    0.3   1852.9    0.0       8    15    15
+   13 self_attn.o_proj         9545.5     0.6   9544.0   59.1   59.9   9482.0    0.0       8    15    60
+   13 mlp.gate_proj           24762.6     2.0  24759.5   61.2   62.9  24695.4    0.0       8    15   150
+   13 mlp.up_proj             24644.8     1.3  24642.4    0.1    1.4  24639.8    0.0       8    15   150
+   13 mlp.down_proj           25508.4     1.4  25506.0  130.0  130.9  25372.8    0.0       8    15    60
+   14 self_attn.q_proj         9493.1     1.5   9490.8   50.1   51.1   9437.6    0.0       8    15    60
+   14 self_attn.k_proj         1891.6     1.4   1889.3    0.1    0.3   1886.7    0.0       8    15    15
+   14 self_attn.v_proj         1876.9     1.6   1874.5    0.1    0.3   1872.4    0.0       8    15    15
+   14 self_attn.o_proj         9459.9     0.6   9458.4   51.0   52.1   9404.2    0.0       8    15    60
+   14 mlp.gate_proj           24562.0     1.3  24559.2   45.1   46.5  24511.5    0.0       8    15   150
+   14 mlp.up_proj             24597.3     1.2  24595.0    0.1    1.6  24592.3    0.0       8    15   150
+   14 mlp.down_proj           25442.8     1.4  25440.5  113.5  114.4  25324.0    0.0       8    15    60
+   15 self_attn.q_proj         9449.9     1.4   9447.7   54.2   54.9   9390.8    0.0       8    15    60
+   15 self_attn.k_proj         1873.0     1.4   1870.8    0.1    0.3   1868.7    0.0       8    15    15
+   15 self_attn.v_proj         1856.5     1.6   1854.0    0.1    0.3   1851.8    0.0       8    15    15
+   15 self_attn.o_proj         9488.3     0.6   9486.8   54.7   55.5   9429.2    0.0       8    15    60
+   15 mlp.gate_proj           24549.0     1.3  24546.6   57.6   59.2  24486.3    0.0       8    15   150
+   15 mlp.up_proj             24640.5     1.5  24637.9    0.1    1.4  24635.3    0.0       8    15   150
+   15 mlp.down_proj           25585.8     1.4  25583.5  159.4  160.4  25421.0    0.0       8    15    60
+   16 self_attn.q_proj         9488.5     1.4   9486.2   56.3   57.2   9426.9    0.0       8    15    60
+   16 self_attn.k_proj         1844.2     1.9   1841.5    0.1    0.4   1839.3    0.0       8    15    15
+   16 self_attn.v_proj         1862.6     1.6   1860.2    0.1    0.4   1858.0    0.0       8    15    15
+   16 self_attn.o_proj         9506.8     0.5   9505.2   59.4   60.1   9442.8    0.0       8    15    60
+   16 mlp.gate_proj           24652.5     1.3  24650.0   58.2   59.7  24589.1    0.0       8    15   150
+   16 mlp.up_proj             24614.5     1.4  24611.9    0.1    1.8  24609.0    0.0       8    15   150
+   16 mlp.down_proj           25588.6     1.4  25586.3  142.3  143.5  25440.6    0.0       8    15    60
+   17 self_attn.q_proj         9470.7     1.5   9468.3   56.6   57.4   9408.9    0.0       8    15    60
+   17 self_attn.k_proj         1877.9     1.5   1875.4    0.1    0.3   1873.2    0.0       8    15    15
+   17 self_attn.v_proj         1862.4     1.4   1860.1    0.1    0.4   1857.9    0.0       8    15    15
+   17 self_attn.o_proj         9457.0     0.6   9455.6   58.0   59.1   9394.5    0.0       8    15    60
+   17 mlp.gate_proj           24593.1     1.3  24590.5   56.5   57.9  24531.5    0.0       8    15   150
+   17 mlp.up_proj             24581.6     1.4  24579.0    0.1    1.6  24576.3    0.0       8    15   150
+   17 mlp.down_proj           25595.4     1.2  25593.2  137.8  138.5  25452.5    0.0       8    15    60
+   18 self_attn.q_proj         9497.0     1.3   9494.8   55.0   56.0   9436.7    0.0       8    15    60
+   18 self_attn.k_proj         1919.3     1.4   1916.9    0.1    0.4   1914.4    0.0       8    15    15
+   18 self_attn.v_proj         1956.2     1.8   1953.4    0.1    0.4   1951.0    0.0       8    15    15
+   18 self_attn.o_proj         9515.2     0.7   9513.5   64.9   65.6   9445.9    0.0       8    15    60
+   18 mlp.gate_proj           24577.3     1.4  24574.7   45.7   47.6  24525.9    0.0       8    15   150
+   18 mlp.up_proj             24513.2     1.4  24510.7    0.1    1.7  24508.0    0.0       8    15   150
+   18 mlp.down_proj           25393.6     1.4  25391.2  134.6  135.7  25253.5    0.0       8    15    60
+   19 self_attn.q_proj         9467.7     1.4   9465.4   50.1   50.8   9412.5    0.0       8    15    60
+   19 self_attn.k_proj         1897.3     1.5   1894.9    0.1    0.3   1892.7    0.0       8    15    15
+   19 self_attn.v_proj         1862.0     1.5   1859.6    0.1    0.4   1857.3    0.0       8    15    15
+   19 self_attn.o_proj         9488.3     0.6   9486.8   66.3   67.0   9417.6    0.0       8    15    60
+   19 mlp.gate_proj           24515.2     1.3  24512.8   55.4   57.1  24454.6    0.0       8    15   150
+   19 mlp.up_proj             24526.4     1.7  24523.6    0.1    1.4  24521.1    0.0       8    15   150
+   19 mlp.down_proj           25492.6     1.3  25490.3  122.7  123.6  25364.5    0.0       8    15    60
+   20 self_attn.q_proj         9523.7     1.3   9521.5   60.7   61.5   9458.0    0.0       8    15    60
+   20 self_attn.k_proj         1894.1     1.5   1891.8    0.1    0.4   1889.5    0.0       8    15    15
+   20 self_attn.v_proj         1857.0     1.6   1854.6    0.1    0.3   1852.4    0.0       8    15    15
+   20 self_attn.o_proj         9495.1     0.5   9493.7   45.3   46.2   9445.4    0.0       8    15    60
+   20 mlp.gate_proj           24579.6     1.4  24577.1   60.7   62.4  24513.5    0.0       8    15   150
+   20 mlp.up_proj             24577.3     1.4  24574.8    0.1    1.4  24572.2    0.0       8    15   150
+   20 mlp.down_proj           25380.0     1.4  25377.7  110.1  110.9  25264.8    0.0       8    15    60
+   21 self_attn.q_proj         9435.6     1.5   9433.2   44.9   45.7   9385.4    0.0       8    15    60
+   21 self_attn.k_proj         1854.6     1.8   1851.9    0.1    0.4   1849.6    0.0       8    15    15
+   21 self_attn.v_proj         1851.8     1.5   1849.4    0.1    0.3   1847.2    0.0       8    15    15
+   21 self_attn.o_proj         9481.1     0.6   9479.6   68.1   69.2   9408.3    0.0       8    15    60
+   21 mlp.gate_proj           24637.9     1.2  24635.6   55.8   57.7  24576.7    0.0       8    15   150
+   21 mlp.up_proj             24563.8     1.5  24561.2    0.1    1.9  24558.2    0.0       8    15   150
+   21 mlp.down_proj           25425.2     1.3  25423.0  115.3  116.3  25304.7    0.0       8    15    60
+   22 self_attn.q_proj         9552.5     1.3   9550.3   55.5   56.5   9491.7    0.0       8    15    60
+   22 self_attn.k_proj         1894.0     1.5   1891.5    0.1    0.4   1889.2    0.0       8    15    15
+   22 self_attn.v_proj         1930.9     1.6   1928.5    0.1    0.4   1926.1    0.0       8    15    15
+   22 self_attn.o_proj         9493.1     0.6   9491.7   52.7   53.5   9436.1    0.0       8    15    60
+   22 mlp.gate_proj           24724.6     1.5  24722.0   55.6   57.8  24662.9    0.0       8    15   150
+   22 mlp.up_proj             24554.9     1.2  24552.5    0.1    1.7  24549.6    0.0       8    15   150
+   22 mlp.down_proj           25467.1     1.6  25464.6  128.3  129.1  25333.4    0.0       8    15    60
+   23 self_attn.q_proj         9461.7     1.3   9459.5   43.5   44.6   9412.9    0.0       8    15    60
+   23 self_attn.k_proj         1850.3     1.4   1848.1    0.1    0.5   1845.8    0.0       8    15    15
+   23 self_attn.v_proj         1866.6     1.5   1864.2    0.1    0.3   1862.0    0.0       8    15    15
+   23 self_attn.o_proj         9445.4     0.5   9444.0   58.6   59.3   9382.7    0.0       8    15    60
+   23 mlp.gate_proj           24462.0     1.5  24459.4   53.1   54.6  24403.7    0.0       8    15   150
+   23 mlp.up_proj             24437.4     1.5  24434.8    0.1    1.7  24432.1    0.0       8    15   150
+   23 mlp.down_proj           25478.1     1.3  25475.8  137.0  137.8  25335.8    0.0       8    15    60
+   24 self_attn.q_proj         9439.1     1.4   9436.8   49.8   50.4   9384.3    0.0       8    15    60
+   24 self_attn.k_proj         1866.9     1.8   1864.2    0.1    0.3   1862.1    0.0       8    15    15
+   24 self_attn.v_proj         1864.1     1.5   1861.8    0.1    0.3   1859.6    0.0       8    15    15
+   24 self_attn.o_proj         9414.0     0.6   9412.5   54.0   54.7   9355.8    0.0       8    15    60
+   24 mlp.gate_proj           24524.2     1.4  24521.6   56.3   57.9  24462.6    0.0       8    15   150
+   24 mlp.up_proj             24518.4     1.3  24516.0    0.1    2.0  24512.8    0.0       8    15   150
+   24 mlp.down_proj           25468.7     1.3  25466.5  142.2  143.0  25321.4    0.0       8    15    60
+   25 self_attn.q_proj         9465.5     1.3   9463.4   56.3   57.2   9404.0    0.0       8    15    60
+   25 self_attn.k_proj         1863.9     1.4   1861.6    0.1    0.3   1859.3    0.0       8    15    15
+   25 self_attn.v_proj         1887.5     1.6   1885.0    0.1    0.3   1882.7    0.0       8    15    15
+   25 self_attn.o_proj         9553.3     0.7   9551.7   61.8   62.8   9486.5    0.0       8    15    60
+   25 mlp.gate_proj           24583.2     1.4  24580.5   54.4   56.4  24522.8    0.0       8    15   150
+   25 mlp.up_proj             24567.7     1.7  24565.0    0.1    1.6  24562.3    0.0       8    15   150
+   25 mlp.down_proj           25501.5     1.4  25499.1  146.4  147.2  25349.9    0.0       8    15    60
+   26 self_attn.q_proj         9513.3     1.3   9511.2   58.1   58.8   9450.2    0.0       8    15    60
+   26 self_attn.k_proj         1882.9     1.5   1880.5    0.1    0.3   1878.3    0.0       8    15    15
+   26 self_attn.v_proj         1862.8     1.7   1860.3    0.1    0.5   1858.0    0.0       8    15    15
+   26 self_attn.o_proj         9461.0     0.6   9459.5   56.1   57.1   9400.4    0.0       8    15    60
+   26 mlp.gate_proj           24671.8     1.1  24669.6   66.3   67.8  24600.6    0.0       8    15   150
+   26 mlp.up_proj             24496.4     1.4  24494.0    0.1    1.4  24491.5    0.0       8    15   150
+   26 mlp.down_proj           25591.6     1.5  25589.1  146.7  147.8  25439.1    0.0       8    15    60
+   27 self_attn.q_proj         9468.4     1.4   9466.2   52.8   53.7   9410.4    0.0       8    15    60
+   27 self_attn.k_proj         1876.3     1.5   1873.9    0.1    0.3   1871.7    0.0       8    15    15
+   27 self_attn.v_proj         1851.3     1.5   1849.0    0.1    0.4   1846.7    0.0       8    15    15
+   27 self_attn.o_proj         9495.6     0.6   9494.1   68.0   68.7   9423.2    0.0       8    15    60
+   27 mlp.gate_proj           24564.6     1.2  24562.2   62.1   63.6  24497.4    0.0       8    15   150
+   27 mlp.up_proj             24466.7     1.5  24464.0    0.1    1.4  24461.5    0.0       8    15   150
+   27 mlp.down_proj           25525.8     1.2  25523.7  118.6  119.3  25402.3    0.0       8    15    60
+   28 self_attn.q_proj         9486.2     1.1   9484.2   48.5   49.4   9432.6    0.0       8    15    60
+   28 self_attn.k_proj         1844.1     1.9   1841.4    0.1    0.3   1839.2    0.0       8    15    15
+   28 self_attn.v_proj         1858.0     1.4   1855.7    0.1    0.3   1853.5    0.0       8    15    15
+   28 self_attn.o_proj         9466.2     0.6   9464.6   51.3   52.4   9410.1    0.0       8    15    60
+   28 mlp.gate_proj           24457.7     1.4  24455.2   56.5   58.2  24395.9    0.0       8    15   150
+   28 mlp.up_proj             24587.7     1.5  24585.2    0.1    1.4  24582.7    0.0       8    15   150
+   28 mlp.down_proj           25447.1     1.2  25444.9  133.3  134.2  25308.7    0.0       8    15    60
+   29 self_attn.q_proj         9441.8     1.1   9439.8   56.0   56.9   9380.8    0.0       8    15    60
+   29 self_attn.k_proj         1860.9     1.5   1858.5    0.1    0.3   1856.4    0.0       8    15    15
+   29 self_attn.v_proj         1862.0     1.6   1859.6    0.1    0.3   1857.5    0.0       8    15    15
+   29 self_attn.o_proj         9475.1     0.5   9473.7   66.5   67.3   9404.2    0.0       8    15    60
+   29 mlp.gate_proj           24512.9     1.3  24510.4   55.6   57.3  24451.9    0.0       8    15   150
+   29 mlp.up_proj             24549.9     1.5  24547.3    0.1    1.8  24544.4    0.0       8    15   150
+   29 mlp.down_proj           25557.1     1.2  25555.0  119.7  120.4  25432.4    0.0       8    15    60
+-- totals: forward=2913679ms  server-request=2903411ms  x_bitplane-build=8795ms  body-concat=9410ms
+
+PimServer(2, '0,1,2,3', '/home/deni/Claude/SiMRA-DRAM-main/DRAM-Bender/sources/apps/DSN_AE_APPS/BitNet/calib_dimm2.txt', '/home/deni/Claude/SiMRA-DRAM-main/DRAM-Bender/sources/apps/DSN_AE_APPS/BitNet/bitnet-proj-server', (('PIM_POOL_LIST_FILE', '/home/deni/Claude/SiMRA-DRAM-main/DRAM-Bender/sources/apps/DSN_AE_APPS/BitNet/pool_layout_dimm2_bank{bank}.txt'), ('PIM_SUB_END', '45952'), ('PIM_SUB_START', '45312'))):  pipe-write=7706ms  pipe-read=2890378ms  calls=17637  bytes-sent=23663.8MB  server-time-implied=5327ms
