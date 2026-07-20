@@ -1,0 +1,66 @@
+diff --git a/ggml/src/ggml-cpu/CMakeLists.txt b/ggml/src/ggml-cpu/CMakeLists.txt
+index 836bae4..1107b17 100644
+--- a/ggml/src/ggml-cpu/CMakeLists.txt
++++ b/ggml/src/ggml-cpu/CMakeLists.txt
+@@ -29,6 +29,8 @@ function(ggml_add_cpu_backend_variant_impl tag_name)
+     list (APPEND GGML_CPU_SOURCES
+         ggml-cpu/ggml-cpu.c
+         ggml-cpu/ggml-cpu.cpp
++        ggml-cpu/mvdram-pim.c
++        ggml-cpu/mvdram-pim.h
+         ggml-cpu/repack.cpp
+         ggml-cpu/repack.h
+         ggml-cpu/hbm.cpp
+diff --git a/ggml/src/ggml-cpu/ggml-cpu.c b/ggml/src/ggml-cpu/ggml-cpu.c
+index 491316f..8465a75 100644
+--- a/ggml/src/ggml-cpu/ggml-cpu.c
++++ b/ggml/src/ggml-cpu/ggml-cpu.c
+@@ -6,6 +6,7 @@
+ #include "traits.h"
+ #include "ggml-cpu-impl.h"
+ #include "ggml-impl.h"
++#include "mvdram-pim.h"
+ #include "quants.h"
+ #include "ggml-threading.h"
+ #include "unary-ops.h"
+@@ -1264,6 +1265,10 @@ void ggml_compute_forward_mul_mat(
+         return;
+     }
+ 
++    if (mvdram_pim_maybe_intercept(params, dst)) {
++        return;
++    }
++
+     GGML_TENSOR_BINARY_OP_LOCALS
+ 
+     const int ith = params->ith;
+diff --git a/ggml/src/ggml-cpu/repack.cpp b/ggml/src/ggml-cpu/repack.cpp
+index f18758f..b8b5e1f 100644
+--- a/ggml/src/ggml-cpu/repack.cpp
++++ b/ggml/src/ggml-cpu/repack.cpp
+@@ -5,6 +5,7 @@
+ 
+ #include "ggml-impl.h"
+ #include "ggml-cpu.h"
++#include "mvdram-pim.h"
+ #include "ggml-cpu-impl.h"
+ #include "simd-mappings.h"
+ #include "traits.h"
+@@ -4189,6 +4190,17 @@ template <typename BLOC_TYPE, int64_t INTER_SIZE, int64_t NB_COLS, ggml_type PAR
+     bool compute_forward(struct ggml_compute_params * params, struct ggml_tensor * op) override {
+         switch (op->op) {
+             case GGML_OP_MUL_MAT:
++                // MVDRAM Lane-2 hook: the repack buffer type bypasses
++                // ggml_compute_forward_mul_mat, so the census/intercept
++                // shim needs its own attachment here (most quantized
++                // projection mulmats take this path on CPU). The template
++                // constants tell the shim the interleaved layout of
++                // src0->data (e.g. 8,8 = block_q4_0x8).
++                if (mvdram_pim_maybe_intercept_ext(params, op,
++                                                   (int) INTER_SIZE,
++                                                   (int) NB_COLS)) {
++                    return true;
++                }
+                 forward_mul_mat(params, op);
+                 return true;
+             case GGML_OP_MUL_MAT_ID:
