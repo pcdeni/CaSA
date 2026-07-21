@@ -95,3 +95,34 @@ subarrays (~4× headroom, config-only). **Subarray expansion is NOT free**
 pool layout (spread-collision avoidance) must be re-derived per subarray,
 and new subarrays need their own margin screen. Cluster mining from the
 2026-05-20 CSVs can't help: only s72/78/86 were ever swept on D2.
+
+## Boundary atlas (#14, 2026-07-22): the long offset is block-relative
+
+Sweeping the s72 tuple across a fine shift grid and recording the
+long-range deposit offset on doubleACT(30,1)→far:
+
+| shift | sub | long deposit | short |
+|---|---|---|---|
+| +0   | 45312 | **+256** | −1 |
+| +128 | 45440 | **+128** | −1 |
+| +256 | 45568 | (none)   | −1 |
+| +384 | 45696 | **−128** | −1 |
+| +512 | 45824 | **−256** | −1 |
+| +640 | 45952 | (none)   | −1 |
+| +768 | 46080 | (none)   | −1 |
+| +1024| 46336 | (none)   | −1 |
+
+The long-range co-activation offset is **not a fixed lattice constant** —
+it tracks the tuple's position relative to a ~512-row (predecoder-block)
+boundary: magnitude shrinks toward a block midpoint, vanishes there, then
+flips sign, and is absent once the tuple lands in a different block's
+interior. The short-range −1 coupling is position-invariant. This is the
+mechanism behind the two transfer verdicts: **bank-transfer preserves the
+intra-block position → identical lattice (free); subarray-transfer moves
+it → different long coupling (pool layouts must be re-derived)**. It also
+matches the selection-law's documented predecoder-block scope
+([[selection_law]] memory: the law crosses 640-row sense-amp segments but
+is bounded by the 1024/512 predecoder block). Closes the 640/1024 atlas
+question with data: the operative structural unit for long-range
+addressing is the predecoder block, and operations must be planned
+block-relative.
