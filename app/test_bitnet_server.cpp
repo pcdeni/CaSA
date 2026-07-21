@@ -60,6 +60,14 @@ static constexpr uint32_t MAGIC_V2S = 0xB17EF006u;    // V2 single-track (2026-0
 // n_chunks). For 1-bit models (neg == ~pos) the client reconstructs
 // y = 2*y_pos - sum_b fac_b*popcount(x_b) host-side — halves the per-
 // request DRAM work (scratch writes + MAJ3 bodies + drains).
+static constexpr uint32_t MAGIC_V2GS = 0xB17EF007u;   // V2 grouped + single
+// (2026-07-21 night): the request-batching lever. V2G (per-group partial
+// response, kills the one-request-per-group amplification) AND V2S
+// (single-track, pos masks only) at once, so a group-scaled 1-bit model
+// (Bonsai g128) collapses its n_groups per-slice round-trips into ONE
+// request/server while keeping the half-DRAM single-track compute. Body =
+// V2G body with pos masks only; response = n_groups × d_out pos-track
+// partials; client reconstructs y_g = 2*y_pos_g - Σ_{c∈g} fac·pc(x_c).
 
 static Program build_chunk_program(int bank_id, uint32_t row_addr,
                                     const uint32_t* col_data,
@@ -97,6 +105,68 @@ static void per_column_write_row(SoftMCPlatform& platform, int bank_id,
                                      col_start, n_cols);
     platform.execute(p);
     col_start += n_cols;
+  }
+}
+
+// PIM_V2_PACK (2026-07-21 late): append one chunk's write sequence to an
+// existing program — byte-identical instruction stream to
+// build_chunk_program (fully unrolled, no labels/branches), minus END.
+static void emit_chunk_body(Program& p, int bank_id, uint32_t row_addr,
+                            const uint32_t* col_data,
+                            int col_start, int n_cols) {
+  p.add_inst(SMC_LI(8, CASR));
+  p.add_inst(SMC_LI(bank_id, BAR));
+  p.add_inst(SMC_LI(row_addr, RAR));
+  p.add_inst(SMC_LI(col_start * 8, CAR));
+  p.add_below(PRE(BAR, 0, 0));
+  p.add_below(ACT(BAR, 0, RAR, 0));
+  for (int k = 0; k < n_cols; k++) {
+    const uint32_t* slots = col_data + k * 16;
+    for (int slot = 0; slot < 16; slot++) {
+      p.add_inst(SMC_LI(slots[slot], PATTERN_REG));
+      p.add_inst(SMC_LDWD(PATTERN_REG, slot));
+    }
+    p.add_below(WRITE(BAR, CAR, 1));
+    p.add_inst(SMC_SLEEP(8));
+  }
+  p.add_inst(SMC_SLEEP(8));
+  p.add_below(PRE(BAR, 0, 0));
+  p.add_inst(SMC_SLEEP(4));
+}
+
+// Write several banks' scratch rows in as few programs as the IMEM
+// allows (greedy fill to ~7600 insts: 5 chunks/program → a 4-bank round
+// = 3 programs instead of 12). Write-only programs carry no c2h, so
+// unlike K-batched execs this packing has no recv-growth downside —
+// it purely removes h2c round-trips.
+struct ScratchWrite { int bank_id; uint32_t row; const uint32_t* data; };
+static void per_column_write_rows_packed(SoftMCPlatform& platform,
+                                         const std::vector<ScratchWrite>& ws,
+                                         int* n_execs_out) {
+  Program p;
+  bool empty = true;
+  for (const auto& w : ws) {
+    int col_start = 0;
+    for (int chunk = 0; chunk < 3; chunk++) {
+      int n_cols = CHUNK_COLS[chunk];
+      // a chunk body is ~1.5K insts; flush before it would overflow.
+      if (!empty && p.size() / 8 + 1600 > 7600) {
+        p.add_inst(SMC_END());
+        platform.execute(p);
+        (*n_execs_out)++;
+        p = Program();
+        empty = true;
+      }
+      emit_chunk_body(p, w.bank_id, w.row,
+                      w.data + col_start * 16, col_start, n_cols);
+      empty = false;
+      col_start += n_cols;
+    }
+  }
+  if (!empty) {
+    p.add_inst(SMC_END());
+    platform.execute(p);
+    (*n_execs_out)++;
   }
 }
 
@@ -1300,6 +1370,10 @@ static int g_bitstream_imem = -1;
 // Broadcast / MAJ3) run as 4-bank parallel pack4 sequences, while
 // wrRow / frac / rdRow stay per-bank serial. Default OFF for back-compat.
 static int g_parallel_banks = -1;
+// PIM_V2_PACK = 1: pack each V2 round's per-bank scratch writes into as
+// few programs as IMEM allows (write-only programs, no c2h — pure
+// round-trip removal). Default OFF for back-compat.
+static int g_v2_pack = -1;
 // PIM_REFRESH_BETWEEN = N: insert SMC_REF in the multibank-combined
 // program after every N bank-bodies. Default 0 = no in-program refresh
 // (matches today's behaviour: auto-refresh is OFF, only intermittent
@@ -1333,6 +1407,15 @@ static void init_debug_flags() {
     if (g_segpop)
       fprintf(stderr, "[server] PIM_SEGPOP=1: build7 SEG_POP readback "
               "(2048 B/row, host segment_popcount eliminated)\n");
+  }
+  if (g_v2_pack < 0) {
+    // Default ON since 2026-07-21 (full-model token-identical, wcol
+    // 10.8->6.4 ms/request, 2-tok wall 147.6->132.8 s). =0 restores the
+    // 12-programs-per-round legacy cadence byte-for-byte.
+    g_v2_pack = env_flag("PIM_V2_PACK", 1);
+    if (g_v2_pack)
+      fprintf(stderr, "[server] PIM_V2_PACK=1: per-round scratch writes "
+              "packed (12 -> ~3 programs/round)\n");
   }
   if (g_refresh_between < 0) g_refresh_between = env_flag("PIM_REFRESH_BETWEEN", 0);
   if (g_pack_rounds < 0) {
@@ -1685,8 +1768,8 @@ static int process_request(SoftMCPlatform& platform,
   // Lets a group-scaled client (Bonsai g128) fetch a whole slice in ONE
   // round-trip and rescale host-side — removes the one-request-per-group
   // amplification. group_chunks == n_chunks reproduces V2 exactly.
-  bool grouped = (magic == MAGIC_V2G);
-  bool single = (magic == MAGIC_V2S);
+  bool grouped = (magic == MAGIC_V2G || magic == MAGIC_V2GS);
+  bool single = (magic == MAGIC_V2S || magic == MAGIC_V2GS);
   uint32_t group_chunks = n_chunks;
   if (grouped) {
     if (req_len < 6 * 4) {
@@ -1781,7 +1864,11 @@ static int process_request(SoftMCPlatform& platform,
   vector<int32_t> y((size_t)n_groups * d_out, 0);
   for (size_t round = 0; round < n_rounds; round++) {
     // 1. Per-col write each active bank's backup row for this round.
+    //    PIM_V2_PACK=1 packs the round's writes into ~3 IMEM-bounded
+    //    programs (write-only, no c2h) instead of 12; instruction
+    //    stream per chunk is byte-identical either way.
     int active_in_round = 0;
+    std::vector<ScratchWrite> round_writes;
     for (int bk = 0; bk < N; bk++) {
       size_t u = round * (size_t)N + (size_t)bk;
       if (u >= n_units) break;
@@ -1803,11 +1890,20 @@ static int process_request(SoftMCPlatform& platform,
       size_t pool_idx = v2_pool_idx(banks[bk], calib_idx, round,
                                     pool_for_round.size());
       uint32_t scratch_row = pool_for_round[pool_idx];
-      auto t0 = clk::now();
-      per_column_write_row(platform, banks[bk].bank_id, scratch_row, mask);
-      t_wcol_ns += std::chrono::duration_cast<ns_t>(clk::now() - t0).count();
-      n_wcol_execs += 3;  // per_column_write_row issues 3 platform.execute calls
+      if (g_v2_pack > 0) {
+        round_writes.push_back({banks[bk].bank_id, scratch_row, mask});
+      } else {
+        auto t0 = clk::now();
+        per_column_write_row(platform, banks[bk].bank_id, scratch_row, mask);
+        t_wcol_ns += std::chrono::duration_cast<ns_t>(clk::now() - t0).count();
+        n_wcol_execs += 3;  // per_column_write_row issues 3 platform.execute calls
+      }
       active_in_round++;
+    }
+    if (g_v2_pack > 0 && !round_writes.empty()) {
+      auto t0 = clk::now();
+      per_column_write_rows_packed(platform, round_writes, &n_wcol_execs);
+      t_wcol_ns += std::chrono::duration_cast<ns_t>(clk::now() - t0).count();
     }
     if (active_in_round == 0) break;
 
@@ -1933,8 +2029,10 @@ static int process_request(SoftMCPlatform& platform,
             int fm = fused_coset_mode();
             if (fm == 1 || fm == 3) {
               size_t u2 = round * (size_t)N + (size_t)bk;
-              uint32_t ch2 = (uint32_t)(u2 / 2);
-              const uint32_t* m2 = ((u2 % 2) == 0)
+              // single-track: chunk = u2, always the pos mask (V2GS/V2S);
+              // dual-track: chunk = u2/2, pos on even units / neg on odd.
+              uint32_t ch2 = single ? (uint32_t)u2 : (uint32_t)(u2 / 2);
+              const uint32_t* m2 = (single || (u2 % 2) == 0)
                   ? pos_mask_all + (size_t)ch2 * d_out
                   : neg_mask_all + (size_t)ch2 * d_out;
               fused_repair_pc(banks[bk], pc.data(), m2,
@@ -1945,8 +2043,10 @@ static int process_request(SoftMCPlatform& platform,
           int weight = sign_factor * bitplane_factor[b];
           // V2G: route this unit's contribution into its chunk's group
           // slot (g == 0 always for plain V2, where group_chunks==n_chunks).
+          // single-track: chunk = u_acc; dual-track: chunk = u_acc/2.
           size_t u_acc = round * (size_t)N + (size_t)bk;
-          size_t g_acc = (size_t)((uint32_t)(u_acc / 2) / group_chunks);
+          uint32_t chunk_acc = single ? (uint32_t)u_acc : (uint32_t)(u_acc / 2);
+          size_t g_acc = (size_t)(chunk_acc / group_chunks);
           int32_t* y_g = y.data() + g_acc * d_out;
           for (uint32_t j = 0; j < d_out; j++) y_g[j] += weight * pc[j];
           if (getenv("PIM_DEBUG_RX")) {
@@ -3541,7 +3641,8 @@ int main(int argc, char** argv) {
     memcpy(&magic, req_buf.data(), 4);
     auto t_h0 = rclk::now();
     int rc;
-    if (magic == MAGIC_V2 || magic == MAGIC_V2G || magic == MAGIC_V2S) {
+    if (magic == MAGIC_V2 || magic == MAGIC_V2G || magic == MAGIC_V2S
+        || magic == MAGIC_V2GS) {
       rc = process_request(platform, banks,
                            req_buf.data(), req_len, label_base, response_fd);
     } else if (magic == MAGIC_LOAD) {

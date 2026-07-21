@@ -20,25 +20,54 @@ design doc that motivates it — the roadmap is itself evidence-first.
 2. **seq_engine pipeline integration** — DESIGNED (`rtl/SEQ_ENGINE.md`),
    deliberately sequenced AFTER SEG_POP (recv 3.1ms > exec 1.0ms).
    Mixed-stream Verilator non-regression A/B is the flash gate.
-3. **Streaming/queued execution** — IDEA. The §V-E regime (host feeds
-   commands faster than DDR consumes): program-queue in fetch, or seq
-   compound programs. The last 2–3 orders per PAPER_CONTRAST gap 2.
-   Design after 1+2 land.
+3. **Streaming/queued execution — "controller-native on our card"** —
+   UPGRADED (see `docs/CONTROLLER_NATIVE.md`, the full investigation).
+   MVDRAM's testbed was DRAM Bender on an Alveo U200 — the same
+   soft-MC class as ours; "controller-native" is their §V-E *execution
+   regime* (the DDR command bus never waits for the host), and it is
+   achievable here: ping-pong IMEM pair + a fetch stage that loads the
+   idle bank during EXECUTE, back-pressured by `buffer_space`. The
+   host becomes a pure producer at PCIe bandwidth (~0.3 % used — our
+   problem was only ever latency). This is where the round-trip lever
+   family converges, and the last 2–3 orders per `PAPER_CONTRAST.md`
+   gap 2 live. Ladder above/below it: pipelined issue (software
+   bridge), on-fabric orchestrator (soft core; 1 round-trip per
+   projection — the end-state demo), and the honest Rung-4 boundary
+   (commodity MCs expose no command-level control; every published
+   unmodified-DRAM PUD result runs a soft/custom controller).
+
+0. **ACCUM_XBP (build-8): cross-bit-plane accumulator** — DESIGNED
+   (`docs/ACCUM_XBP_DESIGN.md`). In-fabric place-value sum: one 8 KB
+   drain per group instead of 8 per-plane drains (recv wakes ÷8,
+   ~1.6× projected on the measured wake-dominated recv). Verification
+   gate = the build-7 discipline verbatim. Note: the driver-side
+   attack on the same term (xdma poll_mode) measured EIO on this
+   build — ladder caught it before any timing claim; rolled back
+   clean. The fabric cut does not depend on driver behavior.
 
 ## B. Host/software levers (no bitstream needed)
 
-3b. **Client-side request batching (fewer, larger requests)** — NEW
-   2026-07-21, MEASURED-IN, top wall lever. `req-prof` decomposition:
-   the client keeps the pipe full (gap 0.2 ms), each request ≈ one
-   program ≈ 3.2 ms, wall = ~5,400 requests/forward × 3.2 ms; `recv`
-   is XDMA-latency-dominated (~1.5 ms fixed/read — why SEG_POP's 4×
-   byte cut was wall-neutral); `PIM_INLINE_BITPLANES=4` measured a net
-   LOSS (requests already carry ~1 program). Fix: batch the ~28
-   per-chunk requests per projection into few multi-unit requests (the
-   V2S wire format already allows it) → fewer, larger recv windows —
-   which is also when the SEG_POP byte collapse starts paying.
-   Validation gate: bit-exact y per op, then full-model token-identity
-   (`docs/ROADB_2026_07.md` §7).
+3b. **V2GS request batching** — DONE 2026-07-21: `MAGIC_V2GS` composes
+   the grouped response (V2G) with single-track (V2S) — one request per
+   server per slice instead of one per scale-group, token-identical,
+   268.8 → 260.3 s /8 tok (+3.2 %, the pipe-framing share). Default on
+   (`PIM_REQ_BATCH=1`). The batched profile refines the cost model: a
+   slice = ~20 XDMA round-trips (~12 write programs + ~8 exec/recv) ×
+   ~150–200 µs — which sets up the next lever precisely.
+3c. **V2 cross-round program packing** — DONE 2026-07-21: each round's
+   12 write programs packed into ~3 IMEM-bounded ones (write-only, no
+   c2h — immune to the recv-wake tax that made K-batching lose).
+   Token-identical; wcol 10.8 → 6.4 ms/request; 8-tok wall
+   260.3 → 233.0 s. Default on (`PIM_V2_PACK=0` restores the legacy
+   cadence byte-for-byte). Tonight's stack: 267.1 → 233.0 s (−12.7 %).
+   Originally specified as: Fuse a slice's ~20 programs into few: one program
+   interleaving [write(round r); 4-bank MAJ3 bodies(round r)] across
+   rounds within the 8K-IMEM envelope — preserving write-then-use
+   locality (the upfront-batched-writes attempt of 2026-05-04 is the
+   documented anti-pattern; the MM3D packed path is the proven
+   pattern). Estimated 2–4× on the handler → ~2–3× wall. Gate:
+   layer-0 exact, then full-model token-identity.
+   Method context for both: `docs/METHOD_MVDRAM_LENS.md`.
 
 4. **LANE2_WRES clone-resident products** — DONE 2026-07-21: 59 µs/gate
    resident vs 150–180 pcwrite (~2.7×/product); fidelity trade and
@@ -72,13 +101,16 @@ design doc that motivates it — the roadmap is itself evidence-first.
 
 ## C. Characterization / science (learn + enable)
 
-11. **Bank-similarity audit (16 banks)** — READY (posed 2026-07-21).
-    Run the spread-profile + selection-law probe + margin
-    screen on all 16 banks of D2 (we use 4). Prediction from existing
-    data: identical lattice/law (spread profile already byte-identical
-    across the 4 measured banks; predecoder groups are design constants),
-    per-bank margin maps only. Confirms characterization-transfer ⇒ makes
-    16-bank scale-out cheap.
+11. **Bank-similarity audit** — TRANCHE 1 CONFIRMED 2026-07-21
+    (`docs/BANK_AUDIT_2026_07.md`): four never-calibrated banks under a
+    verbatim-transferred calib produce classification-identical spread
+    tables (350/350 rows × 14 primitive cases); even the flake fringe is
+    deterministic and bank-invariant; the null control shows zero
+    deposits off-lattice on every bank. Calibration transfer = margin
+    re-screen only, demonstrated on zero-characterization silicon —
+    the 16-bank scale-out (#13, ~4× residency/parallelism headroom
+    with no new sweeps) is real. Remaining: margin maps, banks 8-15,
+    the selection-law probe on one new bank.
 12. **Calib-transfer procedure** — formalize: apply bank-0 calib to a new
     bank with margin re-screen only (already half-exploited: D0 banks
     0/2/3 share calib; cross-die transfer evidenced). Deliverable: a
