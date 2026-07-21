@@ -83,6 +83,17 @@ This repository contains the software side of that demonstration:
   Supports BitNet's per-tensor-scaled ternary weights and, since July
   2026, group-scaled (g128) external weight specs — PrismML
   Bonsai-1.7B in both its 1-bit and ternary variants.
+- **`lane2/`** — the MVDRAM-reproduction GeMV server and drivers (their
+  conventions end to end: LOAD/GEMV/PARTIALS protocol, dual-track adder,
+  clone-encoded products, per-block exact partials, the B2 per-op table
+  harness, the sampled llama.cpp e2e runners, and the Road-B
+  `LANE2_ACCUM` product-dataflow arms).
+- **`rtl/`** — the DIFF-accum readback engine (Road B) with its
+  Verilator harness and the three silicon-found fixes, including the
+  buffer_space leak that also lives in stock DRAM-Bender streaming DIFF.
+- **`api-patches/`** / **`shim-patches/`** — unified diffs for the
+  SiMRA/DRAM-Bender API (finalize-once, recv-timeout, the accum
+  receiver) and the llama.cpp mulmat interception shim.
 - **`calibration/`** — calibrated MAJ3-perfect open-row tuples for one
   of our test DIMMs. Format documented; you produce your own for new
   DIMMs.
@@ -90,6 +101,43 @@ This repository contains the software side of that demonstration:
   scheduler-projection methodology, and the
   [interactive explainer](https://pcdeni.github.io/CaSA/explainer/)
   (source in [`docs/explainer/`](docs/explainer/)).
+
+### How the pieces connect
+
+One arc runs through everything here, and each stage feeds the next:
+
+1. **Characterize the physics** — calibrated MAJ3/RowClone tuples, and
+   the two laws the literature didn't have: the co-activation
+   **selection law** (which rows receive a `doubleACT` deposit — the
+   address algebra of Multi-RowCopy's lattice) and the **clone-dead
+   law** (which rows can be RowClone-refreshed). Both cross-die
+   deterministic. → [`docs/LATTICE_ADDRESSING_2026_07.md`](docs/LATTICE_ADDRESSING_2026_07.md),
+   [xor-spread explainer](https://pcdeni.github.io/CaSA/explainer/xor-spread.html).
+2. **Turn the laws into engineering** — spread-safe pool placement,
+   coset-broadcast loading, the fused activation update, per-bank
+   parallelism. This is what took BitNet 632 → 47.5 s/tok with
+   correctness *improving*. → [`docs/CAMPAIGN_2026_07.md`](docs/CAMPAIGN_2026_07.md).
+3. **Reproduce the peer system** — MVDRAM (no public sources) rebuilt
+   from the paper on commodity parts: mechanism scoreboard, honest
+   negatives, per-op B2 tables, sampled llama.cpp e2e, first exact fp32.
+   The reproduction machinery lives in [`lane2/`](lane2/). →
+   [`docs/MVDRAM_REPRODUCTION.md`](docs/MVDRAM_REPRODUCTION.md),
+   [`docs/PAPER_CONTRAST.md`](docs/PAPER_CONTRAST.md).
+4. **Kill the readout wall both ways** — Road A (in-DRAM carry-save
+   adders, MVDRAM-faithful, 213× readout reduction) and Road B (the
+   FPGA popcount accumulator in [`rtl/`](rtl/), 8 KB → 96 B per read),
+   never blended in one headline. Road B's completion re-opened the
+   per-output product dataflow — the reproduction's own §V shape —
+   at ~6–12× per GeMV. → [`docs/ROADB_2026_07.md`](docs/ROADB_2026_07.md).
+5. **Generalize across models** — the same silicon path runs BitNet
+   (per-tensor ternary) and PrismML Bonsai-1.7B (g128 group scales,
+   1-bit and ternary), token-exact, with each model family exposing new
+   levers (group-response protocol, 1-bit single-track). →
+   [`docs/BONSAI_2026_07.md`](docs/BONSAI_2026_07.md).
+
+Everything is measured on real silicon, every claim carries its log or
+data file, and negatives are published next to positives — that is the
+repo's standing offer to anyone building in-memory LLM inference.
 
 This builds directly on prior research from the
 [CMU SAFARI group](https://safari.ethz.ch/) — RowClone, Ambit,
@@ -132,10 +180,14 @@ The story in three sentences:
 
 2. **The measured rate is now recv-volume-bound, not compute-bound.**
    Profiling the 47.5 s/tok run shows the DDR-to-host readback of result
-   rows dominates each request. Two levers target exactly that and are
-   staged: an on-FPGA popcount accumulator that collapses readback
-   ~2048× (Road B — HDL built, silicon-validated bit-exact, in final
-   bring-up), and full weight residency to remove per-request streaming.
+   rows dominates each request. The first of the two levers targeting
+   that is now **complete on silicon**: the on-FPGA popcount accumulator
+   (Road B, [`rtl/`](rtl/) + [`docs/ROADB_2026_07.md`](docs/ROADB_2026_07.md))
+   collapses each result-row read 8 KB → 96 B, survives 65,000-program
+   sessions with zero stream-integrity faults, and — the surprise — it
+   *re-opened MVDRAM's own per-output product dataflow*, which beats our
+   carry-save tree ~6–12× per GeMV on the same silicon. Full weight
+   residency (removing per-request streaming) is the remaining lever.
 
 3. **The cycle-level scheduler `casa_sched.c`** still projects the
    *bus-bound* floor beneath all of this — what remains once orchestration
@@ -173,9 +225,12 @@ two quantizations of the same base model, directly visible on DRAM*).
 The client gained a default-off group-scale weight path, regression-proven
 byte-identical for BitNet with the feature off. The next-day measured
 ladder on the same shape — single-DIMM 100 s/tok → dual-DIMM 51.2 →
-dual-DIMM + fused coset **33.7 s/tok (2.97×)**, every configuration
-golden-exact — plus the sim-vs-silicon fused A/B story and honest
-caveats: [`docs/BONSAI_2026_07.md`](docs/BONSAI_2026_07.md).
++ fused coset 33.7 → + the 1-bit **single-track protocol** (the server
+computes only the pos track; the complement is reconstructed
+arithmetically) **18.7 s/tok — 5.36× stacked**, every configuration
+golden-exact, and the 1-bit variant now *beating* ternary on the wall —
+plus the sim-vs-silicon fused A/B story and honest caveats:
+[`docs/BONSAI_2026_07.md`](docs/BONSAI_2026_07.md).
 
 ## Related work — where this sits
 

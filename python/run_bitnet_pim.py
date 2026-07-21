@@ -33,10 +33,11 @@ SERVER = os.environ.get(
 # per (row, 128-input group) + sparse exact residuals. See
 # /home/deni/Claude/bonsai_prep_2026_07_20/README.md and
 # /home/deni/Claude/bonsai_client_2026_07_20/README.md.
-# 1-bit runs DUAL-TRACK with an empty zero-set (neg_mask = ~pos_mask
-# within d_in): no server change needed, but the neg track is redundant —
-# y = 2·y_postrack − Σx would halve rows/ops with a server single-track
-# flag (out of scope here).
+# 1-bit runs DUAL-TRACK by default (empty zero-set, neg_mask = ~pos_mask
+# within d_in). Since 2026-07-21, PIM_1BIT_SINGLE=1 activates the V2S
+# single-track protocol: the server computes only the pos track and the
+# client reconstructs y = 2·y_pos − Σx — halves the per-request DRAM work
+# (pim_linear.py / MAGIC_V2S).
 BONSAI_SPECS = {
     "bonsai_1bit": {
         "model_dir": "/home/deni/bonsai_weights/1bit",
@@ -210,11 +211,14 @@ def main():
         print(f"[bnet] bonsai weight specs from {spec['extract_dir']} "
               f"(codes + g128 group_scales + sparse residuals)", flush=True)
         if args.model == "bonsai_1bit":
+            single_on = os.environ.get("PIM_1BIT_SINGLE", "0") == "1"
             print("[bnet] bonsai_1bit maps to DUAL-TRACK with an empty "
-                  "zero-set (neg_mask = complement of pos_mask): runs on "
-                  "the unchanged client+server; the neg track is redundant "
-                  "(y = 2*pos_track - sum(x)); single-track halving needs "
-                  "a server flag (out of scope).", flush=True)
+                  "zero-set (neg_mask = complement of pos_mask); "
+                  "PIM_1BIT_SINGLE=" + ("1: V2S single-track ACTIVE — the "
+                  "server computes only the pos track, client reconstructs "
+                  "y = 2*y_pos - sum(x)" if single_on else "0: dual-track "
+                  "(set PIM_1BIT_SINGLE=1 to halve per-request DRAM work)"),
+                  flush=True)
 
     # Resolve --layers all into the full transformer-layer index range.
     if args.layers == "all":
