@@ -139,9 +139,11 @@ Everything is measured on real silicon, every claim carries its log or
 data file, and negatives are published next to positives — that is the
 repo's standing offer to anyone building in-memory LLM inference.
 (And the question everyone asks — *could it train, too?* — has a
-measured, honest answer: [`docs/TRAINING.md`](docs/TRAINING.md). And the
+measured, honest answer: [`docs/TRAINING.md`](docs/TRAINING.md). The
 architect's question — *how far from optimal, what binds, what should
-the die change?* — has one too: [`docs/UTILIZATION.md`](docs/UTILIZATION.md).)
+the die change?* — has one too: [`docs/UTILIZATION.md`](docs/UTILIZATION.md).
+And what's next, with statuses and evidence, lives in
+[`docs/ROADMAP.md`](docs/ROADMAP.md).)
 
 This builds directly on prior research from the
 [CMU SAFARI group](https://safari.ethz.ch/) — RowClone, Ambit,

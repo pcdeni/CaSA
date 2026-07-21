@@ -84,3 +84,30 @@ cell exactly as manufactured:
 The primitive is near physics; the die is ~99.99 % idle; the walls are,
 in order, readout → operand movement → command issue → and only then
 the bus — and every one of them is a periphery fix, not a cell fix.
+
+## Addendum (2026-07-21): are banks copies of each other?
+
+Yes in structure, no in margins — and our own data shows the split
+directly. DRAM is step-and-repeat at every level (cell → row →
+mat/subarray with its sense-amp stripe → bank → bank group → die), and
+the periphery replicates with the arrays. Measured consequences:
+
+- **DIMM 2's XOR-spread profile is byte-identical across its banks**
+  (couples R⊕{1,2,4,…,512}, never ⊕256, same signature every bank) —
+  the spread is decoder wiring, and every bank carries the same decoder.
+- The selection law's predecoder groups and the two overlapping
+  granularities (640-row sense-amp segments vs 1024-row predecoder
+  blocks) are **design constants**, not per-bank accidents — different
+  periphery layers repeat at different pitches, and their misalignment
+  is observable.
+- What varies per bank is **yield**: on DIMM 0, banks 0/2/3 share one
+  calibrated tuple while bank 1 needs its own; per-bank column masks and
+  flake patterns differ. Law replicates; margins are per-instance.
+- One level up the same pattern holds: fault sets and calibration
+  transfer byte-identically across same-model **dies**.
+
+Practical consequence: **characterization transfers**. Scaling from 4
+banks to 16 (and to more subarrays — the idle spatial parallelism in
+the table above) needs no re-derivation, only a cheap margin re-screen
+per new bank against the known laws. The 16-bank bank-similarity audit
+is on the roadmap (`ROADMAP.md` §C) as the enabling experiment.
