@@ -126,3 +126,15 @@ is bounded by the 1024/512 predecoder block). Closes the 640/1024 atlas
 question with data: the operative structural unit for long-range
 addressing is the predecoder block, and operations must be planned
 block-relative.
+
+## All 16 banks (2026-07-22): lattice uniform die-wide
+
+Extended the constellation probe to banks 8–15 (bank 0's tuple
+transferred verbatim). **Deposit structure byte-identical on all 16
+banks** (0,4–15 measured; the "here" deposit-row set matches bank 0
+exactly for every bank). The only variation is per-bank margin: banks
+8–11 show a 4-cell flake (2044/2048) on a few otherwise-untouched rows —
+the yield lottery, not a lattice change. So the transfer thesis is now
+proven at full die scale: **one bank's calibration drives all 16; only a
+per-bank margin re-screen differs.** The 16-bank scale-out (residency /
+spatial parallelism) is a config exercise on this die, no new sweeps.
