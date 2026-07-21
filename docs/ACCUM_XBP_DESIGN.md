@@ -33,6 +33,33 @@ bit-plane program. Fold the sum into the readback engine and a group's
         execute(4-bank bodies for this plane)      # reads accumulate
     FLUSH_ACCUM; receiveData(8192)                 # ONE drain per group
 
+## Integration boundary (the honest constraint)
+
+The accumulator applies ONE latched weight to every read in a program's
+window. That fits the production layout only when every read a program
+issues shares that weight — which holds in exactly one case, and it is
+the case that matters most:
+
+- **Single-track (Bonsai V2S), K=1 — CLEAN FIT.** One program per
+  bitplane; its M bank-rows are M different input *chunks* at that
+  bitplane, all sign +, so they accumulate at the plane's single weight
+  and — because different chunks contribute additively to the same
+  output — the per-segment accumulator sum is exactly right. This is the
+  current production config, so ACCUM_XBP lands where it is needed.
+- **Dual-track (BitNet) — NOT a drop-in.** A program's bank-rows mix pos
+  and neg units (different sign → different weight). ACCUM_XBP would
+  need the pos and neg units split into separate programs (each with its
+  own sign in the weight), or a per-read weight sequence (more RTL).
+- **K>1 — excluded.** K>1 packs multiple bitplanes into one program;
+  their weights differ, so ACCUM_XBP requires K=1. (K=1 is already the
+  production cadence; K>1 was measured a net loss anyway — `ROADB` §7.)
+
+So the production integration is: `PIM_ACCUM_XBP=1` on the single-track
+K=1 path, set the weight per bitplane program, drain once per group. The
+server change is in the same three readout sites SEG_POP touched, gated
+so dual-track/K>1 fall back to SEG_POP. Write it AFTER silicon validates
+the mode (`accxbp-hw-exe`) — not before.
+
 Round-trips per group: 8 execs + **1 drain** (today: 8 execs + 8
 drains). recv wakes ÷8; bytes 8 KB vs 8 × 2048 B (2×). Single-track
 first: sign is uniformly +1, so the weight table is just the 8
