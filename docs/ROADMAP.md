@@ -27,13 +27,17 @@ design doc that motivates it — the roadmap is itself evidence-first.
 
 ## B. Host/software levers (no bitstream needed)
 
-3b. **Request-path profiling + fix** — NEW 2026-07-21, high value. The
-   SEG_POP full-model A/B halved the per-program profile yet left the
-   fused-V2S wall unchanged — so ~half the per-token time lives OUTSIDE
-   program round-trips (server request handling, client body assembly
-   ~32 %/forward, ~180 MB/forward of pipe I/O). Per-request timers on
-   both sides, then attack the top term. Until then, further
-   program-level levers can't move this config's wall
+3b. **Client-side request batching (fewer, larger requests)** — NEW
+   2026-07-21, MEASURED-IN, top wall lever. `req-prof` decomposition:
+   the client keeps the pipe full (gap 0.2 ms), each request ≈ one
+   program ≈ 3.2 ms, wall = ~5,400 requests/forward × 3.2 ms; `recv`
+   is XDMA-latency-dominated (~1.5 ms fixed/read — why SEG_POP's 4×
+   byte cut was wall-neutral); `PIM_INLINE_BITPLANES=4` measured a net
+   LOSS (requests already carry ~1 program). Fix: batch the ~28
+   per-chunk requests per projection into few multi-unit requests (the
+   V2S wire format already allows it) → fewer, larger recv windows —
+   which is also when the SEG_POP byte collapse starts paying.
+   Validation gate: bit-exact y per op, then full-model token-identity
    (`docs/ROADB_2026_07.md` §7).
 
 4. **LANE2_WRES clone-resident products** — DONE 2026-07-21: 59 µs/gate

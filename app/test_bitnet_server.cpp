@@ -3501,8 +3501,19 @@ int main(int argc, char** argv) {
   vector<uint8_t> req_buf;
   int label_base = 0;
   std::map<uint32_t, LoadedHandle> handles;
+  // Request-path profiling (2026-07-21): the SEG_POP full-model A/B
+  // showed the fused-V2S wall is only ~half program round-trips.
+  // Decompose the server's view of the remainder per request:
+  //   gap     = blocking on the next request HEADER (client think/build
+  //             time between requests — body-concat, python, etc.)
+  //   body    = streaming the request payload through the pipe
+  //   handler = process_* wall (includes programs; subtract the
+  //             srv-prof exec/recv/wcol/pop terms for pure overhead)
+  using rclk = std::chrono::steady_clock;
+  long long rq_n = 0; double rq_gap_s = 0, rq_body_s = 0, rq_h_s = 0;
   while (true) {
     uint32_t req_len = 0;
+    auto t_g0 = rclk::now();
     if (!read_exact(&req_len, 4)) {
       fprintf(stderr, "[server] EOF on stdin, exiting\n");
       break;
@@ -3515,6 +3526,7 @@ int main(int argc, char** argv) {
       fprintf(stderr, "[server] request too large: %u\n", req_len);
       return 4;
     }
+    auto t_b0 = rclk::now();
     req_buf.resize(req_len);
     if (!read_exact(req_buf.data(), req_len)) {
       fprintf(stderr, "[server] short read of request body\n");
@@ -3527,6 +3539,7 @@ int main(int argc, char** argv) {
     }
     uint32_t magic;
     memcpy(&magic, req_buf.data(), 4);
+    auto t_h0 = rclk::now();
     int rc;
     if (magic == MAGIC_V2 || magic == MAGIC_V2G || magic == MAGIC_V2S) {
       rc = process_request(platform, banks,
@@ -3543,6 +3556,18 @@ int main(int argc, char** argv) {
       return 6;
     }
     if (rc != 0) return 6;
+    auto t_h1 = rclk::now();
+    rq_n++;
+    rq_gap_s  += std::chrono::duration<double>(t_b0 - t_g0).count();
+    rq_body_s += std::chrono::duration<double>(t_h0 - t_b0).count();
+    rq_h_s    += std::chrono::duration<double>(t_h1 - t_h0).count();
+    if (rq_n % 2000 == 0) {
+      fprintf(stderr, "[req-prof #%lld] avg/req last 2000: gap=%.2fms "
+              "body=%.2fms handler=%.2fms (gap=client-side think/build)\n",
+              rq_n, rq_gap_s * 1e3 / 2000, rq_body_s * 1e3 / 2000,
+              rq_h_s * 1e3 / 2000);
+      rq_gap_s = rq_body_s = rq_h_s = 0;
+    }
   }
   _exit(0);
 }
