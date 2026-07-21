@@ -79,12 +79,12 @@ design doc that motivates it — the roadmap is itself evidence-first.
    surfaced a silent-skip integrity hazard now fixed with
    `oversize_skips()` observability — read `docs/ROADB_2026_07.md` §6
    before building accum-total systems on this stack.
-6. **M3 coset-broadcast operand fan-out** — IDEA→DESIGN next. The
-   production wcol killer AND the unlock for V2-path packing (PACK_ROUNDS
-   is MM3D-only because V2 needs write-then-use locality — broadcast
-   loading changes the locality story). Needs pool-layout co-design with
-   the validated sub-lattice broadcast mechanism
-   (`docs/LATTICE_ADDRESSING_2026_07.md`).
+6. **M3 coset-broadcast operand fan-out** — DESIGNED 2026-07-22
+   (`docs/M3_COSET_FANOUT_DESIGN.md`). The wcol killer: replace
+   per-column scratch writes with a resident-backup + coset `doubleACT`
+   (4.98× fewer instrs / 2.81× wall proven for the broadcast itself).
+   Also unlocks V2-path round-packing and partly sidesteps the residency
+   ceiling. Software-only; pool-layout allocator change is the work.
 7. **PIM_PARALLEL_BANKS=1 probe** — DONE 2026-07-21: pack4 provably
    ENGAGED (program-dump signature) yet wall effect 3.3 % ≈ variance —
    the ceiling math for a compute-issue lever on a readout-bound wall.

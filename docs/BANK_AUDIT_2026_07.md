@@ -74,3 +74,24 @@ partial). Verdict: bank scale-out is a CONFIG EXERCISE now (correct on
 first try, virgin banks included); its wall payoff arrives with the
 recv-side levers (ACCUM_XBP byte collapse, Rung-1 streaming) and
 cluster mining from the existing sweep CSVs.
+
+## Subarray-transfer probe (2026-07-22): PARTIAL — the boundary is real
+
+Shifting the s72 tuple by +640 and +1280 rows (into never-screened
+subarrays) and re-running the constellation probe:
+- **short-range coupling transfers**: the −1 deposit (doubleACT far/tuple)
+  and the ±1/±2 MAJ3-like flake fringe are identical at all three offsets.
+- **long-range coupling does NOT**: the **+256 deposit present at sub
+  45312 vanishes at sub 45952 and 46592** — the +256 XOR target at the
+  shifted position no longer couples, though it sits inside the probed
+  constellation. The co-activation lattice's large offsets are
+  subarray-position-dependent (a predecoder-block / sense-amp-segment
+  boundary effect — the 640/1024 atlas question, #14).
+
+Consequence for scale-out: **bank-transfer is free** (identical lattice,
+proven), so the cheap residency path is 16 banks × the 3 screened
+subarrays (~4× headroom, config-only). **Subarray expansion is NOT free**
+— a shifted tuple likely still computes MAJ3 (short-range), but its
+pool layout (spread-collision avoidance) must be re-derived per subarray,
+and new subarrays need their own margin screen. Cluster mining from the
+2026-05-20 CSVs can't help: only s72/78/86 were ever swept on D2.
