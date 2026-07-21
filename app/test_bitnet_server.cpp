@@ -108,6 +108,68 @@ static void per_column_write_row(SoftMCPlatform& platform, int bank_id,
   }
 }
 
+// PIM_V2_PACK (2026-07-21 late): append one chunk's write sequence to an
+// existing program — byte-identical instruction stream to
+// build_chunk_program (fully unrolled, no labels/branches), minus END.
+static void emit_chunk_body(Program& p, int bank_id, uint32_t row_addr,
+                            const uint32_t* col_data,
+                            int col_start, int n_cols) {
+  p.add_inst(SMC_LI(8, CASR));
+  p.add_inst(SMC_LI(bank_id, BAR));
+  p.add_inst(SMC_LI(row_addr, RAR));
+  p.add_inst(SMC_LI(col_start * 8, CAR));
+  p.add_below(PRE(BAR, 0, 0));
+  p.add_below(ACT(BAR, 0, RAR, 0));
+  for (int k = 0; k < n_cols; k++) {
+    const uint32_t* slots = col_data + k * 16;
+    for (int slot = 0; slot < 16; slot++) {
+      p.add_inst(SMC_LI(slots[slot], PATTERN_REG));
+      p.add_inst(SMC_LDWD(PATTERN_REG, slot));
+    }
+    p.add_below(WRITE(BAR, CAR, 1));
+    p.add_inst(SMC_SLEEP(8));
+  }
+  p.add_inst(SMC_SLEEP(8));
+  p.add_below(PRE(BAR, 0, 0));
+  p.add_inst(SMC_SLEEP(4));
+}
+
+// Write several banks' scratch rows in as few programs as the IMEM
+// allows (greedy fill to ~7600 insts: 5 chunks/program → a 4-bank round
+// = 3 programs instead of 12). Write-only programs carry no c2h, so
+// unlike K-batched execs this packing has no recv-growth downside —
+// it purely removes h2c round-trips.
+struct ScratchWrite { int bank_id; uint32_t row; const uint32_t* data; };
+static void per_column_write_rows_packed(SoftMCPlatform& platform,
+                                         const std::vector<ScratchWrite>& ws,
+                                         int* n_execs_out) {
+  Program p;
+  bool empty = true;
+  for (const auto& w : ws) {
+    int col_start = 0;
+    for (int chunk = 0; chunk < 3; chunk++) {
+      int n_cols = CHUNK_COLS[chunk];
+      // a chunk body is ~1.5K insts; flush before it would overflow.
+      if (!empty && p.size() / 8 + 1600 > 7600) {
+        p.add_inst(SMC_END());
+        platform.execute(p);
+        (*n_execs_out)++;
+        p = Program();
+        empty = true;
+      }
+      emit_chunk_body(p, w.bank_id, w.row,
+                      w.data + col_start * 16, col_start, n_cols);
+      empty = false;
+      col_start += n_cols;
+    }
+  }
+  if (!empty) {
+    p.add_inst(SMC_END());
+    platform.execute(p);
+    (*n_execs_out)++;
+  }
+}
+
 // SiMRA-style frac discharge — single ACT-PRE pair on a row, with proper
 // NOP padding around it. Lifted directly from MajOperations/test.cpp so
 // we use the same template the calibration tests use; that prevents
@@ -1308,6 +1370,10 @@ static int g_bitstream_imem = -1;
 // Broadcast / MAJ3) run as 4-bank parallel pack4 sequences, while
 // wrRow / frac / rdRow stay per-bank serial. Default OFF for back-compat.
 static int g_parallel_banks = -1;
+// PIM_V2_PACK = 1: pack each V2 round's per-bank scratch writes into as
+// few programs as IMEM allows (write-only programs, no c2h — pure
+// round-trip removal). Default OFF for back-compat.
+static int g_v2_pack = -1;
 // PIM_REFRESH_BETWEEN = N: insert SMC_REF in the multibank-combined
 // program after every N bank-bodies. Default 0 = no in-program refresh
 // (matches today's behaviour: auto-refresh is OFF, only intermittent
@@ -1341,6 +1407,15 @@ static void init_debug_flags() {
     if (g_segpop)
       fprintf(stderr, "[server] PIM_SEGPOP=1: build7 SEG_POP readback "
               "(2048 B/row, host segment_popcount eliminated)\n");
+  }
+  if (g_v2_pack < 0) {
+    // Default ON since 2026-07-21 (full-model token-identical, wcol
+    // 10.8->6.4 ms/request, 2-tok wall 147.6->132.8 s). =0 restores the
+    // 12-programs-per-round legacy cadence byte-for-byte.
+    g_v2_pack = env_flag("PIM_V2_PACK", 1);
+    if (g_v2_pack)
+      fprintf(stderr, "[server] PIM_V2_PACK=1: per-round scratch writes "
+              "packed (12 -> ~3 programs/round)\n");
   }
   if (g_refresh_between < 0) g_refresh_between = env_flag("PIM_REFRESH_BETWEEN", 0);
   if (g_pack_rounds < 0) {
@@ -1789,7 +1864,11 @@ static int process_request(SoftMCPlatform& platform,
   vector<int32_t> y((size_t)n_groups * d_out, 0);
   for (size_t round = 0; round < n_rounds; round++) {
     // 1. Per-col write each active bank's backup row for this round.
+    //    PIM_V2_PACK=1 packs the round's writes into ~3 IMEM-bounded
+    //    programs (write-only, no c2h) instead of 12; instruction
+    //    stream per chunk is byte-identical either way.
     int active_in_round = 0;
+    std::vector<ScratchWrite> round_writes;
     for (int bk = 0; bk < N; bk++) {
       size_t u = round * (size_t)N + (size_t)bk;
       if (u >= n_units) break;
@@ -1811,11 +1890,20 @@ static int process_request(SoftMCPlatform& platform,
       size_t pool_idx = v2_pool_idx(banks[bk], calib_idx, round,
                                     pool_for_round.size());
       uint32_t scratch_row = pool_for_round[pool_idx];
-      auto t0 = clk::now();
-      per_column_write_row(platform, banks[bk].bank_id, scratch_row, mask);
-      t_wcol_ns += std::chrono::duration_cast<ns_t>(clk::now() - t0).count();
-      n_wcol_execs += 3;  // per_column_write_row issues 3 platform.execute calls
+      if (g_v2_pack > 0) {
+        round_writes.push_back({banks[bk].bank_id, scratch_row, mask});
+      } else {
+        auto t0 = clk::now();
+        per_column_write_row(platform, banks[bk].bank_id, scratch_row, mask);
+        t_wcol_ns += std::chrono::duration_cast<ns_t>(clk::now() - t0).count();
+        n_wcol_execs += 3;  // per_column_write_row issues 3 platform.execute calls
+      }
       active_in_round++;
+    }
+    if (g_v2_pack > 0 && !round_writes.empty()) {
+      auto t0 = clk::now();
+      per_column_write_rows_packed(platform, round_writes, &n_wcol_execs);
+      t_wcol_ns += std::chrono::duration_cast<ns_t>(clk::now() - t0).count();
     }
     if (active_in_round == 0) break;
 

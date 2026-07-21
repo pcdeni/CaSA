@@ -1,0 +1,92 @@
+#!/bin/bash
+# fpga-helper — scoped root operations for the DRAM-Bender FPGA rig.
+# Installed at /usr/local/sbin/fpga-helper (root-owned), invoked via a
+# NOPASSWD sudoers rule so unattended sessions can manage the xdma driver
+# without a password. Loads the kernel module ONLY from the root-owned
+# copy at /usr/local/lib/xdma/xdma.ko — after rebuilding the driver,
+# reinstalling that copy deliberately requires a real sudo.
+#
+# 2026-07-17: BDF is resolved dynamically by vendor (lspci -d 10ee:)
+# instead of the old hardcoded 0000:01:00.0 — when the FPGA drops off the
+# bus, the bus renumbers and an unrelated device (Realtek card reader)
+# takes 01:00.0, which made the hardcoded `status` output dangerously
+# plausible. With no Xilinx device on the bus, status/pci-reset/load now
+# say so explicitly and exit 2.
+set -euo pipefail
+
+KO=/usr/local/lib/xdma/xdma.ko
+
+BDF=$(lspci -Dn -d 10ee: 2>/dev/null | awk '{print $1; exit}' || true)
+
+require_bdf() {
+  if [ -z "$BDF" ]; then
+    echo "FPGA (vendor 10ee) NOT on the PCIe bus — physical power cycle needed (see RUNBOOK_TOWER.md)" >&2
+    exit 2
+  fi
+}
+
+case "${1:-}" in
+  load)
+    require_bdf
+    lsmod | grep -q '^xdma' && { echo "xdma already loaded"; exit 0; }
+    insmod "$KO" enable_credit_mp=1
+    sleep 1
+    chmod 666 /dev/xdma* 2>/dev/null || true
+    ls /dev/xdma* >/dev/null 2>&1 && echo "loaded, devices ready" || { echo "module in, but no /dev/xdma* nodes"; exit 1; }
+    ;;
+  unload)
+    rmmod xdma
+    echo "unloaded"
+    ;;
+  # 2026-07-21: c2h receive cost measured interrupt-wake-dominated
+  # (~190 us at 2 KB, ~750 us at 8 KB — size-sublinear). poll_mode=1
+  # makes the driver busy-poll DMA completion instead of sleeping on
+  # the interrupt, targeting exactly that term. Same root-owned .ko,
+  # same fixed path — only this one extra whitelisted parameter.
+  # Validate after switching: rowclone smoke + segpop suite + popcount
+  # suite (stream integrity), then the req-prof recv column.
+  load-poll)
+    require_bdf
+    lsmod | grep -q '^xdma' && { echo "xdma already loaded (unload first)"; exit 1; }
+    insmod "$KO" enable_credit_mp=1 poll_mode=1
+    sleep 1
+    chmod 666 /dev/xdma* 2>/dev/null || true
+    ls /dev/xdma* >/dev/null 2>&1 && echo "loaded in POLL MODE, devices ready" || { echo "module in, but no /dev/xdma* nodes"; exit 1; }
+    ;;
+  chmod)
+    chmod 666 /dev/xdma*
+    ;;
+  pci-reset)
+    require_bdf
+    echo 1 > "/sys/bus/pci/devices/$BDF/reset"
+    echo "pci function reset issued to $BDF"
+    ;;
+  # After a LIVE JTAG reprogram use remove+rescan, NOT pci-reset: FLR
+  # restores the pre-reprogram config snapshot ("Failed to detect XDMA
+  # config BAR"), remove+rescan re-reads BARs from the live card.
+  # Verified 2026-07-17, RUNBOOK_TOWER.md "After a LIVE JTAG reprogram".
+  pci-remove)
+    require_bdf
+    echo 1 > "/sys/bus/pci/devices/$BDF/remove"
+    echo "removed $BDF from the kernel (stale endpoint forgotten)"
+    ;;
+  rescan)
+    echo 1 > /sys/bus/pci/rescan
+    sleep 1
+    NEW=$(lspci -Dn -d 10ee: 2>/dev/null | awk '{print $1; exit}' || true)
+    if [ -n "$NEW" ]; then echo "rescan done, FPGA at $NEW"
+    else echo "rescan done but NO 10ee device found — if the link shows 2.5 GT/s and stays empty, warm-reboot (JTAG image survives warm reset; never cold-cycle)"; exit 2
+    fi
+    ;;
+  status)
+    lsmod | grep -i xdma || echo "xdma: not loaded"
+    ls -la /dev/xdma* 2>/dev/null || echo "no /dev/xdma* nodes"
+    require_bdf
+    echo "FPGA at $BDF:"
+    lspci -s "$BDF" -vv 2>/dev/null | grep -E 'LnkSta|DLActive' || true
+    ;;
+  *)
+    echo "usage: fpga-helper {load|unload|chmod|pci-reset|pci-remove|rescan|status}" >&2
+    exit 1
+    ;;
+esac

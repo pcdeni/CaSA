@@ -45,8 +45,13 @@ design doc that motivates it — the roadmap is itself evidence-first.
    (`PIM_REQ_BATCH=1`). The batched profile refines the cost model: a
    slice = ~20 XDMA round-trips (~12 write programs + ~8 exec/recv) ×
    ~150–200 µs — which sets up the next lever precisely.
-3c. **V2 cross-round program packing** — NEXT, the genuine round-trip
-   cut V2GS unlocked. Fuse a slice's ~20 programs into few: one program
+3c. **V2 cross-round program packing** — DONE 2026-07-21: each round's
+   12 write programs packed into ~3 IMEM-bounded ones (write-only, no
+   c2h — immune to the recv-wake tax that made K-batching lose).
+   Token-identical; wcol 10.8 → 6.4 ms/request; 8-tok wall
+   260.3 → 233.0 s. Default on (`PIM_V2_PACK=0` restores the legacy
+   cadence byte-for-byte). Tonight's stack: 267.1 → 233.0 s (−12.7 %).
+   Originally specified as: Fuse a slice's ~20 programs into few: one program
    interleaving [write(round r); 4-bank MAJ3 bodies(round r)] across
    rounds within the 8K-IMEM envelope — preserving write-then-use
    locality (the upfront-batched-writes attempt of 2026-05-04 is the
