@@ -1,0 +1,340 @@
+--- a/DRAM-Bender/sources/api/platform.h
++++ b/DRAM-Bender/sources/api/platform.h
+@@ -82,6 +82,20 @@
+      * data" is an expected answer, not a failure.
+      */
+     int receiveDataTry(void* recv_buf, int size, long timeout_ms);
++
++    /**
++     * Bounded stray-drain: pop and DISCARD whatever is currently sitting
++     * in the c2h consumer queue (up to max_tries blocks of 4 KB, waiting
++     * try_ms for each; a zero-byte try means the queue is quiet — stop).
++     * Never poisons. Returns the number of bytes discarded. Centralizes
++     * the "set READ + bounded drain" logic of the popcount tool's recover
++     * mode; call it (a) before switching DIFF->READ to clear surfaced
++     * stragglers, and (b) after the first post-DIFF (no-read) program to
++     * discard the stranded final accum message that program's transition
++     * drain absorbed — so the next 8 KB READ stream starts at a clean
++     * program boundary. See the accum-mode notes at consumeDataAccum.
++     */
++    int drain_stray(long try_ms = 1500, int max_tries = 8);
+     /**
+      * Sends SoftMC program to the FPGA board over PCI-E
+      * @param prog reference to the program object to send
+@@ -160,7 +174,32 @@
+     boost::lockfree::spsc_queue<int> api_recv_buf{API_BUF_SIZE/4};
+     void* xdma_recv_buf;
+     void consumeData();
++    // Bounded per-execute drain used in DIFF/accum mode (and for the one
++    // transition execute right after leaving it) — build5 host-side
++    // absorption of the XDMA small-transfer surface lag (2026-07-20, see
++    // the block comment in platform.cpp). READ mode always gets the
++    // pristine consumeData above, byte-identical.
++    void consumeDataAccum();
+     bool recv_timed_out = false;
++    // Host-side tracking of the readback engine mode, updated by
++    // set_readback_mode()/toggle_readback_mode(). Drives ONLY the choice
++    // of receiver thread body in execute(); READ-mode-only apps never see
++    // a behavior change (flag stays false, transition counter stays 0).
++    std::atomic<bool> accum_mode{false};
++    // Armed (=1) when leaving DIFF mode: the LAST DIFF program's accum
++    // message may still be stranded in the XDMA engine and only surfaces
++    // at the NEXT program's c2h traffic. That next execute therefore runs
++    // one more bounded (accum-style) receiver to absorb it. Apps should
++    // make that first post-DIFF execute a no-read program and call
++    // drain_stray() before their first READ-mode receiveData.
++    int transition_drains_left = 0;
++    // Per-spawn policy for consumeDataAccum, written by execute() before
++    // the thread starts (thread creation is the synchronization point).
++    // false (normal accum): exit after the FIRST complete message, like
++    // the pristine receiver — keeps the inter-program cadence tight.
++    // true (transition execute): keep draining until a quiet window, to
++    // absorb a stranded message AND the program's own trailer in one go.
++    bool receiver_quiet_drain = false;
+ 
+   #ifdef PYSMC
+   public:
+--- a/DRAM-Bender/sources/api/platform.cpp
++++ b/DRAM-Bender/sources/api/platform.cpp
+@@ -3,17 +3,39 @@
+ #include <sys/time.h>
+ #include <stdlib.h>
+ #include <cassert>
++#include <cerrno>
+ #include <chrono>
++#include <csignal>
++#include <ctime>
++#include <mutex>
+ #include <stdint.h>
+ #include <stdio.h>
+ #include <iostream>
+ #include <thread>
+ #include <unistd.h>
++#include <sys/syscall.h>
+ 
+ #include "platform.h"
+ #include "board.h"
+ #include "prog.h"
+ 
++// ---- accum-mode bounded-drain tick machinery (see consumeDataAccum) ----
++// A per-thread periodic signal is the only host-side way to bound the
++// kernel xdma cyclic c2h read (wait_event_interruptible_timeout, 600 s):
++// the no-op handler (installed WITHOUT SA_RESTART) makes a pending signal
++// abort the interruptible wait, so read() returns 0 within one tick when
++// no data has surfaced. Data already written back is harvested normally —
++// an interrupted read never loses or tears a message (the cyclic ring
++// retains unharvested packets for the next read).
++#define PIM_ACCUM_TICK_SIG (SIGRTMIN + 6)
++namespace {
++  std::once_flag s_accum_tick_once;
++  void accum_tick_noop(int) {}
++}
++#ifndef sigev_notify_thread_id
++#define sigev_notify_thread_id _sigev_un._tid
++#endif
++
+ SoftMCPlatform::SoftMCPlatform()
+ {
+   is_dummy = false;
+@@ -137,8 +159,15 @@
+   memset(instr_buf, 0, 32);
+   if(sent)
+     std::cerr << "Could not toggle readback mode!" << std::endl;
+-  else
++  else {
+     std::cout << "Toggled readback mode." << std::endl;
++    // Host-side mode tracking (assumes the toggle landed — the legacy
++    // toggle is parity-racy on silicon; build4+ callers use
++    // set_readback_mode). Leaving DIFF arms one transition drain.
++    bool now_diff = !accum_mode.load(std::memory_order_relaxed);
++    accum_mode.store(now_diff, std::memory_order_relaxed);
++    transition_drains_left = now_diff ? 0 : 1;
++  }
+ }
+ 
+ // build4+ images ONLY (trailer magic 0xDBC0DE02) — see platform.h.
+@@ -157,9 +186,21 @@
+   if(sent)
+     std::cerr << "Could not set readback mode ("
+               << (diff ? "DIFF" : "READ") << ")!" << std::endl;
+-  else
++  else {
+     std::cout << "Set readback mode: " << (diff ? "DIFF" : "READ")
+               << " (build4 SET word)." << std::endl;
++    // Host-side mode tracking: drives the accum-aware receiver choice in
++    // execute(). Leaving DIFF (was true -> now false) arms ONE
++    // transition-scoped bounded drain — the last DIFF program's message
++    // may still be stranded in the XDMA engine and surfaces only at the
++    // next program's c2h traffic (build5 surface lag, addendum 20f).
++    // Idempotent re-sends are no-ops for the tracking too.
++    bool was = accum_mode.exchange(diff, std::memory_order_relaxed);
++    if (diff)
++      transition_drains_left = 0;        // (re)entering DIFF cancels it
++    else if (was)
++      transition_drains_left = 1;        // DIFF -> READ: arm one drain
++  }
+ }
+ 
+ void SoftMCPlatform::execute(Program &prog)
+@@ -250,7 +291,23 @@
+       receiver.join();
+     }
+     receiver_done.store(false, std::memory_order_release);
+-    receiver = std::thread(&SoftMCPlatform::consumeData, this);
++    // Receiver choice, gated STRICTLY on the accum flag: READ mode spawns
++    // the pristine consumeData (byte-identical, code-path-identical);
++    // DIFF/accum mode — where the XDMA engine may surface this program's
++    // small message only during a LATER execute (build5 surface lag) —
++    // spawns the bounded consumeDataAccum, which exits cleanly on a quiet
++    // window instead of blocking forever in the kernel c2h read. The one
++    // execute right after leaving DIFF also runs bounded, to absorb the
++    // stranded final message (see set_readback_mode / drain_stray).
++    bool bounded = accum_mode.load(std::memory_order_relaxed);
++    receiver_quiet_drain = false;      // normal accum: exit at first message
++    if (!bounded && transition_drains_left > 0) {
++      bounded = true;
++      transition_drains_left--;
++      receiver_quiet_drain = true;     // transition: drain until quiet
++    }
++    receiver = std::thread(bounded ? &SoftMCPlatform::consumeDataAccum
++                                   : &SoftMCPlatform::consumeData, this);
+ 
+     int sent = iface -> sendData(instr_buf, bytes*4 /*in bytes*/);
+     memset(instr_buf, 0, bytes*4);
+@@ -307,6 +364,150 @@
+   receiver_done.store(true, std::memory_order_release);
+ }
+ 
++// Bounded per-execute drain for DIFF/accum mode (build5, 2026-07-20 —
++// RESULT.md addendum 20f). Measured delivery model on silicon: each accum
++// message is self-framed (64 B chunk + 32 B trailer, 96 B delivered
++// together), but the XDMA c2h engine surfaces a completed small message
++// to the host only when the NEXT program's c2h traffic arrives — a
++// one-program surface lag downstream of the readback FIFO, not fixable by
++// RTL trailer gating. Consequence: the FINAL program of any batch has an
++// empty receive window, and the pristine consumeData would block forever
++// in the kernel cyclic read (600 s wait), poisoning the platform at the
++// next join and wedging h2c.
++//
++// This receiver instead mirrors receiveDataTry's bounded-deadline poll on
++// the KERNEL side: a per-thread periodic tick (timer_create with
++// SIGEV_THREAD_ID -> PIM_ACCUM_TICK_SIG, no-op handler, no SA_RESTART)
++// makes the kernel's interruptible wait return ~every TICK_MS with 0
++// bytes when nothing has surfaced; we exit CLEANLY once no data has
++// arrived for PIM_ACCUM_QUIET_MS (default 500 ms). No poisoning — an
++// empty window is an EXPECTED outcome in this mode. Every message that
++// does surface (this program's, or a lagged one from an earlier program)
++// is trailer-stripped and pushed into api_recv_buf in FIFO order, exactly
++// where receiveDataTry consumers look for it; messages that surface later
++// are pushed by a later execute's window.
++//
++// Exit policy (receiver_quiet_drain, set by execute()):
++//  * normal accum execute: exit right after the FIRST complete message
++//    (short read), like the pristine receiver — one message per window
++//    keeps the inter-program cadence at the pre-fix envelope (silicon
++//    2026-07-20: stretching the suite ~10x by lingering after each
++//    message pushed DIFF-mode dwell past ~5 s and the 10th program's h2c
++//    send wedged at the FPGA; at the tight cadence the same ordinal is
++//    fine). A second message that surfaced in the same lump stays in the
++//    kernel cyclic ring and is harvested by the next window's read.
++//  * transition execute (first post-DIFF program): keep draining until a
++//    full quiet window, so the stranded final message AND the program's
++//    own trailer are both absorbed, leaving the stream at a clean
++//    program boundary.
++void SoftMCPlatform::consumeDataAccum()
++{
++  const int CHUNK = 32 * 1024;
++  static const bool s_recv_debug = []{
++    const char* v = getenv("PIM_RECV_DEBUG");
++    return v && *v && atoi(v) != 0;
++  }();
++  static const long s_quiet_ms = []{
++    const char* v = getenv("PIM_ACCUM_QUIET_MS");
++    long vv = (v && *v) ? atol(v) : 500;
++    return vv > 0 ? vv : 500;
++  }();
++  // Batched-stream campaigns (lane2 LANE2_ACCUM) shrink both knobs (e.g.
++  // 5/5 ms) so an empty window costs ~one tick instead of 500 ms; a message
++  // that surfaces after its own window exits just waits in the kernel ring
++  // for the next window's read (FIFO order preserved). Defaults unchanged.
++  static const long s_tick_ms = []{
++    const char* v = getenv("PIM_ACCUM_TICK_MS");
++    long vv = (v && *v) ? atol(v) : 100;
++    if (vv <= 0) vv = 100;
++    if (vv > 999) vv = 999;   // tv_nsec-encoded below; keep it sub-second
++    return vv;
++  }();
++  const long TICK_MS = s_tick_ms;
++  // The transition drain (first post-DIFF execute) must absorb the stranded
++  // final message no matter how aggressive the campaign knobs are — floor
++  // its quiet window at the pristine 500 ms.
++  const long QUIET_MS = receiver_quiet_drain
++                            ? (s_quiet_ms < 500 ? 500 : s_quiet_ms)
++                            : s_quiet_ms;
++
++  std::call_once(s_accum_tick_once, []{
++    struct sigaction sa;
++    memset(&sa, 0, sizeof(sa));
++    sa.sa_handler = accum_tick_noop;
++    sigemptyset(&sa.sa_mask);
++    sa.sa_flags = 0;                    // deliberately NO SA_RESTART
++    sigaction(PIM_ACCUM_TICK_SIG, &sa, nullptr);
++  });
++
++  timer_t tick_timer;
++  bool have_timer = false;
++  {
++    struct sigevent sev;
++    memset(&sev, 0, sizeof(sev));
++    sev.sigev_notify = SIGEV_THREAD_ID;
++    sev.sigev_signo = PIM_ACCUM_TICK_SIG;
++    sev.sigev_notify_thread_id = (pid_t)syscall(SYS_gettid);
++    if (timer_create(CLOCK_MONOTONIC, &sev, &tick_timer) == 0) {
++      struct itimerspec its;
++      its.it_value.tv_sec = 0;
++      its.it_value.tv_nsec = TICK_MS * 1000000L;
++      its.it_interval = its.it_value;
++      if (timer_settime(tick_timer, 0, &its, nullptr) == 0)
++        have_timer = true;
++      else
++        timer_delete(tick_timer);
++    }
++  }
++  if (!have_timer)
++    fprintf(stderr, "[platform] accum drain: tick timer unavailable — "
++            "kernel reads unbounded this execute\n");
++
++  auto last_data = std::chrono::steady_clock::now();
++  while (true) {
++    int got = iface->recvData(xdma_recv_buf, CHUNK);
++    if (got > 0) {
++      int useful = (got < CHUNK) ? got - 32 : got;
++      if (s_recv_debug) {
++        fprintf(stderr, "[recv-debug] accum got=%d useful=%d\n", got, useful);
++        if (got < CHUNK && got >= 32) {
++          const uint32_t* t = (const uint32_t*)((const char*)xdma_recv_buf + got - 32);
++          fprintf(stderr, "[recv-debug] trailer:");
++          for (int i = 0; i < 8; i++) fprintf(stderr, " %08x", t[i]);
++          fprintf(stderr, "\n");
++        }
++      }
++      if (useful > 0) {
++        int total = useful / 4;
++        int pushed = api_recv_buf.push((int*)xdma_recv_buf, total);
++        while (pushed < total)
++          pushed += api_recv_buf.push((int*)xdma_recv_buf + pushed,
++                                     total - pushed);
++      }
++      if (got < CHUNK && !receiver_quiet_drain)
++        break;    // complete message consumed — pristine-style exit
++      last_data = std::chrono::steady_clock::now();
++      continue;   // transition drain (or full chunk): keep reading
++    }
++    if (got < 0) {
++      // Real kernel-side error (the tick path returns 0, not <0). Exit
++      // cleanly; consumers just see no further data, no poison here.
++      if (s_recv_debug)
++        fprintf(stderr, "[recv-debug] accum recv error (got=%d) — receiver exits\n", got);
++      break;
++    }
++    // got == 0: tick-interrupted with nothing surfaced (or empty harvest).
++    if (std::chrono::duration_cast<std::chrono::milliseconds>(
++            std::chrono::steady_clock::now() - last_data).count() >= QUIET_MS)
++      break;      // clean quiet-window exit — the expected accum outcome
++    std::this_thread::yield();   // kernel path self-paces via the tick;
++                                 // this guards non-blocking backends (sim)
++  }
++  if (have_timer)
++    timer_delete(tick_timer);
++  receiver_done.store(true, std::memory_order_release);
++}
++
+ /**
+ * Try to read param(size) bytes from FPGA, function will block until
+ * all data is read
+@@ -335,6 +536,25 @@
+   return rd * 4;
+ }
+ 
++// Bounded stray-drain — see platform.h. Centralizes the popcount tool's
++// recover-mode loop ("set READ + bounded drain"). Pops and discards
++// whatever the receiver thread(s) have pushed; a zero-byte try means the
++// queue is quiet, so stop early. Never poisons.
++int SoftMCPlatform::drain_stray(long try_ms, int max_tries)
++{
++  if (is_dummy) return 0;
++  char scratch[4096];
++  int total = 0;
++  for (int i = 0; i < max_tries; i++) {
++    int rx = receiveDataTry(scratch, (int)sizeof(scratch), try_ms);
++    total += rx;
++    if (rx == 0 || recv_stalled()) break;
++  }
++  if (total > 0)
++    fprintf(stderr, "[platform] drain_stray: discarded %d stray bytes\n", total);
++  return total;
++}
++
+ int SoftMCPlatform::receiveData(void* recv_buf, int size){
+   assert(size > 0 && size % 4 == 0 && "size must be a positive multiple of 4");
+   if(is_dummy) {

@@ -54,6 +54,12 @@ static const int CHUNK_COLS[3] = {43, 43, 42};
 static constexpr uint32_t MAGIC_V2 = 0xB17EF002u;
 static constexpr uint32_t MAGIC_LOAD = 0xB17EF003u;   // LOAD_WEIGHTS
 static constexpr uint32_t MAGIC_MM3D = 0xB17EF004u;   // MATMUL with handle
+static constexpr uint32_t MAGIC_V2G = 0xB17EF005u;    // V2 with per-group partial response
+static constexpr uint32_t MAGIC_V2S = 0xB17EF006u;    // V2 single-track (2026-07-21):
+// payload carries the POS masks only; every unit is sign 0 (n_units ==
+// n_chunks). For 1-bit models (neg == ~pos) the client reconstructs
+// y = 2*y_pos - sum_b fac_b*popcount(x_b) host-side — halves the per-
+// request DRAM work (scratch writes + MAJ3 bodies + drains).
 
 static Program build_chunk_program(int bank_id, uint32_t row_addr,
                                     const uint32_t* col_data,
@@ -1637,20 +1643,45 @@ static int process_request(SoftMCPlatform& platform,
   uint32_t magic, d_in, d_out, n_chunks, n_bitplanes;
   rd_u32(magic); rd_u32(d_in); rd_u32(d_out);
   rd_u32(n_chunks); rd_u32(n_bitplanes);
-  if (magic != MAGIC_V2) {
+  // V2G (group-partial response, 2026-07-21): identical body and DRAM
+  // work to V2, but the header carries a 6th field `group_chunks` and
+  // the response is per-group int32 partial vectors
+  // ([n_chunks/group_chunks][d_out]) instead of one summed [d_out].
+  // Lets a group-scaled client (Bonsai g128) fetch a whole slice in ONE
+  // round-trip and rescale host-side — removes the one-request-per-group
+  // amplification. group_chunks == n_chunks reproduces V2 exactly.
+  bool grouped = (magic == MAGIC_V2G);
+  bool single = (magic == MAGIC_V2S);
+  uint32_t group_chunks = n_chunks;
+  if (grouped) {
+    if (req_len < 6 * 4) {
+      fprintf(stderr, "[server] V2G request too small (%zu B)\n", req_len);
+      return -1;
+    }
+    rd_u32(group_chunks);
+    if (group_chunks == 0 || n_chunks % group_chunks != 0) {
+      fprintf(stderr, "[server] V2G bad group_chunks=%u (n_chunks=%u)\n",
+              group_chunks, n_chunks);
+      return -1;
+    }
+  } else if (magic != MAGIC_V2 && magic != MAGIC_V2S) {
     fprintf(stderr, "[server] bad magic 0x%x\n", magic);
     return -1;
   }
+  if (group_chunks == 0) group_chunks = 1;
+  const uint32_t n_groups = n_chunks / group_chunks;
   if (d_out != 2048) {
     fprintf(stderr, "[server] expected d_out=2048, got %u\n", d_out);
     return -1;
   }
   // D: optional calib_idx. The legacy V2 body had 5 header fields (20
-  // bytes); clients that want cross-calib voting append a 6th u32 at
-  // the END of the body (after pos_mask + neg_mask + x_bitplane + bp_factor).
-  // We detect by total size and read it from the tail without advancing
-  // the in-band parse offset.
-  size_t need_no_idx = (size_t)5*4 + (size_t)n_chunks*d_out*4*2
+  // bytes; V2G: 6 fields, 24 bytes); clients that want cross-calib voting
+  // append a trailing u32 at the END of the body (after pos_mask +
+  // neg_mask + x_bitplane + bp_factor). We detect by total size and read
+  // it from the tail without advancing the in-band parse offset.
+  size_t header_bytes = grouped ? (size_t)6*4 : (size_t)5*4;
+  size_t mask_blocks = single ? 1 : 2;   // V2S: pos only
+  size_t need_no_idx = header_bytes + (size_t)n_chunks*d_out*4*mask_blocks
                      + (size_t)n_chunks*n_bitplanes*4 + (size_t)n_bitplanes*4;
   size_t need_with_idx = need_no_idx + 4;
   uint32_t calib_idx = 0;
@@ -1673,14 +1704,18 @@ static int process_request(SoftMCPlatform& platform,
   // Slice into views.
   const uint32_t* pos_mask_all = (const uint32_t*)(req + off);
   off += (size_t)n_chunks * d_out * 4;
-  const uint32_t* neg_mask_all = (const uint32_t*)(req + off);
-  off += (size_t)n_chunks * d_out * 4;
+  const uint32_t* neg_mask_all = pos_mask_all;   // V2S: no neg block (unused)
+  if (!single) {
+    neg_mask_all = (const uint32_t*)(req + off);
+    off += (size_t)n_chunks * d_out * 4;
+  }
   const uint32_t* x_bitplane_all = (const uint32_t*)(req + off);
   off += (size_t)n_chunks * n_bitplanes * 4;
   const int32_t*  bitplane_factor = (const int32_t*)(req + off);
 
   const int N = (int)banks.size();
-  const size_t n_units = (size_t)n_chunks * 2;        // (chunk, sign) pairs
+  // (chunk, sign) pairs; V2S enumerates chunks only (all sign 0).
+  const size_t n_units = (size_t)n_chunks * (single ? 1 : 2);
   const size_t n_rounds = (n_units + N - 1) / N;       // # of N-bank executes per bitplane
 
   // Per-request silicon-side timing (server-internal profile).
@@ -1705,15 +1740,18 @@ static int process_request(SoftMCPlatform& platform,
   //     for bitplane = 0..n_bitplanes:
   //       multibank execute with all N banks' MAJ3 bodies
   //       receive + popcount + accumulate per bank
-  vector<int32_t> y(d_out, 0);
+  // V2G: y holds n_groups slots of d_out each; a unit's contribution
+  // lands in its chunk's group. n_groups == 1 (plain V2) is the
+  // historical single-accumulator behavior, bit for bit.
+  vector<int32_t> y((size_t)n_groups * d_out, 0);
   for (size_t round = 0; round < n_rounds; round++) {
     // 1. Per-col write each active bank's backup row for this round.
     int active_in_round = 0;
     for (int bk = 0; bk < N; bk++) {
       size_t u = round * (size_t)N + (size_t)bk;
       if (u >= n_units) break;
-      uint32_t chunk = (uint32_t)(u / 2);
-      int sign = (int)(u % 2);
+      uint32_t chunk = single ? (uint32_t)u : (uint32_t)(u / 2);
+      int sign = single ? 0 : (int)(u % 2);
       const uint32_t* mask = (sign == 0)
           ? pos_mask_all + (size_t)chunk * d_out
           : neg_mask_all + (size_t)chunk * d_out;
@@ -1771,8 +1809,8 @@ static int process_request(SoftMCPlatform& platform,
         uint32_t b = bp_start + kp;
         for (int bk = 0; bk < active_in_round; bk++) {
           size_t u = round * (size_t)N + (size_t)bk;
-          uint32_t chunk = (uint32_t)(u / 2);
-          int sign = (int)(u % 2);
+          uint32_t chunk = single ? (uint32_t)u : (uint32_t)(u / 2);
+          int sign = single ? 0 : (int)(u % 2);
           uint32_t xb = x_bitplane_all[(size_t)chunk * n_bitplanes + b];
           // D: choose calib + pool by request's calib_idx.
           const Calib& c = bc_calib_idx(banks[bk], calib_idx);
@@ -1869,7 +1907,12 @@ static int process_request(SoftMCPlatform& platform,
           }
           int sign_factor = (ex_signs[idx] == 0) ? +1 : -1;
           int weight = sign_factor * bitplane_factor[b];
-          for (uint32_t j = 0; j < d_out; j++) y[j] += weight * pc[j];
+          // V2G: route this unit's contribution into its chunk's group
+          // slot (g == 0 always for plain V2, where group_chunks==n_chunks).
+          size_t u_acc = round * (size_t)N + (size_t)bk;
+          size_t g_acc = (size_t)((uint32_t)(u_acc / 2) / group_chunks);
+          int32_t* y_g = y.data() + g_acc * d_out;
+          for (uint32_t j = 0; j < d_out; j++) y_g[j] += weight * pc[j];
           if (getenv("PIM_DEBUG_RX")) {
             fprintf(stderr,
                 "[srv-rx] round=%zu bp=%u bk=%d sign=%d weight=%d "
@@ -1905,9 +1948,10 @@ static int process_request(SoftMCPlatform& platform,
         t_recv_ns/1e6, t_pop_ns/1e6, unaccounted/1e6);
   }
 
-  // Write 8192 byte (= int32 × 2048) response on the saved response_fd
-  // (NOT FD 1, which we permanently redirected to stderr).
-  ssize_t total = (ssize_t)d_out * 4;
+  // Write the response on the saved response_fd (NOT FD 1, which we
+  // permanently redirected to stderr). Plain V2: 8192 B (int32 × 2048).
+  // V2G: n_groups × 8192 B of per-group partials, group-major.
+  ssize_t total = (ssize_t)n_groups * d_out * 4;
   ssize_t written = 0;
   while (written < total) {
     ssize_t w = write(response_fd, ((char*)y.data()) + written, total - written);
@@ -3446,7 +3490,7 @@ int main(int argc, char** argv) {
     uint32_t magic;
     memcpy(&magic, req_buf.data(), 4);
     int rc;
-    if (magic == MAGIC_V2) {
+    if (magic == MAGIC_V2 || magic == MAGIC_V2G || magic == MAGIC_V2S) {
       rc = process_request(platform, banks,
                            req_buf.data(), req_len, label_base, response_fd);
     } else if (magic == MAGIC_LOAD) {
