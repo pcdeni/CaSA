@@ -36,6 +36,15 @@ design doc that motivates it — the roadmap is itself evidence-first.
    (commodity MCs expose no command-level control; every published
    unmodified-DRAM PUD result runs a soft/custom controller).
 
+0. **ACCUM_XBP (build-8): cross-bit-plane accumulator** — DESIGNED
+   (`docs/ACCUM_XBP_DESIGN.md`). In-fabric place-value sum: one 8 KB
+   drain per group instead of 8 per-plane drains (recv wakes ÷8,
+   ~1.6× projected on the measured wake-dominated recv). Verification
+   gate = the build-7 discipline verbatim. Note: the driver-side
+   attack on the same term (xdma poll_mode) measured EIO on this
+   build — ladder caught it before any timing claim; rolled back
+   clean. The fabric cut does not depend on driver behavior.
+
 ## B. Host/software levers (no bitstream needed)
 
 3b. **V2GS request batching** — DONE 2026-07-21: `MAGIC_V2GS` composes
