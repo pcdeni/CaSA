@@ -41,7 +41,7 @@ partials.
 
 ## The horizontal-adoption accounting (why it loses for BitNet)
 
-For a d_out=2048, d_in=2048 slice (`prototype.py`):
+For a d_out=2048, d_in=2048 slice (`rtl/seg_pop_prototype.py`):
 
 | | vertical (today) | horizontal adoption |
 |---|---|---|
@@ -78,7 +78,7 @@ The periodic MM3D byte-verify (`mm3d-verify`, which must see raw bytes
 because two 32-bit values can share a popcount) stays in full READ mode
 — exactly the lane2 "keep essential reads, collapse the rest" split.
 
-### HDL sketch (extends `rtl/readback_engine.v`, build-6 base)
+### HDL sketch (extends `rtl/readback_engine_build6.v`)
 
 Mode select gains a third state SEG_POP (control byte, like DIFF's
 0x40). In SEG_POP the engine does **not** accumulate across beats: each
@@ -106,5 +106,5 @@ gets.
 3. `seq_engine` (command issue) sequences after this, once `recv` is no
    longer the top term (`rtl/SEQ_ENGINE.md`).
 
-Prototype + accounting: `prototype.py` in the design session dir
+Prototype + accounting: `rtl/seg_pop_prototype.py`
 (exactness proof, byte/wall/program tables).

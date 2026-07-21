@@ -86,13 +86,16 @@ word falls through the frontend decode into instruction-load (clobbers
 IMEM word 0, arms EXECUTE on tlast) — run `segpop-hw-exe` ONLY after the
 build7 JTAG flash is confirmed (magic 0xDBC0DE05).
 
-## BUILD SUCCEEDED (2026-07-21 16:21 UTC) — awaiting USER FLASH
+## BUILD SUCCEEDED (2026-07-21 16:21 UTC) — flashed same day
 
-- Bit: `/home/daniel/Claude/bcu1525/CaSA-main/DRAM-Bender-master/projects/BCU1525_QUAD/BCU1525_QUAD.runs/impl_1/bcu1525_quad_top.bit`
+- Artifact: BCU1525_QUAD project `impl_1/bcu1525_quad_top.bit`
+  (standard DRAM-Bender BCU1525_QUAD flow with the build7 engine +
+  frontend + core dropped into `verilog/` — same single-variable recipe
+  as builds 4–6, see `rtl/README.md`).
 - 34,163,343 bytes, **md5 `c63beb71a946f3d2928339ce001f6984`**
 - Timing CLOSED: **WNS +0.118 ns, 0 failing / 285,499 endpoints**
   (hold WHS +0.010, 0 failing) — build5 +0.104, build6 +0.064.
-- 0 `ERROR:` lines in the full log (`popcountG_build7.log`).
+- 0 `ERROR:` lines in the full Vivado log.
 
 ## Post-flash plan (user does the JTAG step)
 
