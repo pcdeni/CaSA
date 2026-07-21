@@ -120,6 +120,15 @@
 //                          activation row every N products (default 64;
 //                          doubles as an in-stream order/integrity sentinel
 //                          in the accum arm — its total is known)
+//       LANE2_PLANE_PACK=1 (accum arm 2 only, 2026-07-21) fold all qb
+//                          plane-gates of one (m,c) product into ONE
+//                          program with 2^i replicated reads per plane and
+//                          a complemented top plane: the single accum
+//                          total IS the plane-weighted partial (host adds
+//                          −2^(qb-1)·pc(x_c)). Program count ÷qb; the
+//                          multi-read accum regime's first exerciser.
+//                          Wants LANE2_WRES=1 (spilled outputs fall back
+//                          to per-plane pcwrite gates).
 #include "instruction.h"
 #include "prog.h"
 #include "platform.h"
@@ -755,6 +764,22 @@ static int WRES = 0;
 static vector<uint32_t> WPOOL;           // usable value rows for W residency
 static long N_GATE_RES = 0, N_GATE_PCW = 0;
 static double T_GATE_RES = 0, T_GATE_PCW = 0;
+// LANE2_PLANE_PACK=1 (accum arm only): fold ALL qb plane-gates of one (m,c)
+// product into ONE program, reading plane i's product row 2^i times — the
+// program's single accum total is then already the plane-weighted partial:
+//   T = Σ_{i<qb-1} 2^i·pc(W_i ∧ x)  +  2^(qb-1)·pc(~W_top ∧ x)
+// and by the in-extent identity pc(~W∧x) = pc(x) − pc(W∧x) the host applies
+//   y[m] += FAC(c,rb) · (T − 2^(qb-1)·pc(x_c))       [pc(x_c) = the xload
+// sentinel value]. Program count ÷qb; validates the MULTI-READ accum regime
+// (every prior accum program held exactly one read). The negative top plane
+// is handled by storing/writing it COMPLEMENTED (resident rows at LOAD,
+// spill pcwrites in the packed builder). Outputs whose packed program would
+// blow the IMEM budget (any spilled pcwrite plane) fall back to per-plane
+// pcwrite gates with plain W and plain FAC math (residency skipped there —
+// the resident top row holds ~W and must not enter the unpacked math).
+static int PPACK = 0;
+static long N_GATE_PACKED = 0;
+static double T_GATE_PACKED = 0;
 
 // pcwrite body emitted into an existing program (the PACK 3-chunk shape,
 // verbatim instruction sequence — same registers, same timing).
@@ -783,7 +808,13 @@ static void pr_emit_zero_ref(Program& p) {
 }
 
 static void pr_exec_checked(Program& p) {
-  if (p.size() > 8000 * 16) die("product program exceeds the 8K IMEM budget", 5);
+  // p.size() is BYTES at 8 B per u64 instruction (the MM3D dump convention
+  // n_inst = size/8). The old `> 8000*16` guard therefore allowed up to
+  // 16000 insts against the 8192 IMEM — a latent unit bug nothing hit
+  // until PLANE_PACK's spilled builds (2026-07-21: 2x pcwrite sections
+  // ~9K insts slipped through and executed SILENTLY TRUNCATED on the
+  // FPGA — the deterministic qb2 tail-output corruption). Gate in insts.
+  if (p.size() / 8 > 8000) die("product program exceeds the 8K IMEM budget", 5);
   PF->execute(p); N_EXEC++;
 }
 
@@ -914,6 +945,68 @@ static void pr_place_bits(const uint8_t* wr, uint32_t K, Row& out) {
   fill(out.begin(), out.end(), 0u);
   for (uint32_t n = 0; n < K; n++)
     if ((wr[n >> 3] >> (n & 7)) & 1) out[PSEG[n >> 5]] |= 1u << (n & 31);
+}
+
+// as pr_place_bits but with each of the K in-extent bits FLIPPED (~W; zeros
+// stay everywhere else) — the negative-top-plane pattern for PLANE_PACK.
+static void pr_place_bits_c(const uint8_t* wr, uint32_t K, Row& out) {
+  fill(out.begin(), out.end(), 0u);
+  for (uint32_t n = 0; n < K; n++)
+    if (!((wr[n >> 3] >> (n & 7)) & 1)) out[PSEG[n >> 5]] |= 1u << (n & 31);
+}
+
+// PLANE_PACK gate: all qb plane sections of one (m,c) product in ONE
+// program. Section i is the pr_gate_res / pr_gate body VERBATIM (same put
+// order, sleeps, PREs): resident planes clone W from their value row
+// (Ti1 first, x second); spilled planes clone x first then pcwrite W (the
+// pr_gate order — writes after the deposit-capable clone are immune). Each
+// section ends with its own zero compare-ref (the section's wrRows stomp
+// the LDWD slots) and 2^i back-to-back rdRows of the product row; the
+// accum engine sums every read in the program into ONE total. The top
+// plane (qb>1) uses ~W: resident top rows are LOADed complemented,
+// spilled top planes are placed complemented here.
+// Build-only until the size check: returns false (silicon untouched) if
+// the packed program exceeds the IMEM budget — caller falls back.
+static bool pr_gate_packed(Matrix& mat, uint32_t m, Row& wseg) {
+  size_t bpr = ((size_t)mat.K + 7) / 8;
+  Program p;
+  p.add_inst(SMC_LI(8, CASR)); p.add_inst(SMC_LI(BANK, BAR)); p.add_inst(SMC_LI(128, NUM_COLS_REG));
+  for (uint32_t i = 0; i < mat.qb; i++) {
+    bool top = (mat.qb > 1 && i == mat.qb - 1);
+    uint32_t wrow_res = mat.wres_row.empty()
+        ? 0u : mat.wres_row[(size_t)i * mat.M + m];
+    p.add_below(PRE(BAR, 0, 0)); p.add_inst(SMC_SLEEP(6));
+    if (wrow_res) {                                        // resident plane
+      p.add_below(doubleACT(30, 1, wrow_res, CL_Ti1));     // W -> Ti1 (clone)
+      p.add_inst(SMC_SLEEP(6)); p.add_below(PRE(BAR, 0, 0)); p.add_inst(SMC_SLEEP(6));
+      p.add_below(doubleACT(30, 1, XROW, CL_Ti2));         // x -> Ti2 (clone)
+      p.add_inst(SMC_SLEEP(6)); p.add_below(PRE(BAR, 0, 0)); p.add_inst(SMC_SLEEP(6));
+    } else {                                               // spilled plane
+      p.add_below(doubleACT(30, 1, XROW, CL_Ti2));         // x -> Ti2 (clone)
+      p.add_inst(SMC_SLEEP(6)); p.add_below(PRE(BAR, 0, 0)); p.add_inst(SMC_SLEEP(6));
+      const uint8_t* wr = mat.plane.data() + ((size_t)i * mat.M + m) * bpr;
+      if (top) pr_place_bits_c(wr, mat.K, wseg);
+      else     pr_place_bits(wr, mat.K, wseg);
+      pr_emit_pcwrite(p, CL_Ti1, wseg.data());             // W -> Ti1
+    }
+    p.add_below(wrRow_immediate_label(BAR, CL_Ti0, 0u, LBL++));   // z = 0
+    p.add_inst(SMC_SLEEP(6)); p.add_below(PRE(BAR, 0, 0)); p.add_inst(SMC_SLEEP(6));
+    p.add_below(wrRow_immediate_label(BAR, CL_Tfr, ONE, LBL++));  // reference
+    p.add_inst(SMC_SLEEP(6)); p.add_below(PRE(BAR, 0, 0)); p.add_inst(SMC_SLEEP(6));
+    for (int j = 0; j < 3; j++) { p.add_inst(SMC_SLEEP(6)); p.add_below(frac_b(0, CL_Tfr)); p.add_inst(SMC_SLEEP(6)); }
+    p.add_inst(SMC_SLEEP(6)); p.add_below(PRE(BAR, 0, 0)); p.add_inst(SMC_SLEEP(6));
+    p.add_below(doubleACT(0, 0, CL_Trf, CL_Trs));          // MAJ3 = AND (z=0)
+    p.add_inst(SMC_SLEEP(6)); p.add_below(PRE(BAR, 0, 0)); p.add_inst(SMC_SLEEP(6));
+    pr_emit_zero_ref(p);
+    for (uint32_t rr = 0; rr < (1u << i); rr++) {          // 2^i replicated reads
+      p.add_below(rdRow_immediate_label(BAR, CL_Ti0, LBL++));
+      p.add_inst(all_nops()); p.add_inst(all_nops());
+    }
+  }
+  p.add_below(PRE(BAR, 0, 0)); p.add_inst(SMC_END());
+  if (p.size() / 8 > 7800) return false;   // insts; margin under pr_exec_checked
+  pr_exec_checked(p); N_MAJ += mat.qb;
+  return true;
 }
 
 // startup: pick XROW, AND-screen segments through the real product gate,
@@ -1064,6 +1157,7 @@ static void handle_gemv_accum(uint32_t handle, Matrix& mat, uint32_t rb, const u
 
   double t0 = now_s();
   long exec0 = N_EXEC, pcw0 = N_PCW, try0 = N_DRAIN_TRY, hit0 = N_DRAIN_HIT;
+  long skips0 = PF->oversize_skips();
   vector<long long> y64(mat.M, 0);
   vector<PrRec> recs; recs.reserve((size_t)rb * mat.qb * mat.M + 64);
   vector<long> stream;
@@ -1096,6 +1190,51 @@ static void handle_gemv_accum(uint32_t handle, Matrix& mat, uint32_t rb, const u
       since_x = 0;
     };
     do_xload();
+    // free-poll + windowed backpressure after every executed accum program
+    // (identical logic for packed and per-plane programs: 1 total each).
+    auto after_accum_prog = [&]() {
+      pr_drain_avail(stream, 0);   // free poll: pop whatever surfaced
+      if ((long)recs.size() - (long)stream.size() > 96) {
+        // stream fell behind the window: block until it catches up
+        int spins = 0;
+        while ((long)stream.size() < (long)recs.size() - 8 &&
+               !PF->recv_stalled() && spins < 40)
+          if (!pr_drain_avail(stream, 300)) spins++;
+        if (PF->recv_stalled() || (long)recs.size() - (long)stream.size() > 96) {
+          fprintf(stderr, "[lane2] ACCUM: totals stream fell behind (exec %zu got %zu)%s\n",
+                  recs.size(), stream.size(), PF->recv_stalled() ? " POISONED" : "");
+          fail = true;
+        }
+      }
+    };
+    if (PPACK && !RD) {
+      // plane-packed: one program per output m covers all qb planes.
+      for (uint32_t m = 0; m < mat.M && !fail; m++) {
+        if (since_x >= xrefresh) do_xload();
+        double tg0 = now_s();
+        if (pr_gate_packed(mat, m, wseg)) {
+          N_GATE_PACKED++; T_GATE_PACKED += now_s() - tg0;
+          recs.push_back({2, m, 0, c, xpc});   // expect carries pc(x_c)
+          since_x += mat.qb;
+          after_accum_prog();
+        } else {
+          // packed program over IMEM budget (spilled pcwrite planes):
+          // per-plane pcwrite gates, plain W, plain FAC math. Residency is
+          // deliberately skipped here — the resident top row holds ~W.
+          for (uint32_t i = 0; i < mat.qb && !fail; i++) {
+            if (since_x >= xrefresh) do_xload();
+            const uint8_t* wr = mat.plane.data() + ((size_t)i * mat.M + m) * bpr;
+            pr_place_bits(wr, mat.K, wseg);
+            double tp0 = now_s();
+            pr_gate(wseg.data(), 0u, nullptr);
+            N_GATE_PCW++; T_GATE_PCW += now_s() - tp0;
+            recs.push_back({0, m, i, c, -1});
+            since_x++;
+            after_accum_prog();
+          }
+        }
+      }
+    } else {
     for (uint32_t i = 0; i < mat.qb && !fail; i++) {
       long long fac = (long long)FAC((int)i, (int)mat.qb) * FAC((int)c, (int)rb);
       for (uint32_t m = 0; m < mat.M && !fail; m++) {
@@ -1119,21 +1258,10 @@ static void handle_gemv_accum(uint32_t handle, Matrix& mat, uint32_t rb, const u
           rd_pc.push_back(pc);
           y64[m] += fac * pc;
         } else {
-          pr_drain_avail(stream, 0);   // free poll: pop whatever surfaced
-          if ((long)recs.size() - (long)stream.size() > 96) {
-            // stream fell behind the window: block until it catches up
-            int spins = 0;
-            while ((long)stream.size() < (long)recs.size() - 8 &&
-                   !PF->recv_stalled() && spins < 40)
-              if (!pr_drain_avail(stream, 300)) spins++;
-            if (PF->recv_stalled() || (long)recs.size() - (long)stream.size() > 96) {
-              fprintf(stderr, "[lane2] ACCUM: totals stream fell behind (exec %zu got %zu)%s\n",
-                      recs.size(), stream.size(), PF->recv_stalled() ? " POISONED" : "");
-              fail = true;
-            }
-          }
+          after_accum_prog();
         }
       }
+    }
     }
   }
 
@@ -1173,6 +1301,13 @@ static void handle_gemv_accum(uint32_t handle, Matrix& mat, uint32_t rb, const u
         if (v < 0) { malformed++; fail = true; continue; }
         if (recs[k].kind == 0)
           y64[recs[k].m] += (long long)FAC((int)recs[k].i, (int)mat.qb) * FAC((int)recs[k].c, (int)rb) * v;
+        else if (recs[k].kind == 2) {
+          // packed product: total is the plane-weighted partial with the
+          // top plane complemented; expect carries pc(x_c).
+          long long topc = mat.qb > 1 ? (1LL << (mat.qb - 1)) : 0LL;
+          y64[recs[k].m] += (long long)FAC((int)recs[k].c, (int)rb)
+                            * ((long long)v - topc * (long long)recs[k].expect);
+        }
         else if (v != recs[k].expect) {
           sent_mis++;
           fprintf(stderr, "[lane2] ACCUM sentinel MISMATCH at prog %zu: total %ld expect %ld\n",
@@ -1181,11 +1316,21 @@ static void handle_gemv_accum(uint32_t handle, Matrix& mat, uint32_t rb, const u
       }
       if (sent_mis) fail = true;   // order/integrity broken: refuse the result
     }
+    // any platform IMEM-gate skip means a program never ran and the kicker
+    // backfill silently stood in for its total (the 2026-07-21 PLANE_PACK
+    // spill incident: every skipped output got y = -pc(x), deterministic
+    // and sentinel-clean). Refuse the result outright.
+    if (PF->oversize_skips() != skips0) {
+      fprintf(stderr, "[lane2] ACCUM: %ld program(s) refused by the platform "
+              "IMEM gate during this GEMV — totals stream is backfilled, "
+              "refusing result\n", PF->oversize_skips() - skips0);
+      fail = true;
+    }
   }
 
   double wall = now_s() - t0;
   long nprod = 0, nsent = 0;
-  for (auto& r : recs) (r.kind ? nsent : nprod)++;
+  for (auto& r : recs) (r.kind == 1 ? nsent : nprod)++;
   fprintf(stderr, "[lane2] GEMV[%s-arm] handle=%u K=%u M=%u q=%u r=%u: %.2f s wall, "
           "%ld products + %ld sentinels (%ld execs, %ld pcwrites), %ld zero planes skipped",
           RD ? "read" : "accum", handle, mat.K, mat.M, mat.qb, rb, wall,
@@ -1198,6 +1343,11 @@ static void handle_gemv_accum(uint32_t handle, Matrix& mat, uint32_t rb, const u
             "(%.0f us/gate)\n",
             N_GATE_RES, N_GATE_RES ? 1e6 * T_GATE_RES / N_GATE_RES : 0.0,
             N_GATE_PCW, N_GATE_PCW ? 1e6 * T_GATE_PCW / N_GATE_PCW : 0.0);
+  if (N_GATE_PACKED > 0)
+    fprintf(stderr, "[lane2]   packed: %ld programs (%.0f us/program = %.0f us "
+            "per plane-gate at qb=%u)\n",
+            N_GATE_PACKED, 1e6 * T_GATE_PACKED / N_GATE_PACKED,
+            1e6 * T_GATE_PACKED / N_GATE_PACKED / mat.qb, mat.qb);
 
   if (fail) { ack_gemv_err(handle, 2); return; }
   vector<uint8_t> resp(16 + (size_t)mat.M * 4);
@@ -1246,14 +1396,19 @@ static void handle_load(const uint8_t* req, size_t len) {
       for (size_t m = 0; m < M_res; m++)
         for (uint32_t i = 0; i < qb; i++) {
           const uint8_t* wr = mat.plane.data() + ((size_t)i * M + m) * bpr;
-          pr_place_bits(wr, K, wseg);
+          // PLANE_PACK: the negative top plane lives resident as ~W (the
+          // packed total consumes it via pc(~W∧x) = pc(x) − pc(W∧x)).
+          if (PPACK && qb > 1 && i == qb - 1) pr_place_bits_c(wr, K, wseg);
+          else                                pr_place_bits(wr, K, wseg);
           pcwrite(WPOOL[r], wseg.data());
           mat.wres_row[(size_t)i * M + m] = WPOOL[r];
           r++;
         }
-      fprintf(stderr, "[lane2] WRES: %zu W rows resident (outputs 0..%zu x qb=%u) "
+      fprintf(stderr, "[lane2] WRES: %zu W rows resident (outputs 0..%zu x qb=%u%s) "
               "in %.2f s; %zu pool rows unused\n",
-              r, M_res ? M_res - 1 : 0, qb, now_s() - t0, WPOOL.size() - r);
+              r, M_res ? M_res - 1 : 0, qb,
+              (PPACK && qb > 1) ? ", top plane stored ~W for PLANE_PACK" : "",
+              now_s() - t0, WPOOL.size() - r);
     }
     MATS[handle] = std::move(mat);
     fprintf(stderr, "[lane2] LOAD handle=%u q=%u K=%u M=%u (ACCUM product mode: "
@@ -1459,6 +1614,11 @@ int main(int argc, char** argv) {
   if (const char* e = getenv("LANE2_ACCUM")) ACCUM = atoi(e);
   if (ACCUM < 0 || ACCUM > 2) die("LANE2_ACCUM must be 0, 1 (read arm) or 2 (accum arm)", 1);
   if (ACCUM) WRES = (getenv("LANE2_WRES") && atoi(getenv("LANE2_WRES"))) ? 1 : 0;
+  if (ACCUM) PPACK = (getenv("LANE2_PLANE_PACK") && atoi(getenv("LANE2_PLANE_PACK"))) ? 1 : 0;
+  if (PPACK && ACCUM != 2) die("LANE2_PLANE_PACK requires LANE2_ACCUM=2 (totals arm)", 1);
+  if (PPACK && !WRES)
+    fprintf(stderr, "[lane2] WARN: LANE2_PLANE_PACK without LANE2_WRES — every "
+            "output over-budgets the packed program and falls back per-plane\n");
   if (const char* e = getenv("LANE2_REF_POLICY")) {
     if (string(e) == "zero2") { REF_INIT = 0u; REF_NFRAC = 2; }
     else if (string(e) != "" && string(e) != "legacy")
