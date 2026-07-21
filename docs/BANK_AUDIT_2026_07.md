@@ -47,3 +47,30 @@ non-tuple center) run first as a null control.
 
 Logs: `audit_bank{0,4,5,6,7}.log` (null config), `audit2_bank*.log`
 (tuple config), this dir.
+
+## Capstone (same night): full-model inference on the virgin banks
+
+`--bank "4,5,6,7"` with bank-0's calib lines transferred verbatim
+(calib_dimm2_x16.txt) and bank-0's cloneok pool layout copied per bank:
+bonsai_1bit 2-tok = **token-identical (' What is') at 131.6 s** — the
+same wall as the calibrated banks 0-3 (132.8 s). The server's LOAD-time
+byte-verify diagnostics on banks 4-7 are the same shape and magnitude
+class as the 0-3 baseline (margins in-family; the built-in verify IS the
+margin re-screen). The transfer chain is now demonstrated at every
+level: primitive constellation (350/350) → full-model inference —
+**calibrate one bank, run on any bank of the die.** Next: the 8-bank
+run (0-7) — 2× residency AND half the rounds per request.
+
+## 8-bank run (0-7): correctness + capacity mechanics proven, wall-neutral
+
+`--bank "0,1,2,3,4,5,6,7"`: token-identical, 137.4 s /2tok. Rounds per
+request halved (exec 128→64 programs ✓) but recv stayed ~24.7 ms — at
+16 KB/drain the XDMA size-sublinear cost curve trades wake count for
+transfer time almost exactly (effective c2h ~1.2 GB/s vs PCIe's ~7:
+per-transfer overhead dominates at every size we use). Residency
+doubled but remains a minority of the model (~46 vs ~360 slices; 5
+dense clusters/bank is the binding constant — 16 banks ⇒ ~4×, still
+partial). Verdict: bank scale-out is a CONFIG EXERCISE now (correct on
+first try, virgin banks included); its wall payoff arrives with the
+recv-side levers (ACCUM_XBP byte collapse, Rung-1 streaming) and
+cluster mining from the existing sweep CSVs.
