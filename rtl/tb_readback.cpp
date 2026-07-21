@@ -53,7 +53,9 @@ struct Beat {
 static std::vector<std::vector<Beat> > msgs; // tlast-delimited messages
 static std::vector<Beat> open_msg;
 
-#if defined(TB_BUILD7)
+#if defined(TB_BUILD8)
+static const uint32_t MAGIC = 0xDBC0DE06u;
+#elif defined(TB_BUILD7)
 static const uint32_t MAGIC = 0xDBC0DE05u;
 #elif defined(TB_BUILD6)
 static const uint32_t MAGIC = 0xDBC0DE04u;
@@ -100,6 +102,15 @@ static void clear_inputs() {
     top->set_mode_read = 0;
     top->set_mode_diff = 0;
     top->set_mode_segpop = 0;
+#endif
+#ifdef TB_BUILD8
+    top->set_mode_read = 0;
+    top->set_mode_diff = 0;
+    top->set_mode_segpop = 0;
+    top->set_mode_accxbp = 0;
+    top->set_acc_weight = 0;
+    top->acc_weight_pl = 0;
+    top->flush_acc = 0;
 #endif
     for (int i = 0; i < 16; i++) { top->rd_data[i] = 0; top->ddr_wdata[i] = 0; }
     top->c2h_tready_0 = 1; // host always ready
@@ -616,7 +627,7 @@ static void scenario_j() {
     check(buf, top->buffer_space == bs_read0);
 }
 
-#ifdef TB_BUILD7
+#if defined(TB_BUILD7) || defined(TB_BUILD8)
 // ---- build7: SEG_POP per-segment popcount readout ------------------------
 static void to_segpop_mode() {
     top->set_mode_segpop = 1; tick(); top->set_mode_segpop = 0; idle(2);
@@ -711,6 +722,125 @@ static void scenario_segpop() {
 }
 #endif
 
+#ifdef TB_BUILD8
+// ---- build8: ACCUM_XBP cross-bit-plane accumulator -----------------------
+static void to_accxbp_mode() {
+    // entering ACCUM_XBP zeroes the 128-word accumulator over 128 cycles;
+    // no reads may issue until it completes (a mode-entry cost the host
+    // absorbs — trivial vs a projection). idle well past 128.
+    top->set_mode_accxbp = 1; tick(); top->set_mode_accxbp = 0; idle(140);
+}
+// Latch one plane's weight: sign (neg) + 3-bit shift = the bitplane factor.
+static void set_acc_weight(int neg, int shift) {
+    top->acc_weight_pl = (uint8_t)(((neg & 1) << 3) | (shift & 7));
+    top->set_acc_weight = 1; tick(); top->set_acc_weight = 0;
+    top->acc_weight_pl = 0; idle(1);
+}
+static void flush_acc() {
+    top->flush_acc = 1; tick(); top->flush_acc = 0;
+}
+// One "bit-plane program": announce NB reads, feed NB beats whose segment
+// popcounts come from seg_val(b,s). No flush — the plane's reads fold into
+// the accumulator; the drain happens once at the end.
+static void axb_plane_reads(int nbeats, uint32_t (*seg_val)(int,int)) {
+    announce_reads(nbeats);
+    for (int b = 0; b < nbeats; b++) {
+        for (int s = 0; s < 16; s++) top->rd_data[s] = seg_val(b, s);
+        top->rd_valid = 1; tick();
+    }
+    top->rd_valid = 0;
+    idle(4);   // let the RMW pipeline drain the last beat
+}
+// distinct per-(beat,segment) popcount, reused across planes so the
+// accumulation Σ w_k·pc is non-trivial and order-sensitive.
+static uint32_t axb_pat(int b, int s) {
+    uint32_t g = (uint32_t)(b * 16 + s);
+    uint32_t nb = (g * 7 + 3) % 33;    // in [0,32]
+    return (nb >= 32) ? 0xFFFFFFFFu : ((1u << nb) - 1u);
+}
+
+static void scenario_accxbp() {
+    printf(" (l) ACCUM_XBP: cross-bit-plane in-fabric place-value sum\n");
+    hard_reset();                      // READ_MODE
+    to_accxbp_mode();
+    uint32_t bs0 = top->buffer_space;
+    const int NB = 8;                  // 8 beats -> 128 segments (of 2048)
+    // 4 "planes" with weights +1, +2, +4, and -8 (the two's-complement top
+    // plane): shifts 0,1,2,3 and neg on the last.
+    const int W[4][2] = {{0,0},{0,1},{0,2},{1,3}};
+    long expect[NB * 16];
+    for (int i = 0; i < NB * 16; i++) expect[i] = 0;
+    for (int p = 0; p < 4; p++) {
+        set_acc_weight(W[p][0], W[p][1]);
+        axb_plane_reads(NB, axb_pat);
+        long w = (W[p][0] ? -1L : 1L) * (1L << W[p][1]);
+        for (int b = 0; b < NB; b++)
+            for (int s = 0; s < 16; s++)
+                expect[b*16 + s] += w * pc32(axb_pat(b, s));
+    }
+    // drain: FLUSH_ACC, then let the message complete.
+    flush_acc();
+    idle(400);   // 128 words x ~2 cycles + framing
+    check("accxbp one tlast message", msgs.size() == 1);
+    if (msgs.empty()) { to_read_mode_set(); return; }
+    const std::vector<Beat>& m = msgs.back();
+    check("accxbp trailer magic", m.back().w[0] == MAGIC);
+    int ndata = (int)m.size() - 1;
+    // 128 accumulator words x 2 c2h beats each = 256 data beats.
+    check("accxbp data beat count == 256", ndata == 256);
+    // de-swap (beat1,beat0) per word, read lane l of word w as int32.
+    int bad = 0, checked = 0;
+    for (int w = 0; w * 2 + 1 < ndata && w < 128; w++) {
+        const Beat& lo = m[w*2 + 1];
+        const Beat& hi = m[w*2 + 0];
+        int32_t lane[16];
+        for (int i = 0; i < 8; i++) lane[i]   = (int32_t)lo.w[i];
+        for (int i = 0; i < 8; i++) lane[8+i] = (int32_t)hi.w[i];
+        for (int l = 0; l < 16; l++) {
+            int seg = w * 16 + l;
+            if (seg >= NB * 16) { if (lane[l] != 0) bad++; continue; }
+            if ((long)lane[l] != expect[seg]) bad++;
+            checked++;
+        }
+    }
+    char buf[96];
+    snprintf(buf, sizeof buf, "accxbp lane==Sigma w*pc: %d/%d exact (bad %d)",
+             checked - bad, checked, bad);
+    check(buf, bad == 0 && checked == NB * 16);
+    snprintf(buf, sizeof buf, "accxbp buffer_space conserved (%u -> %u)",
+             bs0, top->buffer_space);
+    check(buf, top->buffer_space == bs0);
+
+    // second accumulate-and-drain: accumulator must have zeroed on flush.
+    msgs.clear(); open_msg.clear();
+    set_acc_weight(0, 0);
+    axb_plane_reads(NB, axb_pat);
+    flush_acc();
+    idle(400);
+    check("accxbp 2nd program: one clean message (no desync)", msgs.size() == 1);
+    if (!msgs.empty()) {
+        const std::vector<Beat>& m2 = msgs.back();
+        int nd2 = (int)m2.size() - 1, bad2 = 0;
+        for (int w = 0; w * 2 + 1 < nd2 && w < 128; w++) {
+            const Beat& lo = m2[w*2 + 1]; const Beat& hi = m2[w*2 + 0];
+            int32_t lane[16];
+            for (int i = 0; i < 8; i++) lane[i]   = (int32_t)lo.w[i];
+            for (int i = 0; i < 8; i++) lane[8+i] = (int32_t)hi.w[i];
+            for (int l = 0; l < 16; l++) {
+                int seg = w * 16 + l;
+                long e2 = (seg < NB*16) ? (long)pc32(axb_pat(seg/16, seg%16)) : 0;
+                if ((long)lane[l] != e2) bad2++;
+            }
+        }
+        check("accxbp 2nd drain: accumulator zeroed after 1st flush", bad2 == 0);
+    }
+
+    to_read_mode_set();
+    check("accxbp->READ transition leaves buffer_space at start",
+          top->buffer_space == bs0);
+}
+#endif
+
 int main(int argc, char** argv) {
     Verilated::commandArgs(argc, argv);
     if (argc > 1) variant = argv[1];
@@ -722,6 +852,9 @@ int main(int argc, char** argv) {
 #endif
 #ifdef TB_BUILD7
     is_b6_rtl = true;   // build7 keeps build6 buffer_space conservation for READ/DIFF
+#endif
+#ifdef TB_BUILD8
+    is_b6_rtl = true;   // build8 keeps build6/7 conservation for READ/DIFF/SEG_POP
 #endif
     top = new Vreadback_engine;
     printf("=== readback_engine drain-capture TB : %s (%s RTL, magic %08X) ===\n",
@@ -743,6 +876,12 @@ int main(int argc, char** argv) {
     // build7 non-regression: scenarios a-j above must still pass (READ/DIFF
     // bit-identical to build6), THEN the new SEG_POP datapath:
     scenario_segpop();
+#endif
+#ifdef TB_BUILD8
+    // build8 non-regression: a-j pass identically (READ/DIFF/SEG_POP paths
+    // untouched), THEN the SEG_POP datapath, THEN the ACCUM_XBP datapath.
+    scenario_segpop();
+    scenario_accxbp();
 #endif
     printf("=== %s: %s (%d failing checks) ===\n",
            variant, failures ? "FAIL" : "ALL PASS", failures);
