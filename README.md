@@ -199,9 +199,15 @@ The story in three sentences:
    showed why: the readback is *latency*-dominated, not byte-dominated
    (a ~1.5 ms fixed round-trip per read), and the client issues one
    ~3 ms request per weight-chunk, ~5,400 of them per forward pass.
-   The byte collapse is banked; the current lever is batching those
-   requests into few large ones — exactly where the collapse starts
-   paying ([`docs/ROADMAP.md`](docs/ROADMAP.md)).
+   The byte collapse is banked; request batching (V2GS) + cross-round
+   program packing then took the measured wall −12.7 % and refined the
+   cost model further. How we reason about all of this — and why our
+   bottleneck (the host↔DRAM round-trip) differs from MVDRAM's
+   (column-to-column movement) — is written up as a reusable method:
+   [`docs/METHOD_MVDRAM_LENS.md`](docs/METHOD_MVDRAM_LENS.md), with the
+   ladder toward eliminating the round-trip in
+   [`docs/CONTROLLER_NATIVE.md`](docs/CONTROLLER_NATIVE.md). Live lever
+   status: [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 3. **The cycle-level scheduler `casa_sched.c`** still projects the
    *bus-bound* floor beneath all of this — what remains once orchestration
