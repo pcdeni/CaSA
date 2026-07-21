@@ -184,16 +184,24 @@ The story in three sentences:
    dual-DIMM balance fix are all in the campaign record
    ([`docs/CAMPAIGN_2026_07.md`](docs/CAMPAIGN_2026_07.md), 27 addenda).
 
-2. **The measured rate is now recv-volume-bound, not compute-bound.**
-   Profiling the 47.5 s/tok run shows the DDR-to-host readback of result
-   rows dominates each request. The first of the two levers targeting
-   that is now **complete on silicon**: the on-FPGA popcount accumulator
-   (Road B, [`rtl/`](rtl/) + [`docs/ROADB_2026_07.md`](docs/ROADB_2026_07.md))
-   collapses each result-row read 8 KB → 96 B, survives 65,000-program
-   sessions with zero stream-integrity faults, and — the surprise — it
-   *re-opened MVDRAM's own per-output product dataflow*, which beats our
-   carry-save tree ~6–12× per GeMV on the same silicon. Full weight
-   residency (removing per-request streaming) is the remaining lever.
+2. **The bottleneck story keeps resolving one layer deeper — and we
+   publish each layer honestly.** Per-program profiling said the wall
+   was the DDR-to-host readback of result rows. Both FPGA levers
+   targeting it are now **complete on silicon**: the popcount
+   accumulator (Road B, [`rtl/`](rtl/) +
+   [`docs/ROADB_2026_07.md`](docs/ROADB_2026_07.md)) collapses a
+   result-row read 8 KB → 96 B and *re-opened MVDRAM's own per-output
+   product dataflow* (~6–12× per GeMV vs our carry-save tree), and the
+   build-7 **SEG_POP** mode moves the per-segment popcount into the
+   readback datapath (8 KB → 2048 B, host popcount deleted) — halving
+   the per-program profile in production, token-identical. The twist:
+   the per-token wall barely moved — and per-request instrumentation
+   showed why: the readback is *latency*-dominated, not byte-dominated
+   (a ~1.5 ms fixed round-trip per read), and the client issues one
+   ~3 ms request per weight-chunk, ~5,400 of them per forward pass.
+   The byte collapse is banked; the current lever is batching those
+   requests into few large ones — exactly where the collapse starts
+   paying ([`docs/ROADMAP.md`](docs/ROADMAP.md)).
 
 3. **The cycle-level scheduler `casa_sched.c`** still projects the
    *bus-bound* floor beneath all of this — what remains once orchestration

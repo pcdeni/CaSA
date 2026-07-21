@@ -55,3 +55,33 @@ Timing on the shipped image: WNS +0.064 ns, 0 failing endpoints.
 Build recipe: standard DRAM-Bender BCU1525_QUAD project with this
 engine dropped into `verilog/` (single-variable flow — only
 readback_engine.v differs from stock + the pop_count4 fix).
+
+## Build 7 — SEG_POP readback mode (2026-07-21, silicon-validated)
+
+Third readback mode alongside READ and DIFF-accum: **per-32-bit-segment
+popcount readout**. Each read beat's sixteen 6-bit segment popcounts
+(tapped at `pc_out_l4`, a level already present in the popcount tree)
+are packed one-per-byte; four beats form one 512-bit FIFO word, so a
+full row drains as **2048 B of popcount bytes instead of the 8 KB raw
+row** — a 4× c2h collapse that also deletes the host's per-segment
+popcount pass. Vertical layouts keep working unchanged; READ and
+DIFF-accum are bit-identical to build 6.
+
+- Files: `readback_engine_build7.v`, `frontend_build7.v` (SET word,
+  control byte `0x80` — idempotent, same pattern as READ/DIFF SETs),
+  `softmc_core_build7.v` (wiring). Trailer magic `0xDBC0DE05`.
+- `buffer_space` conservation follows build 6's DIFF fix: +2 credit per
+  consumed SEG_POP beat, no credit on SEG_POP c2h (the build-6 READ-mode
+  gate on the c2h credit makes this compose automatically).
+- Constraint: read counts must be a multiple of 4 beats (full-row reads
+  always are). Legacy toggle hardened to a 2-state READ↔DIFF flip.
+- Verification: `BUILD7_VERIFICATION.md` — Verilator failure-set diff vs
+  build 6 (zero new failures), SEG_POP scenario 128/128 byte-exact,
+  buffer_space conserved, plus an independent line-by-line re-review.
+- Silicon (`app/test_segpop_hw.cpp`): 3 pattern cases × 2048/2048
+  segment-bytes EXACT, READ toggle-back clean, build-6 suite 9/9 on the
+  same image. Timing: WNS +0.118 ns, 0 failing / 285,499 endpoints.
+- Production consumer: `app/test_bitnet_server.cpp` `PIM_SEGPOP=1`
+  (matvec reads in SEG_POP; raw-byte verify paths auto-switch to READ).
+- **Flash-order hazard**: on a pre-build7 image the `0x80` word falls
+  through frontend decode into instruction-load — flash first, then run.

@@ -1,5 +1,16 @@
 # Road B in the production server: the layout question, answered
 
+> **STATUS 2026-07-21 (built + silicon-validated)**: the recommended
+> SEG_POP mode below is now REAL — build 7 (`rtl/readback_engine_build7.v`,
+> trailer `0xDBC0DE05`), Verilator-proven and validated on the BCU1525
+> (3 pattern cases 2048/2048 segment-bytes exact; READ/DIFF bit-identical
+> to build 6). One deliberate divergence from the sketch: the built
+> engine packs each 6-bit popcount into a **byte** (2048 B/row, 4×)
+> rather than 96-bit-packed beats (1536 B, 5.3×) — byte alignment makes
+> the host unpack a plain array read, worth the extra 512 B. Production
+> integration: `app/test_bitnet_server.cpp` `PIM_SEGPOP=1`. Results:
+> `docs/ROADB_2026_07.md`.
+
 **Goal**: collapse the readback term that dominates the production
 BitNet/Bonsai per-token wall, the way Road B already does for the
 MVDRAM-reproduction (lane2) server. The obvious route is to make the
@@ -30,7 +41,7 @@ partials.
 
 ## The horizontal-adoption accounting (why it loses for BitNet)
 
-For a d_out=2048, d_in=2048 slice (`prototype.py`):
+For a d_out=2048, d_in=2048 slice (`rtl/seg_pop_prototype.py`):
 
 | | vertical (today) | horizontal adoption |
 |---|---|---|
@@ -67,7 +78,7 @@ The periodic MM3D byte-verify (`mm3d-verify`, which must see raw bytes
 because two 32-bit values can share a popcount) stays in full READ mode
 — exactly the lane2 "keep essential reads, collapse the rest" split.
 
-### HDL sketch (extends `rtl/readback_engine.v`, build-6 base)
+### HDL sketch (extends `rtl/readback_engine_build6.v`)
 
 Mode select gains a third state SEG_POP (control byte, like DIFF's
 0x40). In SEG_POP the engine does **not** accumulate across beats: each
@@ -95,5 +106,5 @@ gets.
 3. `seq_engine` (command issue) sequences after this, once `recv` is no
    longer the top term (`rtl/SEQ_ENGINE.md`).
 
-Prototype + accounting: `prototype.py` in the design session dir
+Prototype + accounting: `rtl/seg_pop_prototype.py`
 (exactness proof, byte/wall/program tables).

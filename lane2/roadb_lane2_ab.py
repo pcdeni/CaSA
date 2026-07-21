@@ -36,12 +36,26 @@ from b2_gemv_table import (Lane2Server, gen_activations, gen_weights, log,
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
-def run_arm(args, accum, jobs):
-    """Spawn one server in the given LANE2_ACCUM mode and run every job.
+# arm letter -> server env: R = read baseline, A = accum totals,
+# W = accum + W-residency clone gates, P = accum + residency + plane-packed
+# multi-read totals (one program per output, 2^i replicated reads/plane).
+ARM_ENV = {
+    "R": dict(accum=1, wres=0, ppack=0),
+    "A": dict(accum=2, wres=0, ppack=0),
+    "W": dict(accum=2, wres=1, ppack=0),
+    "P": dict(accum=2, wres=1, ppack=1),
+}
+
+
+def run_arm(args, arm, jobs):
+    """Spawn one server in the given arm's env and run every job.
     jobs: list of dicts {label,K,M,qb,rb,W,x} — results are written back in
     as y_<arm> / wall_<arm> / load_<arm>."""
-    arm = "A" if accum == 2 else "R"
+    cfg = ARM_ENV[arm]
+    accum = cfg["accum"]
     os.environ["LANE2_ACCUM"] = str(accum)
+    os.environ["LANE2_WRES"] = str(cfg["wres"])
+    os.environ["LANE2_PLANE_PACK"] = str(cfg["ppack"])
     os.environ["LANE2_XREFRESH"] = str(args.xrefresh)
     if accum == 2:
         # batched-stream receiver knobs: empty windows cost ~one tick, not
@@ -93,7 +107,8 @@ def main():
     ap.add_argument("--tick-ms", type=int, default=5,
                     help="accum arm PIM_ACCUM_TICK_MS")
     ap.add_argument("--arms", default="R,A",
-                    help="which arms to run (R=read, A=accum), in order")
+                    help="which arms to run, in order: R=read, A=accum, "
+                         "W=accum+WRES, P=accum+WRES+PLANE_PACK")
     ap.add_argument("--vote3", type=int, default=0)   # Lane2Server expects it
     ap.add_argument("--pack", type=int, default=1)
     ap.add_argument("--backend", default="")          # ACCUM is silicon-only
@@ -129,49 +144,66 @@ def main():
     os.makedirs(outdir, exist_ok=True)
     log(f"outdir {outdir}; {len(jobs)} cells, arms {args.arms}")
 
-    for arm in [a.strip() for a in args.arms.split(",") if a.strip()]:
-        run_arm(args, 1 if arm == "R" else 2, jobs)
+    arms = [a.strip() for a in args.arms.split(",") if a.strip()]
+    for arm in arms:
+        if arm not in ARM_ENV:
+            sys.exit(f"unknown arm '{arm}' (know: {','.join(ARM_ENV)})")
+        run_arm(args, arm, jobs)
 
-    # ---- report ----
+    # ---- report (generic over the arm list; first arm = baseline) ----
+    base = arms[0]
     lines = []
-    lines.append("| shape | qb | rb | y_R==y_A | max|Δ| | vs numpy R (max/nz) | "
-                 "vs numpy A | wall R (s) | wall A (s) | R/A |")
-    lines.append("|---|---|---|---|---|---|---|---|---|---|")
+    hdr = ["shape", "qb", "rb"]
+    for a in arms[1:]:
+        hdr.append(f"y_{base}==y_{a}")
+    for a in arms:
+        hdr.append(f"vs numpy {a} (max/nz)")
+    for a in arms:
+        hdr.append(f"wall {a} (s)")
+    for a in arms[1:]:
+        hdr.append(f"{base}/{a}")
+    lines.append("| " + " | ".join(hdr) + " |")
+    lines.append("|" + "---|" * len(hdr))
     all_exact = True
     for jb in jobs:
         y_ref = (jb["W"].astype(np.int64) @ jb["x"].astype(np.int64))
         row = [jb["label"], str(jb["qb"]), str(jb["rb"])]
-        yR = jb.get("y_R"); yA = jb.get("y_A")
-        if yR is not None and yA is not None:
-            d = np.abs(yR - yA)
-            exact = int(d.max()) == 0
-            all_exact &= exact
-            row += ["EXACT" if exact else f"{(d > 0).sum()}/{len(d)} differ",
-                    str(int(d.max()))]
-        else:
-            row += ["-", "-"]
-        for y in (yR, yA):
+        yb = jb.get(f"y_{base}")
+        for a in arms[1:]:
+            ya = jb.get(f"y_{a}")
+            if yb is not None and ya is not None:
+                d = np.abs(yb - ya)
+                exact = int(d.max()) == 0
+                all_exact &= exact
+                row.append("EXACT" if exact
+                           else f"{(d > 0).sum()}/{len(d)} differ (max {int(d.max())})")
+            else:
+                row.append("-")
+        for a in arms:
+            y = jb.get(f"y_{a}")
             if y is None:
                 row.append("-")
             else:
                 dv = np.abs(y - y_ref)
                 row.append(f"{int(dv.max())}/{int((dv > 0).sum())}nz")
-        for arm in ("R", "A"):
-            w = jb.get(f"wall_{arm}")
+        for a in arms:
+            w = jb.get(f"wall_{a}")
             row.append("-" if not w else f"{min(w):.2f}")
-        wR, wA = jb.get("wall_R"), jb.get("wall_A")
-        row.append(f"{min(wR)/min(wA):.2f}x" if wR and wA else "-")
+        wb = jb.get(f"wall_{base}")
+        for a in arms[1:]:
+            wa = jb.get(f"wall_{a}")
+            row.append(f"{min(wb)/min(wa):.2f}x" if wb and wa else "-")
         lines.append("| " + " | ".join(row) + " |")
     report = "\n".join(lines)
     print("\n" + report + "\n")
-    if jobs and jobs[0].get("y_R") is not None and jobs[0].get("y_A") is not None:
+    if len(arms) > 1:
         print(f"[ab] arm agreement over all cells: "
               f"{'EXACT' if all_exact else 'DIFFERS (see table)'}")
     with open(os.path.join(outdir, "roadb_ab.md"), "w") as f:
         f.write("# Road-B lane2 A/B — " + str(datetime.datetime.now()) + "\n\n"
                 + "args: " + " ".join(sys.argv[1:]) + "\n\n" + report + "\n")
     for jb in jobs:
-        for arm in ("R", "A"):
+        for arm in arms:
             y = jb.get(f"y_{arm}")
             if y is not None:
                 np.save(os.path.join(

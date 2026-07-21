@@ -78,3 +78,28 @@ post-DIFF transition drain floored at 500 ms), `receiveDataTry` /
 of 0001+0002. Consumption-pattern references:
 `app/test_popcount_hw.cpp`, `lane2/lane2_gemv_server.cpp`
 (`LANE2_ACCUM=2`), `docs/ROADB_2026_07.md`.
+
+## 0004 — build7 SEG_POP SET word + oversize-skip observability
+
+Two small platform additions, applied on top of 0001+0002+0003:
+
+1. `set_readback_mode_segpop()` — the build7 image's third readback
+   mode (trailer magic `0xDBC0DE05`): per-32-bit-segment popcount
+   readout, 2048 B/row instead of the 8 KB raw row, READ-style framing.
+   Idempotent SET (control byte `0x80`), same decode pattern as 0003's
+   READ/DIFF SET words. **Hazard:** on pre-build7 images the word falls
+   through the frontend decode chain into the instruction-load path —
+   never call it unless the flashed image is build7+.
+
+2. `oversize_skips()` — a counter of programs the platform's IMEM-size
+   gate refused (printed + skipped, nothing sent). ⚠ **Integrity note,
+   learned the hard way** (`docs/ROADB_2026_07.md`, PLANE_PACK spill
+   incident): in READ-mode flows a skipped program hangs the next
+   `receiveData` (loud), but in accum-total flows the stream just
+   shortens and end-of-stream kicker programs can silently backfill the
+   missing totals — deterministic wrong numbers with clean sentinels.
+   Any app whose result maps 1:1 onto executed programs must snapshot
+   this counter around a batch and refuse the batch's results if it
+   advanced. Consumers: `lane2/lane2_gemv_server.cpp` (accum GEMV),
+   `app/test_bitnet_server.cpp` (`PIM_SEGPOP`),
+   `app/test_segpop_hw.cpp` (silicon validation tool).

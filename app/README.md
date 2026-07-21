@@ -70,3 +70,25 @@ DRAM-Bender paths.
 - **`test_multibank_bcast.cpp`** — Path C standalone: 4 banks, 4
   MAJ3s per `platform.execute()`, byte-exact verification.
 - **`Makefile`** — single source of truth for the binary list.
+
+## Runtime environment flags (production server)
+
+The server reads these once at startup (`init_debug_flags`). Defaults
+preserve older behavior; each flag names the doc that measured it.
+
+| flag | default | effect |
+|---|---|---|
+| `BITSTREAM_IMEM` | 2048 | IMEM instruction ceiling of the FLASHED bitstream. Set `8192` on the 8K-IMEM image; programs above it are refused (loud on READ flows, see the accum caveat in `api-patches/README.md` §0004). |
+| `PIM_USE_LOAD_WEIGHTS` | client sets 1 | Weights resident in DRAM backup rows (RowClone-refreshed) instead of streamed per request. |
+| `PIM_FUSED_COSET` | 0 | Coset-broadcast fused MAJ3 bodies — 1.45–1.6×/matmul, 1.63× real-model (`docs/BONSAI_2026_07.md`). Requires the primary calibrated tuple. |
+| `PIM_1BIT_SINGLE` | 0 | 1-bit models: compute only the positive track; the client reconstructs y = 2·y_pos − Σ fac·pc(x). ~1.8× (`docs/BONSAI_2026_07.md`). |
+| `PIM_SEGPOP` | 0 | **build7 image only**: SEG_POP readback — 2048 B/row of per-segment popcount bytes, host popcount eliminated (`docs/ROADB_2026_07.md` §7). Never set on pre-build7 images. |
+| `PIM_INLINE_BITPLANES` | 1 | K bitplane-chunks batched per program (needs the 8K IMEM for K>1). NOTE: K>1 structurally disables `PIM_PARALLEL_BANKS` (duplicate-bank fallback). |
+| `PIM_PARALLEL_BANKS` | 0 | pack4 4-bank interleaved doubleACTs. Engages only at K=1 with 4 distinct banks; wall-neutral on the readout-bound wall (`docs/UTILIZATION.md` addendum). |
+| `PIM_PACK_ROUNDS` | 1 | MM3D-only: pack up to N rounds' bodies per program within the IMEM envelope. |
+| `PIM_RECV_TIMEOUT_MS` | unset | Opt-in stall guard on `receiveData` (unset = block forever, the pristine behavior). |
+| `PIM_VOTE_FULL` | model-dep | Full voting extras; off in current production ladders. |
+
+Per-DIMM setup (subarray window `PIM_SUB_START`/`PIM_SUB_END`, calib
+file, pool layouts) is applied automatically by the Python client's
+per-bender preset table (`python/run_bitnet_pim.py`).

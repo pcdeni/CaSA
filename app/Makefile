@@ -65,6 +65,9 @@ matvec-smoke-exe: test_matvec_smoke.o $(SHARED_OBJS)
 popcount-hw-exe: test_popcount_hw.o $(SHARED_OBJS)
 	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
 
+segpop-hw-exe: test_segpop_hw.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
 columnwise-smoke-exe: test_columnwise_smoke.o $(SHARED_OBJS)
 	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
 

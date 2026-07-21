@@ -1,0 +1,73 @@
+--- a/DRAM-Bender/sources/api/platform.h
++++ b/DRAM-Bender/sources/api/platform.h
+@@ -74,6 +74,9 @@
+      * @param diff true -> DIFF_MODE, false -> READ_MODE
+      */
+     void set_readback_mode(bool diff);
++    // build7: SET SEG_POP mode (per-32b-segment popcount readout, READ-like
++    // framing, 2048 B/row). Silicon build7 image (trailer magic 0xDBC0DE05).
++    void set_readback_mode_segpop();
+ 
+     /**
+      * Bounded, NON-poisoning receive probe: waits up to timeout_ms for
+@@ -128,6 +131,15 @@
+      *  must not be used for further execute/receive after this. */
+     bool recv_stalled() const { return recv_timed_out; }
+ 
++    /** Count of execute() calls refused by the IMEM-size gate (program
++     *  larger than BITSTREAM_IMEM: printed + skipped, nothing sent). Apps
++     *  whose result integrity depends on every program having actually
++     *  run (e.g. accum-total streams, where end-of-stream kickers can
++     *  silently backfill a skipped program's missing chunk — the 2026-07-21
++     *  PLANE_PACK spill incident) MUST snapshot this around a batch and
++     *  fail the batch if it advanced. */
++    long oversize_skips() const { return n_oversize_skips; }
++
+     #ifdef PYSMC
+     int py_receiveData(int num_words);
+     #endif
+@@ -181,6 +193,7 @@
+     // pristine consumeData above, byte-identical.
+     void consumeDataAccum();
+     bool recv_timed_out = false;
++    long n_oversize_skips = 0;   // see oversize_skips()
+     // Host-side tracking of the readback engine mode, updated by
+     // set_readback_mode()/toggle_readback_mode(). Drives ONLY the choice
+     // of receiver thread body in execute(); READ-mode-only apps never see
+--- a/DRAM-Bender/sources/api/platform.cpp
++++ b/DRAM-Bender/sources/api/platform.cpp
+@@ -203,6 +203,26 @@
+   }
+ }
+ 
++// build7 (2026-07-21): SET SEG_POP readback mode (bit INSTR_WIDTH+7,
++// byte[8]=0x80). SEG_POP streams a fixed 2048 B/row then a trailer — it is
++// READ-like framing, NOT accum/DIFF, so the host uses the pristine
++// consumeData receiver (accum_mode=false) and receiveData(2048). Entering
++// from DIFF arms one transition drain, same as entering READ. Idempotent.
++void SoftMCPlatform::set_readback_mode_segpop()
++{
++  if(is_dummy) return;
++  ((uint8_t*) instr_buf)[8] = (uint8_t) 0x80;
++  int sent = iface -> sendData(instr_buf, 32 /*in bytes*/);
++  memset(instr_buf, 0, 32);
++  if(sent)
++    std::cerr << "Could not set readback mode (SEG_POP)!" << std::endl;
++  else {
++    std::cout << "Set readback mode: SEG_POP (build7 SET word)." << std::endl;
++    bool was = accum_mode.exchange(false, std::memory_order_relaxed);
++    if (was) transition_drains_left = 1;   // DIFF -> SEG_POP: arm one drain
++  }
++}
++
+ void SoftMCPlatform::execute(Program &prog)
+ {
+   if(is_dummy)
+@@ -251,6 +271,7 @@
+                 << " Reduce K (PIM_INLINE_BITPLANES), or set"
+                 << " BITSTREAM_IMEM=8192 if running on the rebuilt bitstream."
+                 << std::endl;
++      n_oversize_skips++;   // observable: see oversize_skips() in platform.h
+       free(iseq);
+       return;  // skip send; downstream receiveData will time out cleanly.
+     }

@@ -10,11 +10,13 @@ design doc that motivates it — the roadmap is itself evidence-first.
 
 ## A. Bitstream-gated (each = a Vivado build + a JTAG flash)
 
-1. **SEG_POP readback mode** — DESIGNED, awaiting build. Per-segment popcount
-   in the readback engine; keeps the vertical layout. 8192→1536 B (5.3×),
-   kills host pop; projected 5.9→3.18 ms/program ⇒ ~25.6 s/tok BitNet.
-   Design + exactness prototype done: `docs/PRODUCTION_ROADB_DESIGN.md`,
-   `rtl/seg_pop_prototype.py`. Composes with build-6 (DIFF path untouched).
+1. **SEG_POP readback mode** — **SHIPPED 2026-07-21 (build 7)**, silicon-
+   validated: 2048 B/row per-segment popcount bytes (byte-aligned 4×,
+   chosen over the sketched 1536 B packing for trivial host unpack),
+   READ/DIFF bit-identical to build 6, WNS +0.118 ns. Production wiring
+   `PIM_SEGPOP=1` in `app/test_bitnet_server.cpp`; full-model A/B in
+   `docs/ROADB_2026_07.md` §7. Design history:
+   `docs/PRODUCTION_ROADB_DESIGN.md`, `rtl/README.md` (build 7).
 2. **seq_engine pipeline integration** — DESIGNED (`rtl/SEQ_ENGINE.md`),
    deliberately sequenced AFTER SEG_POP (recv 3.1ms > exec 1.0ms).
    Mixed-stream Verilator non-regression A/B is the flash gate.
@@ -25,23 +27,41 @@ design doc that motivates it — the roadmap is itself evidence-first.
 
 ## B. Host/software levers (no bitstream needed)
 
-4. **LANE2_WRES clone-resident products** — RUN (silicon A/B queued).
-   Kills the 4.4K-instr pcwrite for resident W; measures the per-product
-   floor; MVDRAM's resident-weights convention.
-5. **Plane-packed multi-read totals** — READY once WRES validates.
-   4 clone-gates + replicated reads (1+2+4+8) in ONE program ⇒ one total
-   = the qb-weighted partial (negative plane via complement product +
-   host constant −8·pc(x)). Program count ÷qb; first outright accum win
-   at small ops. Validates the multi-read accum regime (never exercised).
+3b. **Client-side request batching (fewer, larger requests)** — NEW
+   2026-07-21, MEASURED-IN, top wall lever. `req-prof` decomposition:
+   the client keeps the pipe full (gap 0.2 ms), each request ≈ one
+   program ≈ 3.2 ms, wall = ~5,400 requests/forward × 3.2 ms; `recv`
+   is XDMA-latency-dominated (~1.5 ms fixed/read — why SEG_POP's 4×
+   byte cut was wall-neutral); `PIM_INLINE_BITPLANES=4` measured a net
+   LOSS (requests already carry ~1 program). Fix: batch the ~28
+   per-chunk requests per projection into few multi-unit requests (the
+   V2S wire format already allows it) → fewer, larger recv windows —
+   which is also when the SEG_POP byte collapse starts paying.
+   Validation gate: bit-exact y per op, then full-model token-identity
+   (`docs/ROADB_2026_07.md` §7).
+
+4. **LANE2_WRES clone-resident products** — DONE 2026-07-21: 59 µs/gate
+   resident vs 150–180 pcwrite (~2.7×/product); fidelity trade and
+   capacity limits documented in `docs/ROADB_2026_07.md` §5.
+5. **Plane-packed multi-read totals** — DONE 2026-07-21: the multi-read
+   accum regime validated EXACT (all-resident numpy-exact,
+   byte-identical); per-plane-gate 32–53 µs vs 59–65 at moderate M;
+   wall-neutral until residency capacity grows. The bring-up also
+   surfaced a silent-skip integrity hazard now fixed with
+   `oversize_skips()` observability — read `docs/ROADB_2026_07.md` §6
+   before building accum-total systems on this stack.
 6. **M3 coset-broadcast operand fan-out** — IDEA→DESIGN next. The
    production wcol killer AND the unlock for V2-path packing (PACK_ROUNDS
    is MM3D-only because V2 needs write-then-use locality — broadcast
    loading changes the locality story). Needs pool-layout co-design with
    the validated sub-lattice broadcast mechanism
    (`docs/LATTICE_ADDRESSING_2026_07.md`).
-7. **PIM_PARALLEL_BANKS=1 probe** — READY, cheap. The pack4 scheduler was
-   fixed 2026-05-06 (bit-exact, +21% vs serial) but the env DEFAULTS OFF
-   in the server. One full-model A/B tells us if 21% is still free.
+7. **PIM_PARALLEL_BANKS=1 probe** — DONE 2026-07-21: pack4 provably
+   ENGAGED (program-dump signature) yet wall effect 3.3 % ≈ variance —
+   the ceiling math for a compute-issue lever on a readout-bound wall.
+   Confirms readout-first sequencing. Gotcha recorded: any
+   `PIM_INLINE_BITPLANES>1` batch disables pack4 structurally
+   (duplicate-bank serial fallback). `docs/UTILIZATION.md` addendum.
 8. **Dual-subarray LOAD pools** — IDEA. Server helpers exist (bc_pool_idx
    dual mode). Doubles residency ⇒ shifts V2→MM3D traffic (where
    PACK_ROUNDS works). Needs a second calibrated subarray + pool layouts

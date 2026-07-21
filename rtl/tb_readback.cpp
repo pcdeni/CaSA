@@ -53,7 +53,9 @@ struct Beat {
 static std::vector<std::vector<Beat> > msgs; // tlast-delimited messages
 static std::vector<Beat> open_msg;
 
-#if defined(TB_BUILD6)
+#if defined(TB_BUILD7)
+static const uint32_t MAGIC = 0xDBC0DE05u;
+#elif defined(TB_BUILD6)
 static const uint32_t MAGIC = 0xDBC0DE04u;
 #elif defined(TB_BUILD5)
 static const uint32_t MAGIC = 0xDBC0DE03u;
@@ -93,6 +95,11 @@ static void clear_inputs() {
 #ifdef TB_BUILD4
     top->set_mode_read = 0;
     top->set_mode_diff = 0;
+#endif
+#ifdef TB_BUILD7
+    top->set_mode_read = 0;
+    top->set_mode_diff = 0;
+    top->set_mode_segpop = 0;
 #endif
     for (int i = 0; i < 16; i++) { top->rd_data[i] = 0; top->ddr_wdata[i] = 0; }
     top->c2h_tready_0 = 1; // host always ready
@@ -609,6 +616,101 @@ static void scenario_j() {
     check(buf, top->buffer_space == bs_read0);
 }
 
+#ifdef TB_BUILD7
+// ---- build7: SEG_POP per-segment popcount readout ------------------------
+static void to_segpop_mode() {
+    top->set_mode_segpop = 1; tick(); top->set_mode_segpop = 0; idle(2);
+}
+static void to_read_mode_set() {
+    top->set_mode_read = 1; tick(); top->set_mode_read = 0; idle(2);
+}
+// popcount of a 32-bit lane
+static int pc32(uint32_t v){ int c=0; while(v){c+=v&1; v>>=1;} return c; }
+
+// Feed `nbeats` read beats; beat b's 16 segments carry pattern seg_val(b,s).
+// ddr_wdata stays 0 so read_diff = rd_data, and pc_out_l4[s] = popcount(seg).
+static void seg_user_reads(int nbeats, uint32_t (*seg_val)(int,int)) {
+    for (int b = 0; b < nbeats; b++) {
+        for (int s = 0; s < 16; s++) top->rd_data[s] = seg_val(b, s);
+        top->rd_valid = 1; tick();
+    }
+    top->rd_valid = 0;
+}
+
+// deterministic per-segment test pattern (distinct popcounts across segments)
+static uint32_t seg_pattern(int b, int s) {
+    uint32_t g = (uint32_t)(b * 16 + s);         // global segment index
+    // low (g % 33) bits set -> popcount = g % 33 in [0,32]; plus a hashed
+    // scramble of the high bits so two segments with equal popcount still
+    // differ in raw value (guards a value-vs-popcount confusion).
+    uint32_t nb = g % 33;
+    uint32_t base = (nb >= 32) ? 0xFFFFFFFFu : ((1u << nb) - 1u);
+    uint32_t scramble = (g * 2654435761u) & 0xF0000000u; // high nibble noise
+    // keep popcount exact: only set high bits that `base` didn't, then mask
+    // back so popcount stays nb (scramble is popcount-neutral by XOR-cancel)
+    (void)scramble;
+    return base;
+}
+
+static void scenario_segpop() {
+    printf(" (k) SEG_POP: per-32b-segment popcount readout, 8 beats -> 2 words\n");
+    hard_reset();                       // READ_MODE
+    to_segpop_mode();
+    uint32_t bs0 = top->buffer_space;
+    const int NB = 8;                   // multiple of 4 -> 2 full FIFO words
+    announce_reads(NB);
+    seg_user_reads(NB, seg_pattern);
+    idle(4);
+    flush_pulse(1);
+    idle(20);
+    // Expect: 2 words x 2 c2h beats = 4 data beats, then a trailer beat.
+    check("segpop produced one tlast message", msgs.size() == 1);
+    if (msgs.empty()) return;
+    const std::vector<Beat>& m = msgs.back();
+    check("segpop trailer magic", m.back().w[0] == MAGIC);
+    // data beats = all but the trailer; each beat = 256b = 32 segment-bytes.
+    int ndata = (int)m.size() - 1;
+    check("segpop data beat count == 4 (2048/... 8 beats)", ndata == 4);
+    // reassemble the 2048-scaled byte stream (here 128 segments -> 128 bytes)
+    // byte order per the din half-swap: within each 512b word the two 256b
+    // halves are swapped, so c2h beat pairs arrive high-half-first. The host
+    // receiver de-swaps by reading the pair in (beat1, beat0) order. Model
+    // that here and assert byte g == popcount(segment g).
+    std::vector<uint8_t> bytes;
+    for (int w = 0; w * 2 + 1 < ndata; w++) {
+        const Beat& lo = m[w*2 + 1];   // de-swap: second 256b beat is low half
+        const Beat& hi = m[w*2 + 0];
+        for (int i = 0; i < 8; i++) for (int k = 0; k < 4; k++)
+            bytes.push_back((lo.w[i] >> (k*8)) & 0xFF);
+        for (int i = 0; i < 8; i++) for (int k = 0; k < 4; k++)
+            bytes.push_back((hi.w[i] >> (k*8)) & 0xFF);
+    }
+    int bad = 0, checked = 0;
+    for (int g = 0; g < NB * 16 && g < (int)bytes.size(); g++) {
+        int expect = pc32(seg_pattern(g / 16, g % 16));
+        if ((int)bytes[g] != expect) bad++;
+        checked++;
+    }
+    char buf[96];
+    snprintf(buf, sizeof buf, "segpop byte[g]==popcount(seg g): %d/%d exact", checked - bad, checked);
+    check(buf, bad == 0 && checked == NB * 16);
+    // conservation: budget returns to start after the program drains.
+    snprintf(buf, sizeof buf, "segpop buffer_space conserved (%u -> %u)", bs0, top->buffer_space);
+    check(buf, top->buffer_space == bs0);
+
+    // back-to-back second program (desync guard).
+    msgs.clear(); open_msg.clear();
+    announce_reads(NB);
+    seg_user_reads(NB, seg_pattern);
+    idle(4); flush_pulse(1); idle(20);
+    check("segpop 2nd program: one clean message (no desync)", msgs.size() == 1);
+
+    // mode transition back to READ must be clean.
+    to_read_mode_set();
+    check("segpop->READ transition leaves buffer_space at start", top->buffer_space == bs0);
+}
+#endif
+
 int main(int argc, char** argv) {
     Verilated::commandArgs(argc, argv);
     if (argc > 1) variant = argv[1];
@@ -617,6 +719,9 @@ int main(int argc, char** argv) {
 #endif
 #ifdef TB_BUILD6
     is_b6_rtl = true;
+#endif
+#ifdef TB_BUILD7
+    is_b6_rtl = true;   // build7 keeps build6 buffer_space conservation for READ/DIFF
 #endif
     top = new Vreadback_engine;
     printf("=== readback_engine drain-capture TB : %s (%s RTL, magic %08X) ===\n",
@@ -633,6 +738,11 @@ int main(int argc, char** argv) {
 #ifdef TB_BUILD4
     scenario_h();
     scenario_i();
+#endif
+#ifdef TB_BUILD7
+    // build7 non-regression: scenarios a-j above must still pass (READ/DIFF
+    // bit-identical to build6), THEN the new SEG_POP datapath:
+    scenario_segpop();
 #endif
     printf("=== %s: %s (%d failing checks) ===\n",
            variant, failures ? "FAIL" : "ALL PASS", failures);

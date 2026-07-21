@@ -111,3 +111,23 @@ banks to 16 (and to more subarrays — the idle spatial parallelism in
 the table above) needs no re-derivation, only a cheap margin re-screen
 per new bank against the known laws. The 16-bank bank-similarity audit
 is on the roadmap (`ROADMAP.md` §C) as the enabling experiment.
+
+## Addendum (2026-07-21 PM): the compute-issue lever, measured
+
+The bank-parallel pack4 scheduler (`app/parallel_emit.cpp` — interleaves
+4 banks' SiMRA doubleACTs in one command stream, per-bank timing
+bit-exact, +21 % on isolated command issue in Verilator) was A/B'd in
+full production and **dump-verified to actually engage** (program head:
+the 4-bank bar-reg pre-LI block + packed 4-slot command words). Wall
+effect: **3.3 % single-trial ≈ run variance** — exactly the ceiling
+math, because command issue (`exec` 1.2–1.6 ms) is a minority of the
+~6 ms program round-trip against `recv` 3.2 ms. Two lessons worth
+keeping:
+
+1. A compute-issue lever cannot move a readout-bound wall; sequencing
+   readout first (SEG_POP, Road B) is confirmed with mechanism, not
+   just profile arithmetic.
+2. Structural gotcha: batches with a repeated bank (any
+   `PIM_INLINE_BITPLANES>1` config) fall back to the serial emitter by
+   design — pack4 and inline-bitplane batching are mutually exclusive
+   as built.

@@ -109,6 +109,33 @@ asked to use.
 
 For our reference DIMM, the full pipeline (sweep → score →
 broadcast verify → RowClone verify) took roughly 30-40 hours of
-FPGA wall-time. Three additional DIMMs are characterizing in
-parallel at this writing — we'll know if the timing constants
-generalize once they finish.
+FPGA wall-time. The other three DIMMs have since finished (May
+2026): the timing constants generalized on the two full-PUD
+modules; two partial modules turned out MAJ3-limited entirely
+(zero separated-generator tuples — a part/binning outcome, not a
+calibration failure). Details: `docs/CAMPAIGN_2026_07.md`.
+
+## Calibration transfer (do NOT re-run the 30-40 h pipeline per bank)
+
+What we have measured about how characterization generalizes
+(`docs/UTILIZATION.md` "replicated blocks" + the cross-die results):
+
+- **Across banks of one die**: the co-activation spread profile is
+  byte-identical on every bank measured, and the predecoder selection
+  law is a design constant. Per-bank differences are *margin* only
+  (which columns are strong). Transfer = copy the source bank's calib
+  (tuple rows, t_12/t_23, open-row set) verbatim, then re-run ONLY the
+  column margin screen on the target bank (minutes-to-hours), then the
+  standard RowClone/broadcast/MAJ3 smoke. Our production die runs three
+  banks on one calib this way.
+- **Across dies of the same part**: fault sets and calibration
+  transferred byte-identically between our two same-model modules —
+  same recipe as above, margin re-screen per die.
+- **Across different parts**: the spread lattice is chip-specific (our
+  two part types couple different XOR offsets — one includes ⊕256, one
+  does not). The *method* transfers; the lattice does not. Re-derive
+  the fault-sweep/lattice first — pool layouts depend on it — then
+  calibrate timings (those have been the stable part in our data).
+
+The 16-bank audit on the roadmap (`ROADMAP.md` §C) will turn this into
+a quantified transfer-success table.

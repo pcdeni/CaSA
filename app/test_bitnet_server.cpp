@@ -193,11 +193,40 @@ static Program build_refresh_subarray_loop_program(
   return p;
 }
 
+// PIM_SEGPOP=1 (build7 image ONLY, trailer magic 0xDBC0DE05): run matvec
+// row reads in the readback engine's SEG_POP mode — 2048 B/row of
+// per-32b-segment popcount BYTES instead of the 8 KB raw row (4x recv
+// collapse) with host segment_popcount eliminated. Raw-byte paths
+// (LOAD verify, decay detection) transparently switch back to READ via
+// ensure_readback(). Default 0 = build-6 behavior, byte-identical.
+// HAZARD: on a pre-build7 image the SET word falls through the frontend
+// decode into instruction-load — never set PIM_SEGPOP=1 on older images.
+static int g_segpop = -1;               // env PIM_SEGPOP (init_debug_flags)
+static bool g_mode_segpop_now = false;  // host view of the engine mode
+static void ensure_readback(SoftMCPlatform& platform, bool segpop) {
+  if (g_segpop <= 0) return;            // feature off/unparsed: never switch
+  if (segpop == g_mode_segpop_now) return;
+  if (segpop) { platform.set_readback_mode_segpop(); platform.set_readback_mode_segpop(); }
+  else        { platform.set_readback_mode(false);   platform.set_readback_mode(false); }
+  g_mode_segpop_now = segpop;
+}
+static inline size_t row_read_bytes() { return g_segpop > 0 ? 2048u : 8192u; }
+// mode-aware per-segment popcounts of one received row image (stride
+// row_read_bytes()): SEG_POP bytes ARE the counts; READ rows go through
+// segment_popcount (defined below).
+static void segment_popcount(const uint8_t* row_buf, int* out, int n);
+static inline void row_pc(const uint8_t* row, int* out, int n) {
+  if (g_segpop > 0) { for (int s = 0; s < n; s++) out[s] = row[s]; }
+  else segment_popcount(row, out, n);
+}
+
 // Read-back a single row's contents into row_buf (must be ≥ 8192 bytes).
 // Used by LOAD-time write verification and MM3D-start decay detection.
+// Always a RAW read: drops to READ mode first when SEG_POP is active.
 static int read_row_to_buffer(SoftMCPlatform& platform, int bank_id,
                               uint32_t row, uint8_t* row_buf,
                               int label_seed) {
+  ensure_readback(platform, false);
   Program p;
   p.add_inst(SMC_LI(8, CASR));
   p.add_inst(SMC_LI(bank_id, BAR));
@@ -1299,6 +1328,12 @@ static void init_debug_flags() {
   if (g_inline_bp  < 0) g_inline_bp  = env_flag("PIM_INLINE_BITPLANES", 1);
   if (g_inline_bp < 1) g_inline_bp = 1;
   if (g_parallel_banks < 0) g_parallel_banks = env_flag("PIM_PARALLEL_BANKS", 0);
+  if (g_segpop < 0) {
+    g_segpop = env_flag("PIM_SEGPOP", 0);
+    if (g_segpop)
+      fprintf(stderr, "[server] PIM_SEGPOP=1: build7 SEG_POP readback "
+              "(2048 B/row, host segment_popcount eliminated)\n");
+  }
   if (g_refresh_between < 0) g_refresh_between = env_flag("PIM_REFRESH_BETWEEN", 0);
   if (g_pack_rounds < 0) {
     g_pack_rounds = env_flag("PIM_PACK_ROUNDS", 1);
@@ -1865,13 +1900,14 @@ static int process_request(SoftMCPlatform& platform,
           free(iseq);
         }
       }
+      ensure_readback(platform, true);   // PIM_SEGPOP: matvec reads in SEG_POP
       auto t_exec0 = clk::now();
       platform.execute(p);
       t_exec_ns += std::chrono::duration_cast<ns_t>(clk::now() - t_exec0).count();
       n_maj3_execs++;
 
       static thread_local std::vector<uint8_t> rows_buf;
-      size_t total_bytes = M * 8192u;
+      size_t total_bytes = M * row_read_bytes();
       if (rows_buf.size() < total_bytes) rows_buf.resize(total_bytes);
       auto t_recv0 = clk::now();
       int rc = platform.receiveData(rows_buf.data(), (int)total_bytes);
@@ -1887,9 +1923,9 @@ static int process_request(SoftMCPlatform& platform,
         uint32_t b = bp_start + kp;
         for (int bk = 0; bk < active_in_round; bk++) {
           size_t idx = (size_t)kp * (size_t)active_in_round + (size_t)bk;
-          const uint8_t* row = rows_buf.data() + idx * 8192u;
+          const uint8_t* row = rows_buf.data() + idx * row_read_bytes();
           vector<int> pc(d_out);
-          segment_popcount(row, pc.data(), (int)d_out);
+          row_pc(row, pc.data(), (int)d_out);
           // O10: host-repair fused-marginal columns. This V2 program ran
           // the fused layout iff calib_idx==0 (g_fused_calib_ok above)
           // and the coset mode is 1/3; the unit's mask is in-request.
@@ -2311,12 +2347,13 @@ static int process_matmul_handle(SoftMCPlatform& platform,
                 "to %s\n", s_pack_dumped, M, n_inst, path);
       }
     }
+    ensure_readback(platform, true);   // PIM_SEGPOP: matvec reads in SEG_POP
     auto t_exec0 = clk::now();
     platform.execute(p);
     t_exec_ns += std::chrono::duration_cast<ns_t>(clk::now() - t_exec0).count();
     n_maj3_execs++;
     static thread_local std::vector<uint8_t> pk_rows_buf;
-    size_t total_bytes = M * 8192u;
+    size_t total_bytes = M * row_read_bytes();
     if (pk_rows_buf.size() < total_bytes) pk_rows_buf.resize(total_bytes);
     auto t_recv0 = clk::now();
     int rc = platform.receiveData(pk_rows_buf.data(), (int)total_bytes);
@@ -2334,9 +2371,9 @@ static int process_matmul_handle(SoftMCPlatform& platform,
     const int fm_pk = fused_coset_mode();
     const bool fused_ran_pk = pend_all_primary && (fm_pk == 1 || fm_pk == 3);
     for (size_t i = 0; i < M; i++) {
-      const uint8_t* row = pk_rows_buf.data() + i * 8192u;
+      const uint8_t* row = pk_rows_buf.data() + i * row_read_bytes();
       vector<int> pc(d_out);
-      segment_popcount(row, pc.data(), (int)d_out);
+      row_pc(row, pc.data(), (int)d_out);
       if (fused_ran_pk && pend[i].bcfg && pend[i].rep_mask)
         fused_repair_pc(*pend[i].bcfg, pc.data(), pend[i].rep_mask,
                         pend[i].xpat);
@@ -2670,13 +2707,14 @@ static int process_matmul_handle(SoftMCPlatform& platform,
                   s_mm3d_dumped, round, n_inst, path);
         }
       }
+      ensure_readback(platform, true);   // PIM_SEGPOP: matvec reads in SEG_POP
       auto t_exec0 = clk::now();
       platform.execute(p);
       t_exec_ns += std::chrono::duration_cast<ns_t>(clk::now() - t_exec0).count();
       n_maj3_execs++;
 
       static thread_local std::vector<uint8_t> rows_buf;
-      size_t total_bytes = M * 8192u;
+      size_t total_bytes = M * row_read_bytes();
       if (rows_buf.size() < total_bytes) rows_buf.resize(total_bytes);
       auto t_recv0 = clk::now();
       int rc = platform.receiveData(rows_buf.data(), (int)total_bytes);
@@ -2692,9 +2730,9 @@ static int process_matmul_handle(SoftMCPlatform& platform,
         uint32_t b = bp_start + kp;
         for (int bk = 0; bk < active_in_round; bk++) {
           size_t idx = (size_t)kp * (size_t)active_in_round + (size_t)bk;
-          const uint8_t* row = rows_buf.data() + idx * 8192u;
+          const uint8_t* row = rows_buf.data() + idx * row_read_bytes();
           vector<int> pc(d_out);
-          segment_popcount(row, pc.data(), (int)d_out);
+          row_pc(row, pc.data(), (int)d_out);
           // O10: this program ran the fused layout iff all_primary
           // (g_fused_calib_ok at build) and the coset mode is 1/3.
           if (all_primary && !banks[bk].fused_col_bad.empty()) {
@@ -3463,8 +3501,19 @@ int main(int argc, char** argv) {
   vector<uint8_t> req_buf;
   int label_base = 0;
   std::map<uint32_t, LoadedHandle> handles;
+  // Request-path profiling (2026-07-21): the SEG_POP full-model A/B
+  // showed the fused-V2S wall is only ~half program round-trips.
+  // Decompose the server's view of the remainder per request:
+  //   gap     = blocking on the next request HEADER (client think/build
+  //             time between requests — body-concat, python, etc.)
+  //   body    = streaming the request payload through the pipe
+  //   handler = process_* wall (includes programs; subtract the
+  //             srv-prof exec/recv/wcol/pop terms for pure overhead)
+  using rclk = std::chrono::steady_clock;
+  long long rq_n = 0; double rq_gap_s = 0, rq_body_s = 0, rq_h_s = 0;
   while (true) {
     uint32_t req_len = 0;
+    auto t_g0 = rclk::now();
     if (!read_exact(&req_len, 4)) {
       fprintf(stderr, "[server] EOF on stdin, exiting\n");
       break;
@@ -3477,6 +3526,7 @@ int main(int argc, char** argv) {
       fprintf(stderr, "[server] request too large: %u\n", req_len);
       return 4;
     }
+    auto t_b0 = rclk::now();
     req_buf.resize(req_len);
     if (!read_exact(req_buf.data(), req_len)) {
       fprintf(stderr, "[server] short read of request body\n");
@@ -3489,6 +3539,7 @@ int main(int argc, char** argv) {
     }
     uint32_t magic;
     memcpy(&magic, req_buf.data(), 4);
+    auto t_h0 = rclk::now();
     int rc;
     if (magic == MAGIC_V2 || magic == MAGIC_V2G || magic == MAGIC_V2S) {
       rc = process_request(platform, banks,
@@ -3505,6 +3556,18 @@ int main(int argc, char** argv) {
       return 6;
     }
     if (rc != 0) return 6;
+    auto t_h1 = rclk::now();
+    rq_n++;
+    rq_gap_s  += std::chrono::duration<double>(t_b0 - t_g0).count();
+    rq_body_s += std::chrono::duration<double>(t_h0 - t_b0).count();
+    rq_h_s    += std::chrono::duration<double>(t_h1 - t_h0).count();
+    if (rq_n % 2000 == 0) {
+      fprintf(stderr, "[req-prof #%lld] avg/req last 2000: gap=%.2fms "
+              "body=%.2fms handler=%.2fms (gap=client-side think/build)\n",
+              rq_n, rq_gap_s * 1e3 / 2000, rq_body_s * 1e3 / 2000,
+              rq_h_s * 1e3 / 2000);
+      rq_gap_s = rq_body_s = rq_h_s = 0;
+    }
   }
   _exit(0);
 }
