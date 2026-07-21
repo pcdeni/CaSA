@@ -133,13 +133,9 @@ int main(int argc, char** argv) {
   if (argc >= 5 && strcmp(argv[4], "recover") == 0) {
     platform.set_readback_mode(false);
     platform.set_readback_mode(false);
-    for (int s = 0; s < 12; s++) {
-      vector<uint8_t> stray(4096);
-      int rx = platform.receiveDataTry(stray.data(), 4096, 1500);
-      printf("[recover] drain %d: %d bytes%s\n", s, rx, platform.recv_stalled() ? " (poisoned)" : "");
-      if (platform.recv_stalled()) break;
-    }
-    printf("[recover] done (mode=READ, stream drained)\n");
+    int total = platform.drain_stray(1500, 12);   // centralized bounded drain
+    printf("[recover] done (mode=READ, %d stray bytes drained%s)\n", total,
+           platform.recv_stalled() ? ", POISONED" : "");
     return 0;
   }
 
@@ -243,7 +239,13 @@ int main(int argc, char** argv) {
     recv1("after kicker1");
     write_row(platform, bank, row, 0u, 3850);
     recv1("after kicker2");
+    platform.drain_stray(1000, 6);                // surfaced stragglers
     platform.set_readback_mode(false);
+    // Transition hygiene: this write runs the platform's one bounded
+    // post-DIFF drain, absorbing kicker2's stranded message so the NEXT
+    // tool run starts on a clean c2h stream; discard what surfaced.
+    write_row(platform, bank, row, 0u, 3900);
+    platform.drain_stray(1500, 8);
     return 0;
   }
 
@@ -518,16 +520,23 @@ int main(int argc, char** argv) {
            ok ? "OK" : "MISMATCH", cases[i].note);
     if (!ok) fails++;
   }
-  // Drain any straggler chunks so the toggle-back READ sanity starts clean.
-  for (int s = 0; s < 6; s++) {
-    vector<uint8_t> stray(64);
-    (void)platform.receiveDataTry(stray.data(), 64, 2000);
-  }
+  int case_fails = fails;
+  // Bounded stray-drain BEFORE leaving DIFF: clears every chunk that has
+  // already surfaced (late kicker totals) out of the consumer queue.
+  platform.drain_stray(2000, 8);
 
   if (!set_diff_mode(platform, bank, row, false, &label)) return 1;  // -> READ_MODE, verified
 
-  // Final READ_MODE sanity after the round trip.
+  // Final READ_MODE sanity after the round trip. This first post-DIFF
+  // execute (a no-read write) runs the platform's one transition-scoped
+  // bounded drain: the last kicker's message — stranded in the XDMA
+  // engine until new traffic — surfaces HERE and is discarded by the
+  // drain_stray below, so the 8 KB READ stream that follows starts at a
+  // clean program boundary.
   write_row(platform, bank, row, 0x3C3C3C3Cu, label); label += 200;
+  int stray_after = platform.drain_stray(1500, 8);
+  if (stray_after)
+    printf("[pchw] transition drain: %d stranded bytes discarded\n", stray_after);
   read_row_program(platform, bank, row, 0, label); label += 200;
   platform.receiveData(buf.data(), 8192);
   bad = 0;
@@ -538,6 +547,8 @@ int main(int argc, char** argv) {
   printf("[pchw] READ_MODE after toggle-back: %d/2048 words wrong (expect 0)\n", bad);
   if (bad) fails++;
 
+  printf("[pchw] cases %d/%d OK; toggle-back READ sanity %s\n",
+         N - case_fails, N, bad ? "FAIL" : "OK");
   printf("[pchw] %s (%d fails)\n", fails ? "FAIL" : "ALL_PASS", fails);
   return fails ? 1 : 0;
 }

@@ -1,0 +1,65 @@
+Opened /dev/xdma0_h2c_2 -> 3
+Opened /dev/xdma0_c2h_2 -> 4
+Successfully reset the FPGA!
+[platform] BITSTREAM_IMEM in effect: 8192 (env override)
+[recv-debug] got=32 useful=0
+[recv-debug] trailer: dbc0de04 00000131 00000000 00000000 00000132 00000131 00000000 00000000
+[platform] PIM_RECV_TIMEOUT_MS in effect: 15000
+[recv-debug] got=8224 useful=8192
+[recv-debug] trailer: dbc0de04 00000353 00000000 00000000 00000355 00000353 00000000 00000000
+[pchw] READ_MODE sanity: 0/2048 words wrong (expect 0)
+Set readback mode: DIFF (build4 SET word).
+Set readback mode: DIFF (build4 SET word).
+[recv-debug] accum got=96 useful=64
+[recv-debug] trailer: dbc0de04 00000413 00000000 00000000 00000415 00000412 00000001 00000001
+[recv-debug] accum got=96 useful=64
+[recv-debug] trailer: dbc0de04 0003d8de 00000001 00000000 0003d8e2 0003d8de 00000002 00000002
+[recv-debug] accum got=96 useful=64
+[recv-debug] trailer: dbc0de04 0007ae56 00000002 00000000 0007ae5d 0007ae58 00000003 00000003
+[recv-debug] accum got=96 useful=64
+[recv-debug] trailer: dbc0de04 000b8367 00000003 00000000 000b836f 000b8369 00000004 00000004
+[recv-debug] accum got=96 useful=64
+[recv-debug] trailer: dbc0de04 000f5877 00000004 00000000 000f5882 000f587b 00000005 00000005
+[recv-debug] accum got=96 useful=64
+[recv-debug] trailer: dbc0de04 00132df0 00000005 00000000 00132dfd 00132df5 00000006 00000006
+[recv-debug] accum got=96 useful=64
+[recv-debug] trailer: dbc0de04 001702d2 00000006 00000000 001702e0 001702d7 00000007 00000007
+[recv-debug] accum got=96 useful=64
+[recv-debug] trailer: dbc0de04 001ad837 00000007 00000000 001ad848 001ad83e 00000008 00000008
+[recv-debug] accum got=96 useful=64
+[recv-debug] trailer: dbc0de04 001ead9f 00000008 00000000 001eadb1 001eada6 00000009 00000009
+[recv-debug] accum got=96 useful=64
+[recv-debug] trailer: dbc0de04 002282d9 00000009 00000000 002282ed 002282e1 0000000a 0000000a
+[recv-debug] accum got=96 useful=64
+[recv-debug] trailer: dbc0de04 002657bf 0000000a 00000000 002657d5 002657c8 0000000b 0000000b
+[recv-debug] accum got=96 useful=64
+[recv-debug] trailer: dbc0de04 002a2cd9 0000000b 00000000 002a2cf1 002a2ce3 0000000c 0000000c
+[recv-debug] accum got=96 useful=64
+[recv-debug] trailer: dbc0de04 002e01f1 0000000c 00000000 002e020c 002e01fd 0000000d 0000000d
+[recv-debug] accum got=96 useful=64
+[recv-debug] trailer: dbc0de04 0031d70a 0000000d 00000000 0031d726 0031d716 0000000e 0000000e
+[recv-debug] accum got=96 useful=64
+[recv-debug] trailer: dbc0de04 0035ac11 0000000e 00000000 0035ac30 0035ac1f 0000000f 0000000f
+[recv-debug] accum got=96 useful=64
+[recv-debug] trailer: dbc0de04 003980da 0000000f 00000000 003980fb 003980e9 00000010 00000010
+[recv-debug] accum got=96 useful=64
+[recv-debug] trailer: dbc0de04 003d563e 00000010 00000000 003d5661 003d564e 00000011 00000011
+[pchw] delivered stream (17 chunks): 0 49152 49152 65536 24576 40960 65536 34816 16384 0 0 0 0 0 0 0 0
+[pchw] P=00000000 Q=00000000 diff-pc32= 0 expect=     0 got=     0  OK  (zero diff)
+[pchw] P=EEEEEEEE Q=00000000 diff-pc32=24 expect= 49152 got= 49152  OK  (nibble 0xE — the pop_count4 fixed case)
+[pchw] P=00000000 Q=EEEEEEEE diff-pc32=24 expect= 49152 got= 49152  OK  (0xE via Q side)
+[pchw] P=FFFFFFFF Q=00000000 diff-pc32=32 expect= 65536 got= 65536  OK  (all ones)
+[pchw] P=01234567 Q=00000000 diff-pc32=12 expect= 24576 got= 24576  OK  (nibbles 0-7)
+[pchw] P=89ABCDEF Q=00000000 diff-pc32=20 expect= 40960 got= 40960  OK  (nibbles 8-F)
+[pchw] P=A5A5A5A5 Q=5A5A5A5A diff-pc32=32 expect= 65536 got= 65536  OK  (alternating -> 0xFF diff)
+[pchw] P=DEADBEEF Q=12345678 diff-pc32=17 expect= 34816 got= 34816  OK  (random-ish 1)
+[pchw] P=C0FFEE00 Q=00EEFF0C diff-pc32= 8 expect= 16384 got= 16384  OK  (random-ish 2)
+Set readback mode: READ (build4 SET word).
+Set readback mode: READ (build4 SET word).
+[recv-debug] accum got=32 useful=0
+[recv-debug] trailer: dbc0de04 005fd06a 00000021 00000000 005fd09f 005fd08b 00000011 00000011
+[recv-debug] got=8224 useful=8192
+[recv-debug] trailer: dbc0de04 0076cba2 0000002c 00000000 0076cbe3 0076cbce 00000011 00000011
+[pchw] READ_MODE after toggle-back: 0/2048 words wrong (expect 0)
+[pchw] cases 9/9 OK; toggle-back READ sanity OK
+[pchw] ALL_PASS (0 fails)

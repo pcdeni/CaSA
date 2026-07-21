@@ -1,0 +1,11 @@
+Opened /dev/xdma0_h2c_2 -> 3
+Opened /dev/xdma0_c2h_2 -> 4
+Successfully reset the FPGA!
+[platform] BITSTREAM_IMEM in effect: 8192 (env override)
+[platform] PIM_RECV_TIMEOUT_MS in effect: 15000
+[pchw] READ_MODE sanity: 0/2048 words wrong (expect 0)
+Set readback mode: DIFF (build4 SET word).
+Set readback mode: DIFF (build4 SET word).
+[count] NUM_COLS=128  (predict ~8 chunks before wedge if buffer_space bug)
+[count] NUM_COLS=128 -> delivered 60 chunks before stream dried up
+Set readback mode: READ (build4 SET word).

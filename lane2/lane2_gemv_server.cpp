@@ -100,13 +100,35 @@
 //       LANE2_BACKEND=sim  use in-process SimDramModel (bring-up only; the
 //                          sim's MAJ model is MAJ3-tuple-oriented — silicon
 //                          is the deliverable)
+//       LANE2_ACCUM=1|2    Road-B product-row dataflow (2026-07-21, build-6
+//                          image): y[m] = Σ_i Σ_c FAC·popcount(W_i[m] AND x_c)
+//                          with ONE fused program per product (clone-x +
+//                          pcwrite-W + MAJ3 AND on the fastpath tuple + read
+//                          of the product row) — no CSA tree, no per-FA row
+//                          transport. 1 = READ_MODE readout + host popcount
+//                          (the A/B baseline arm); 2 = DIFF-accum readout:
+//                          each program's read drains as ONE 32-bit total
+//                          (96 B vs 8 KB), batched-receive per the
+//                          test_popcount_hw build-6 consumption pattern.
+//                          Identical program bytes in both arms. Per ADR-005
+//                          this is the FPGA-accelerated NON-reproduction arm
+//                          (labelled distinctly; never blended with Road A).
+//                          Silicon-only; requires LANE2_PACK=1 + the build-6
+//                          bitstream (trailer magic 0xDBC0DE04) for
+//                          unbounded DIFF sessions.
+//       LANE2_XREFRESH=N   ACCUM modes: rewrite + re-verify the resident
+//                          activation row every N products (default 64;
+//                          doubles as an in-stream order/integrity sentinel
+//                          in the accum arm — its total is known)
 #include "instruction.h"
 #include "prog.h"
 #include "platform.h"
 #include "sim_platform.h"
 #include "util.h"
 
+#include <algorithm>
 #include <array>
+#include <climits>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -138,6 +160,16 @@ static int PACK = 1;        // LANE2_PACK
 static int MV = 0;          // PIM_VOTE3
 static int DT = 0;          // LANE2_DUALTRACK
 static int ENC_CLONE = 0;   // LANE2_ENCODE=clone
+static int ACCUM = 0;       // LANE2_ACCUM: 0 off, 1 read arm, 2 accum arm
+// Reference policy for the 16-row MAJ tuple (LANE2_REF_POLICY):
+// default = SiMRA's frac'd-ONE (init ONE, 3 frac pulses, t_frac 0);
+// "zero2" = the frac-maj5 sweep winner (init ZERO, 2 pulses, t0):
+// 93.5% strict MAJ5 cols on s86 vs 89.1% legacy — the FracDRAM-style
+// conditioning MVDRAM cites for error-free MAJX, applied to the chained
+// adder for the first time here. MAJ3 is policy-insensitive (measured),
+// so the fastpath/clone engines keep their own convention untouched.
+static uint32_t REF_INIT = ONE;
+static int REF_NFRAC = 3;
 static int response_fd = 1; // dup'd stdout (binary channel)
 static long N_EXEC = 0, N_MAJ = 0, N_FA = 0, N_PCW = 0;
 static long N_RAIL_LANES = 0, N_RAIL_VIOL = 0;  // dual-rail consistency diag
@@ -227,7 +259,7 @@ static Program frac_b(int t_frac, int r) {
 static void maj_finish(uint32_t Rf, uint32_t Rs, uint32_t open0, uint8_t out[8192]) {
   Program p; p.add_inst(SMC_LI(8, CASR)); p.add_inst(SMC_LI(BANK, BAR)); p.add_inst(SMC_LI(128, NUM_COLS_REG));
   p.add_below(PRE(BAR, 0, 0)); p.add_inst(SMC_SLEEP(6));
-  for (int j = 0; j < 3; j++) { p.add_inst(SMC_SLEEP(6)); p.add_below(frac_b(0, open0)); p.add_inst(SMC_SLEEP(6)); }
+  for (int j = 0; j < REF_NFRAC; j++) { p.add_inst(SMC_SLEEP(6)); p.add_below(frac_b(0, open0)); p.add_inst(SMC_SLEEP(6)); }
   p.add_inst(SMC_SLEEP(6)); p.add_below(PRE(BAR, 0, 0)); p.add_inst(SMC_SLEEP(6));
   p.add_below(doubleACT(0, 0, Rf, Rs)); p.add_inst(SMC_SLEEP(6)); p.add_below(PRE(BAR, 0, 0)); p.add_inst(SMC_SLEEP(6));
   p.add_below(rdRow_immediate(BAR, open0)); p.add_inst(all_nops()); p.add_inst(all_nops());
@@ -255,7 +287,7 @@ static void hw_maj3(const Opnd& a, const Opnd& b, const Opnd& c, uint32_t res[20
       if (ops[g]->uniform) uni.push_back({CAL.open[i], ops[g]->pat});
       else pcwrite(CAL.open[i], ops[g]->data);
     }
-  uni.push_back({CAL.open[0], ONE});
+  uni.push_back({CAL.open[0], REF_INIT});
   uwrite_batch(uni);
   uint8_t rowb[8192]; maj_finish(CAL.Rf, CAL.Rs, CAL.open[0], rowb);
   for (int s = 0; s < 2048; s++) memcpy(&res[s], &rowb[s * 4], 4);
@@ -272,7 +304,7 @@ static void hw_maj5(const Opnd I[5], uint32_t res[2048]) {
       if (I[g].uniform) uni.push_back({row, I[g].pat});
       else pcwrite(row, I[g].data);
     }
-  uni.push_back({CAL.open[0], ONE});
+  uni.push_back({CAL.open[0], REF_INIT});
   uwrite_batch(uni);
   uint8_t rowb[8192]; maj_finish(CAL.Rf, CAL.Rs, CAL.open[0], rowb);
   for (int s = 0; s < 2048; s++) memcpy(&res[s], &rowb[s * 4], 4);
@@ -452,6 +484,8 @@ struct Matrix {
   vector<vector<Row>> wrow;   // [n][i] -> 2048-u32 row (bit-packed over lanes)
   vector<vector<Row>> nwrow;  // inverted matrix bitplanes (Fig 15) — only
                               // filled when LANE2_DUALTRACK / clone encode
+  vector<uint8_t> plane;      // ACCUM modes: raw wire bitplanes (qb*M*bpr);
+                              // horizontal W rows are built per product
 };
 static unordered_map<uint32_t, Matrix> MATS;
 static vector<int> LANES;   // screened segment ids, ascending
@@ -662,6 +696,7 @@ static vector<uint8_t> cl_op_screen(const vector<uint8_t>& mask, int trials) {
   return gm;
 }
 
+// ---------- protocol plumbing (used by both the tree and product paths) ----
 static bool read_exact(void* buf, size_t n) {
   size_t got = 0; char* p = (char*)buf;
   while (got < n) { ssize_t r = read(0, p + got, n - got); if (r <= 0) return false; got += (size_t)r; }
@@ -681,8 +716,407 @@ static void ack_gemv_err(uint32_t handle, uint32_t status) {
   uint32_t b[4] = {MAGIC_GEMV_ACK, handle, status, 0};
   write_resp(b, sizeof b);
 }
-
 static double now_s() { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + t.tv_nsec / 1e9; }
+
+// ---------- Road-B product engine (LANE2_ACCUM, 2026-07-21) ----------
+// The build-6 accumulator collapses a row read to one 32-bit popcount total,
+// which INVERTS the optimal dataflow: instead of the CSA tree (whose per-FA
+// readbacks carry values the host must transport — totals can't replace
+// them), the per-output product-row shape becomes optimal:
+//   y[m] = Σ_i Σ_c FAC(i,qb)·FAC(c,rb) · popcount( W_i[m] AND x_c )
+// — one MAJ3 AND per (m,i,c), product bits placed on screened segments,
+// zeros elsewhere, whole-row popcount consumed as the accum total. This is
+// MVDRAM's own §V per-output product dataflow (processor aggregates
+// popcounts), which the exp0 readout wall had forced the June design away
+// from; the FPGA does the "processor" popcount at line rate. Junk model:
+// off-segment columns compute MAJ3(0,0,0) — their deviation is measured at
+// startup (baseline probes) and shows identically in both arms.
+// Order accounting (accum arm): EVERY executed program contains >=1 read,
+// so every flush is accum-armed and drains exactly one chunk — the delivered
+// stream maps 1:1, in order, onto the executed programs (test_popcount_hw
+// build-4 delivery model). x-loads and kickers read the x row, whose
+// popcount is known => in-stream integrity sentinels.
+static uint32_t XROW = 0;      // resident activation value row (sentinel row)
+static vector<int> PSEG;       // AND-screened segments for product bits
+static long N_DRAIN_TRY = 0, N_DRAIN_HIT = 0;
+
+// pcwrite body emitted into an existing program (the PACK 3-chunk shape,
+// verbatim instruction sequence — same registers, same timing).
+static void pr_emit_pcwrite(Program& p, uint32_t row, const uint32_t* seg) {
+  N_PCW++;
+  int cs = 0;
+  for (int ch = 0; ch < 3; ch++) {
+    int n = CHUNK_COLS[ch]; const uint32_t* cd = seg + cs * 16;
+    p.add_inst(SMC_LI(row, RAR)); p.add_inst(SMC_LI(cs * 8, CAR));
+    p.add_below(PRE(BAR, 0, 0)); p.add_below(ACT(BAR, 0, RAR, 0));
+    for (int k = 0; k < n; k++) {
+      const uint32_t* sl = cd + k * 16;
+      for (int s = 0; s < 16; s++) { p.add_inst(SMC_LI(sl[s], PATTERN_REG)); p.add_inst(SMC_LDWD(PATTERN_REG, s)); }
+      p.add_below(WRITE(BAR, CAR, 1)); p.add_inst(SMC_SLEEP(8));
+    }
+    p.add_inst(SMC_SLEEP(8)); p.add_below(PRE(BAR, 0, 0)); p.add_inst(SMC_SLEEP(4));
+    cs += n;
+  }
+}
+
+// compare-reference for the accum popcount: ddr_wdata := 0 (must be the LAST
+// LDWD load before the read — pcwrite/wrRow stomp the slots).
+static void pr_emit_zero_ref(Program& p) {
+  p.add_inst(SMC_LI(0, PATTERN_REG));
+  for (int i = 0; i < 16; i++) p.add_inst(SMC_LDWD(PATTERN_REG, i));
+}
+
+static void pr_exec_checked(Program& p) {
+  if (p.size() > 8000 * 16) die("product program exceeds the 8K IMEM budget", 5);
+  PF->execute(p); N_EXEC++;
+}
+
+// One fused product program: AND(W, x) on the fastpath tuple.
+// Order: clone XROW->Ti2 FIRST (the only deposit-capable op — everything
+// written after it is immune to its deposits), then W->Ti1 (pcwrite, or
+// uniform wrRow when wseg==null), z=0 ->Ti0, ONE->Tfr, frac x3,
+// doubleACT(0,0) MAJ3, zero compare-ref, rdRow(Ti0).
+// out!=null (read arm / screens): receive the full 8 KB row.
+// out==null (accum arm): execute only; the caller drains the total.
+static void pr_gate(const uint32_t* wseg, uint32_t wpat, uint8_t* out) {
+  Program p;
+  p.add_inst(SMC_LI(8, CASR)); p.add_inst(SMC_LI(BANK, BAR)); p.add_inst(SMC_LI(128, NUM_COLS_REG));
+  p.add_below(PRE(BAR, 0, 0)); p.add_inst(SMC_SLEEP(6));
+  p.add_below(doubleACT(30, 1, XROW, CL_Ti2));            // x -> Ti2 (clone)
+  p.add_inst(SMC_SLEEP(6)); p.add_below(PRE(BAR, 0, 0)); p.add_inst(SMC_SLEEP(6));
+  if (wseg) pr_emit_pcwrite(p, CL_Ti1, wseg);             // W -> Ti1
+  else {
+    p.add_below(wrRow_immediate_label(BAR, CL_Ti1, wpat, LBL++));
+    p.add_inst(SMC_SLEEP(6)); p.add_below(PRE(BAR, 0, 0)); p.add_inst(SMC_SLEEP(6));
+  }
+  p.add_below(wrRow_immediate_label(BAR, CL_Ti0, 0u, LBL++));   // z = 0
+  p.add_inst(SMC_SLEEP(6)); p.add_below(PRE(BAR, 0, 0)); p.add_inst(SMC_SLEEP(6));
+  p.add_below(wrRow_immediate_label(BAR, CL_Tfr, ONE, LBL++));  // reference
+  p.add_inst(SMC_SLEEP(6)); p.add_below(PRE(BAR, 0, 0)); p.add_inst(SMC_SLEEP(6));
+  for (int j = 0; j < 3; j++) { p.add_inst(SMC_SLEEP(6)); p.add_below(frac_b(0, CL_Tfr)); p.add_inst(SMC_SLEEP(6)); }
+  p.add_inst(SMC_SLEEP(6)); p.add_below(PRE(BAR, 0, 0)); p.add_inst(SMC_SLEEP(6));
+  p.add_below(doubleACT(0, 0, CL_Trf, CL_Trs));           // MAJ3 = AND (z=0)
+  p.add_inst(SMC_SLEEP(6)); p.add_below(PRE(BAR, 0, 0)); p.add_inst(SMC_SLEEP(6));
+  pr_emit_zero_ref(p);
+  p.add_below(rdRow_immediate_label(BAR, CL_Ti0, LBL++));
+  p.add_inst(all_nops()); p.add_inst(all_nops());
+  p.add_below(PRE(BAR, 0, 0)); p.add_inst(SMC_END());
+  pr_exec_checked(p); N_MAJ++;
+  if (out && PF->receiveData(out, 8192) != 8192)
+    die("receiveData failed in product gate — silicon wedge? (RUNBOOK: fpga-helper)", 6);
+}
+
+// x-load: pcwrite the activation row AND read it back in the SAME program
+// (a no-read program's DIFF flush is nondeterministically eaten by the
+// maintenance ignore_flush race — a trailing read makes the flush armed and
+// the chunk deterministic; its total == popcount(x) => sentinel).
+static void pr_xload(const uint32_t* xseg, uint8_t* out) {
+  Program p;
+  p.add_inst(SMC_LI(8, CASR)); p.add_inst(SMC_LI(BANK, BAR)); p.add_inst(SMC_LI(128, NUM_COLS_REG));
+  pr_emit_pcwrite(p, XROW, xseg);
+  pr_emit_zero_ref(p);
+  p.add_below(rdRow_immediate_label(BAR, XROW, LBL++));
+  p.add_inst(all_nops()); p.add_inst(all_nops());
+  p.add_below(PRE(BAR, 0, 0)); p.add_inst(SMC_END());
+  pr_exec_checked(p);
+  if (out && PF->receiveData(out, 8192) != 8192)
+    die("receiveData failed in x-load", 6);
+}
+
+// read-only kicker (rdRow of the x row): flushes lagged totals out of the
+// c2h path at end-of-stream; its own total is the known x popcount.
+static void pr_kick() {
+  Program p;
+  p.add_inst(SMC_LI(8, CASR)); p.add_inst(SMC_LI(BANK, BAR)); p.add_inst(SMC_LI(128, NUM_COLS_REG));
+  p.add_below(PRE(BAR, 0, 0)); p.add_inst(SMC_SLEEP(6));
+  pr_emit_zero_ref(p);
+  p.add_below(rdRow_immediate_label(BAR, XROW, LBL++));
+  p.add_inst(all_nops()); p.add_inst(all_nops());
+  p.add_below(PRE(BAR, 0, 0)); p.add_inst(SMC_END());
+  pr_exec_checked(p);
+}
+
+// pull every currently-available 64 B chunk into `stream` (values in
+// delivery order; -2 = malformed multi-nonzero chunk). first_tmo bounds the
+// first try only; continuation tries are near-nonblocking polls.
+static int pr_drain_avail(vector<long>& stream, long first_tmo) {
+  int got = 0; bool first = true;
+  for (int guard = 0; guard < 4096; guard++) {
+    uint8_t a[64]; memset(a, 0xFF, sizeof a);
+    N_DRAIN_TRY++;
+    int rx = PF->receiveDataTry(a, 64, first ? first_tmo : 0);
+    first = false;
+    if (rx != 64 || PF->recv_stalled()) break;
+    N_DRAIN_HIT++;
+    uint32_t v = 0; int nz = 0;
+    for (int j = 0; j < 64; j += 4) { uint32_t w; memcpy(&w, a + j, 4);
+      if (w && w != 0xFFFFFFFFu) { v = w; nz++; } }
+    stream.push_back(nz <= 1 ? (long)v : -2);
+    got++;
+  }
+  return got;
+}
+
+static long pr_popcount_row(const uint8_t* rowb) {
+  long pc = 0;
+  for (int s = 0; s < 2048; s++) { uint32_t w; memcpy(&w, rowb + s * 4, 4); pc += __builtin_popcount(w); }
+  return pc;
+}
+
+// startup: pick XROW, AND-screen segments through the real product gate,
+// junk baseline + read-stability diagnostics. READ mode throughout.
+static void pr_startup(const vector<uint8_t>& mask, int trials) {
+  double ts = now_s();
+  // 1. XROW: an antichain-mask value row (clone-mode rule: 3 bits of 1..9,
+  //    never bits 7+8 together, no tuple clash) that (a) reads back a
+  //    pcwritten marker EXACTLY (sentinel requirement) and (b) clones into
+  //    Ti2 intact (<=64 flaked bytes, the fastpath screen tolerance).
+  Row marker(2048);
+  for (int s = 0; s < 2048; s++) marker[s] = 0xA5A50000u ^ (s * 2654435761u);
+  uint8_t mexp[8192];
+  for (int s = 0; s < 2048; s++)
+    for (int b = 0; b < 4; b++) mexp[s * 4 + b] = (uint8_t)((marker[s] >> (8 * b)) & 0xFF);
+  int sb[9] = {1, 2, 3, 4, 5, 6, 7, 8, 9};
+  bool found = false;
+  for (int i = 0; i < 9 && !found; i++)
+    for (int j = i + 1; j < 9 && !found; j++)
+      for (int k = j + 1; k < 9 && !found; k++) {
+        uint32_t m = (1u << sb[i]) | (1u << sb[j]) | (1u << sb[k]);
+        if ((m & 384) == 384) continue;
+        uint32_t row = CL_SUB + ((CL_Ti0 - CL_SUB) ^ m);
+        bool clash = false;
+        for (uint32_t r : CAL.open) if (row == r) clash = true;
+        for (uint32_t r : {CL_Ti0, CL_Ti1, CL_Ti2, CL_Tfr}) if (row == r) clash = true;
+        if (clash) continue;
+        pcwrite(row, marker.data());
+        uint8_t buf[8192]; cl_read_row(row, buf);
+        if (memcmp(buf, mexp, 8192) != 0) continue;      // sentinel needs exact
+        cl_zero_tuple();
+        cl_rowclone(row, CL_Ti2);
+        cl_read_row(CL_Ti2, buf);
+        int match = 0; for (int b = 0; b < 8192; b++) if (buf[b] == mexp[b]) match++;
+        if (match < 8192 - 64) continue;
+        XROW = row; found = true;
+        fprintf(stderr, "[lane2] ACCUM x-row: local offset %u (mask 0x%03x), "
+                "direct r/w exact, clone->Ti2 %d/8192\n", row - CL_SUB, m, match);
+      }
+  if (!found) die("ACCUM: no usable x value row (sentinel-grade)", 4);
+
+  // 2. AND-screen: uniform W/x pairs through the REAL product path (x is
+  //    cloned from XROW; W uniform-written). Expected AND = P & Q on every
+  //    segment; AND-ed over patterns and trials.
+  vector<uint8_t> gm = mask;
+  uint8_t rowb[8192];
+  for (int tr = 0; tr < trials; tr++) {
+    vector<pair<uint32_t, uint32_t>> pq = {{0, 0}, {ONE, ONE}, {ONE, 0}, {0, ONE},
+      {0xAAAAAAAAu, 0xCCCCCCCCu}, {0xA5A5A5A5u, 0x5A5A5A5Au}, {0xEEEEEEEEu, 0xFFFF0000u}};
+    srand(31415 + tr);
+    for (int r = 0; r < 12; r++) pq.push_back({(uint32_t)(rand() << 16 ^ rand()), (uint32_t)(rand() << 16 ^ rand())});
+    for (auto& t : pq) {
+      uwrite_batch({{XROW, t.second}});
+      pr_gate(nullptr, t.first, rowb);
+      uint32_t expect = t.first & t.second;
+      for (int s = 0; s < 2048; s++) {
+        uint32_t w; memcpy(&w, rowb + s * 4, 4);
+        if (w != expect) gm[s] = 0;
+      }
+    }
+  }
+  PSEG.clear();
+  int n_in = 0; for (auto v : mask) n_in += v;
+  for (int s = 0; s < 2048; s++) if (gm[s]) PSEG.push_back(s);
+  fprintf(stderr, "[lane2] ACCUM AND-screen (%d trials): %zu/%d segments -> "
+          "K capacity %zu product bits\n", trials, PSEG.size(), n_in, PSEG.size() * 32);
+  if (PSEG.empty()) die("ACCUM: no reliable AND segments", 4);
+
+  // 3. Junk baseline: all-zero products (W=0, x=0) — off-segment MAJ3(0,0,0)
+  //    deviation IS the accum-total junk floor. Report bits + stability.
+  uwrite_batch({{XROW, 0u}});
+  long jmin = LONG_MAX, jmax = 0, jsum = 0; int jn = 6;
+  for (int r = 0; r < jn; r++) {
+    pr_gate(nullptr, 0u, rowb);
+    long pc = pr_popcount_row(rowb);
+    jsum += pc; if (pc < jmin) jmin = pc; if (pc > jmax) jmax = pc;
+  }
+  fprintf(stderr, "[lane2] ACCUM zero-product junk baseline: min/mean/max = "
+          "%ld/%.1f/%ld set bits per row (of 65536; 0 = clean)\n",
+          jmin, (double)jsum / jn, jmax);
+
+  // 4. End-to-end data-path probe: marker W on PSEG via pcwrite, x = all-ones
+  //    on PSEG via pcwrite — product must equal W on PSEG, 0 elsewhere; plus
+  //    a same-row repeat read for read-stability.
+  Row wseg(2048, 0), xseg(2048, 0);
+  int nprobe = (int)PSEG.size(); if (nprobe > 128) nprobe = 128;
+  for (int t = 0; t < nprobe; t++) { wseg[PSEG[t]] = marker[t]; xseg[PSEG[t]] = ONE; }
+  pr_xload(xseg.data(), rowb);
+  int xbad = 0;
+  for (int s = 0; s < 2048; s++) { uint32_t w; memcpy(&w, rowb + s * 4, 4); if (w != xseg[s]) xbad++; }
+  pr_gate(wseg.data(), 0u, rowb);
+  long on_bad = 0, off_bits = 0;
+  for (int s = 0; s < 2048; s++) {
+    uint32_t w; memcpy(&w, rowb + s * 4, 4);
+    bool on = false; for (int t = 0; t < nprobe; t++) if (PSEG[t] == s) { on = true; if (w != wseg[s]) on_bad++; break; }
+    if (!on) off_bits += __builtin_popcount(w);
+  }
+  long pc1 = pr_popcount_row(rowb);
+  uint8_t rowb2[8192]; cl_read_row(CL_Ti0, rowb2);
+  long pc2 = pr_popcount_row(rowb2);
+  fprintf(stderr, "[lane2] ACCUM data-path probe: xload %d/2048 words off; "
+          "product on-segment %ld words wrong, off-segment %ld junk bits; "
+          "repeat-read popcount %ld -> %ld (delta %ld)\n",
+          xbad, on_bad, off_bits, pc1, pc2, pc2 - pc1);
+  fprintf(stderr, "[lane2] ACCUM startup done in %.1f s (%ld execs)\n",
+          now_s() - ts, N_EXEC);
+}
+
+// the ACCUM-mode GEMV: identical program stream in both arms; readout via
+// full rows + host popcount (ACCUM=1) or batched accum totals (ACCUM=2).
+struct PrRec { uint8_t kind; uint32_t m, i, c; long expect; };  // kind: 0=product 1=sentinel
+
+static void handle_gemv_accum(uint32_t handle, Matrix& mat, uint32_t rb, const uint8_t* xp) {
+  const bool RD = (ACCUM == 1);
+  size_t bpr = (mat.K + 7) / 8;
+  long xrefresh = 64;
+  if (const char* e = getenv("LANE2_XREFRESH")) xrefresh = atol(e);
+  if (xrefresh < 8) xrefresh = 8;
+
+  double t0 = now_s();
+  long exec0 = N_EXEC, pcw0 = N_PCW, try0 = N_DRAIN_TRY, hit0 = N_DRAIN_HIT;
+  vector<long long> y64(mat.M, 0);
+  vector<PrRec> recs; recs.reserve((size_t)rb * mat.qb * mat.M + 64);
+  vector<long> stream;
+  vector<long> rd_pc; if (RD) rd_pc.reserve((size_t)rb * mat.qb * mat.M + 64);
+  vector<uint8_t> rowbuf(8192);
+  Row xrow(2048), wseg(2048);
+  bool fail = false;
+  long planes_skipped = 0, xload_badw = 0;
+
+  if (!RD) { PF->set_readback_mode(true); PF->set_readback_mode(true); }
+
+  long since_x = 0;
+  for (uint32_t c = 0; c < rb && !fail; c++) {
+    const uint8_t* plane = xp + (size_t)c * bpr;
+    fill(xrow.begin(), xrow.end(), 0u);
+    long xpc = 0;
+    for (uint32_t n = 0; n < mat.K; n++)
+      if ((plane[n >> 3] >> (n & 7)) & 1) { xrow[PSEG[n >> 5]] |= 1u << (n & 31); xpc++; }
+    if (xpc == 0) {  // whole plane zero => every product is zero: skip
+      planes_skipped++;
+      continue;
+    }
+    auto do_xload = [&]() {
+      pr_xload(xrow.data(), RD ? rowbuf.data() : nullptr);
+      recs.push_back({1, 0, 0, c, xpc});
+      if (RD) {
+        rd_pc.push_back(pr_popcount_row(rowbuf.data()));
+        for (int s = 0; s < 2048; s++) { uint32_t w; memcpy(&w, rowbuf.data() + s * 4, 4); if (w != xrow[s]) xload_badw++; }
+      } else pr_drain_avail(stream, 2);
+      since_x = 0;
+    };
+    do_xload();
+    for (uint32_t i = 0; i < mat.qb && !fail; i++) {
+      long long fac = (long long)FAC((int)i, (int)mat.qb) * FAC((int)c, (int)rb);
+      for (uint32_t m = 0; m < mat.M && !fail; m++) {
+        if (since_x >= xrefresh) do_xload();
+        const uint8_t* wr = mat.plane.data() + ((size_t)i * mat.M + m) * bpr;
+        fill(wseg.begin(), wseg.end(), 0u);
+        for (uint32_t n = 0; n < mat.K; n++)
+          if ((wr[n >> 3] >> (n & 7)) & 1) wseg[PSEG[n >> 5]] |= 1u << (n & 31);
+        pr_gate(wseg.data(), 0u, RD ? rowbuf.data() : nullptr);
+        recs.push_back({0, m, i, c, -1});
+        since_x++;
+        if (RD) {
+          long pc = pr_popcount_row(rowbuf.data());
+          rd_pc.push_back(pc);
+          y64[m] += fac * pc;
+        } else {
+          pr_drain_avail(stream, 0);   // free poll: pop whatever surfaced
+          if ((long)recs.size() - (long)stream.size() > 96) {
+            // stream fell behind the window: block until it catches up
+            int spins = 0;
+            while ((long)stream.size() < (long)recs.size() - 8 &&
+                   !PF->recv_stalled() && spins < 40)
+              if (!pr_drain_avail(stream, 300)) spins++;
+            if (PF->recv_stalled() || (long)recs.size() - (long)stream.size() > 96) {
+              fprintf(stderr, "[lane2] ACCUM: totals stream fell behind (exec %zu got %zu)%s\n",
+                      recs.size(), stream.size(), PF->recv_stalled() ? " POISONED" : "");
+              fail = true;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  long sent_mis = 0, malformed = 0;
+  if (!RD) {
+    if (!fail && !recs.empty()) {
+      // end-of-stream: messages only surface into api_recv_buf through an
+      // execute's receive window, so fire kickers (read-only programs, NOT
+      // part of the parity set) until the REAL programs' totals all arrive.
+      // Kicker chunks are surplus behind the real prefix (FIFO order) and
+      // are cleared by the exit drain — the suite's over-provisioning shape.
+      int kicks = 0;
+      pr_drain_avail(stream, 0);
+      while (stream.size() < recs.size() && kicks < 12 && !PF->recv_stalled()) {
+        pr_kick(); kicks++;
+        pr_drain_avail(stream, 300);
+      }
+      if (stream.size() < recs.size()) {
+        fprintf(stderr, "[lane2] ACCUM: stream short after %d kickers: %zu/%zu\n",
+                kicks, stream.size(), recs.size());
+        fail = true;
+      }
+    }
+    // exit hygiene (suite-proven shape): clear surfaced strays, SET-READ x2,
+    // one no-read write to run the platform's transition drain, drain again.
+    // The pre-switch pass is harvest-only (100 ms): anything still stranded
+    // is exactly what the transition drain exists to absorb; a straggler
+    // that somehow leaked past both would surface as a position-0 sentinel
+    // mismatch in the NEXT accum GEMV (fail-safe, not silent).
+    PF->drain_stray(100, 4);
+    PF->set_readback_mode(false); PF->set_readback_mode(false);
+    uwrite_batch({{CL_Tfr, ONE}});
+    PF->drain_stray(1500, 8);
+    if (!fail) {
+      for (size_t k = 0; k < recs.size(); k++) {
+        long v = stream[k];
+        if (v < 0) { malformed++; fail = true; continue; }
+        if (recs[k].kind == 0)
+          y64[recs[k].m] += (long long)FAC((int)recs[k].i, (int)mat.qb) * FAC((int)recs[k].c, (int)rb) * v;
+        else if (v != recs[k].expect) {
+          sent_mis++;
+          fprintf(stderr, "[lane2] ACCUM sentinel MISMATCH at prog %zu: total %ld expect %ld\n",
+                  k, v, recs[k].expect);
+        }
+      }
+      if (sent_mis) fail = true;   // order/integrity broken: refuse the result
+    }
+  }
+
+  double wall = now_s() - t0;
+  long nprod = 0, nsent = 0;
+  for (auto& r : recs) (r.kind ? nsent : nprod)++;
+  fprintf(stderr, "[lane2] GEMV[%s-arm] handle=%u K=%u M=%u q=%u r=%u: %.2f s wall, "
+          "%ld products + %ld sentinels (%ld execs, %ld pcwrites), %ld zero planes skipped",
+          RD ? "read" : "accum", handle, mat.K, mat.M, mat.qb, rb, wall,
+          nprod, nsent, N_EXEC - exec0, N_PCW - pcw0, planes_skipped);
+  if (RD) fprintf(stderr, ", xload %ld words off\n", xload_badw);
+  else fprintf(stderr, ", drains %ld/%ld hit, sentinel mis %ld, malformed %ld\n",
+               N_DRAIN_HIT - hit0, N_DRAIN_TRY - try0, sent_mis, malformed);
+
+  if (fail) { ack_gemv_err(handle, 2); return; }
+  vector<uint8_t> resp(16 + (size_t)mat.M * 4);
+  uint32_t hdr[4] = {MAGIC_GEMV_ACK, handle, 0, mat.M};
+  memcpy(resp.data(), hdr, 16);
+  for (uint32_t m = 0; m < mat.M; m++) {
+    long long v = y64[m];
+    if (v > 0x7FFFFFFFLL || v < -0x80000000LL) { fprintf(stderr, "[lane2] y overflow m=%u\n", m); ack_gemv_err(handle, 2); return; }
+    int32_t v32 = (int32_t)v;
+    memcpy(resp.data() + 16 + (size_t)m * 4, &v32, 4);
+  }
+  write_resp(resp.data(), (uint32_t)resp.size());
+}
 
 static void handle_load(const uint8_t* req, size_t len) {
   if (len < 20) { ack_load(0, 1); return; }
@@ -694,6 +1128,22 @@ static void handle_load(const uint8_t* req, size_t len) {
   if (len != 20 + (size_t)qb * M * bpr) {
     fprintf(stderr, "[lane2] LOAD len mismatch: got %zu want %zu\n", len, 20 + (size_t)qb * M * bpr);
     ack_load(handle, 1); return;
+  }
+  if (ACCUM) {
+    // product mode: outputs are sequential in time, not parallel in columns
+    // — capacity is K product bits on the AND-screened segments.
+    size_t need_segs = ((size_t)K + 31) / 32;
+    if (need_segs > PSEG.size()) {
+      fprintf(stderr, "[lane2] LOAD: K=%u needs %zu AND-screened segments, have %zu\n",
+              K, need_segs, PSEG.size());
+      ack_load(handle, 4); return;
+    }
+    Matrix mat; mat.qb = qb; mat.K = K; mat.M = M;
+    mat.plane.assign(req + 20, req + 20 + (size_t)qb * M * bpr);
+    MATS[handle] = std::move(mat);
+    fprintf(stderr, "[lane2] LOAD handle=%u q=%u K=%u M=%u (ACCUM product mode: "
+            "raw planes host-resident, W rows built per product)\n", handle, qb, K, M);
+    ack_load(handle, 0); return;
   }
   size_t need_segs = (M + 31) / 32;
   if (need_segs > LANES.size()) {
@@ -740,6 +1190,7 @@ static void handle_gemv(const uint8_t* req, size_t len) {
   size_t bpr = (mat.K + 7) / 8;
   if (len != 12 + (size_t)rb * bpr) { ack_gemv_err(handle, 1); return; }
   const uint8_t* xp = req + 12;
+  if (ACCUM) { handle_gemv_accum(handle, mat, rb, xp); return; }
 
   double t0 = now_s();
   long exec0 = N_EXEC, maj0 = N_MAJ, fa0 = N_FA, pcw0 = N_PCW;
@@ -890,6 +1341,20 @@ int main(int argc, char** argv) {
     fprintf(stderr, "[lane2] PIM_VOTE3 is not supported in clone mode — ignored\n");
     MV = 0;
   }
+  if (const char* e = getenv("LANE2_ACCUM")) ACCUM = atoi(e);
+  if (ACCUM < 0 || ACCUM > 2) die("LANE2_ACCUM must be 0, 1 (read arm) or 2 (accum arm)", 1);
+  if (const char* e = getenv("LANE2_REF_POLICY")) {
+    if (string(e) == "zero2") { REF_INIT = 0u; REF_NFRAC = 2; }
+    else if (string(e) != "" && string(e) != "legacy")
+      die("LANE2_REF_POLICY must be 'legacy' (ONE+3) or 'zero2' (ZERO+2)", 1);
+  }
+  if (ACCUM) {
+    if (!PACK) die("LANE2_ACCUM requires the 8K-IMEM packed shape (LANE2_PACK=1)", 1);
+    if (MV || DT || ENC_CLONE) {
+      fprintf(stderr, "[lane2] ACCUM mode: PIM_VOTE3/LANE2_DUALTRACK/LANE2_ENCODE ignored\n");
+      MV = DT = 0; ENC_CLONE = 0;
+    }
+  }
 
   vector<Calib> cal = read_calib(calib_p); bool found = false;
   for (auto& c : cal) if (c.s_id == sid && c.bank == BANK) { CAL = c; found = true; break; }
@@ -906,6 +1371,8 @@ int main(int argc, char** argv) {
   bool sim_backend = (getenv("LANE2_BACKEND") && string(getenv("LANE2_BACKEND")) == "sim");
   if (ENC_CLONE && sim_backend)
     die("LANE2_ENCODE=clone is silicon-only (the sim has no model for the fastpath tuple)", 2);
+  if (ACCUM && sim_backend)
+    die("LANE2_ACCUM is silicon-only (fastpath tuple + build-6 accum HDL)", 2);
   unique_ptr<SoftMCPlatform> owner;
   if (sim_backend) {
     auto sp = make_unique<SimPlatform>();
@@ -920,13 +1387,20 @@ int main(int argc, char** argv) {
   PF = owner.get();
 
   fprintf(stderr, "[lane2] server: bender=%d s_id=%d bank=%d pack=%d vote3=%d "
-          "dualtrack=%d encode=%s input colmask=%d/2048\n", bender, sid, BANK, PACK, MV,
-          DT, ENC_CLONE ? "clone" : "host", n_mask);
+          "dualtrack=%d encode=%s accum=%d input colmask=%d/2048\n", bender, sid, BANK, PACK, MV,
+          DT, ENC_CLONE ? "clone" : "host", ACCUM, n_mask);
 
   int strials = getenv("LANE2_SCREEN_TRIALS") ? atoi(getenv("LANE2_SCREEN_TRIALS")) : 3;
   if (strials < 1) strials = 1;
   double ts = now_s();
-  if (ENC_CLONE) {
+  if (ACCUM) {
+    // Road-B product mode: aref off (the suite precaution — maintenance
+    // pulses race DIFF flush slots); x-row integrity is refresh-by-rewrite
+    // (LANE2_XREFRESH) + the in-stream sentinel totals.
+    PF->set_aref(false);
+    pr_startup(mask, strials);
+    LANES = PSEG;   // satisfies the shared capacity/report plumbing
+  } else if (ENC_CLONE) {
     // clone engine bring-up: value-row mask screen, role assignment, then an
     // op-matched column screen through the complete 9-gate dual-rail FA.
     vector<uint32_t> usable = cl_screen_masks(CAL.open);

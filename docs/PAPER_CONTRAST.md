@@ -145,3 +145,32 @@ Scene plan (each claim → ledger entry):
    determinism, self-pollution, all-MAJ3 adder (MAJ5-free accumulation).
 9. Verdict: achievable-with-spread-aware-addressing; part-number lottery
    is real; the readout/streaming shape is where performance lives.
+
+## §4 status update (2026-07-21) — three of the five gaps now closed or bounded
+
+1. **Frac conditioning + calibration [34, 48] — IMPLEMENTED and
+   measured to its limit.** The reference-policy sweep found the
+   single-op optimum (ZERO-init + 2 fracs: 93.5% vs 89.1% strict MAJ5
+   columns on s86) and the chained dual-track adder A/B then showed the
+   gain does NOT compose: 99.512% int-exact under zero2 vs **99.902%
+   under the SiMRA frac'd-ONE convention** (4096×4096 qb2, same-hour,
+   per-policy screens). Conditioning is exhausted as a lever on this
+   module class; the residual to their "error-free" stays attributed to
+   module screening (§3).
+2. **Streaming-scale execution — unchanged** (the structural gap; 8K
+   IMEM shipped, seq_engine remains staged RTL). New datum: with
+   line-rate aggregation at the READOUT (the Road-B accumulator), the
+   paper's own per-output dataflow becomes optimal on our rig too
+   (1.4–28× over the tree arm across their dims) — independent
+   corroboration that their §V shape presumes exactly the streaming/
+   aggregation regime they describe.
+3. **Their models + llama.cpp — CLOSED at the sampled-e2e shape.**
+   Coverage now: q2_K/q3_K/q4_0/q6_K quants (the q3_K op landed
+   2026-07-21: 99.90% int-exact), dims 4096–32000, models 7B/13B/
+   Llama-3-8B/phi-4 (sampled e2e logs in the repo). Their exact
+   wall-clock e2e remains out of scope (gap 2).
+4. **Benchmark conventions — CLOSED and extended.** The B2 per-op table
+   ran at their dims/precisions/50%-sparsity convention (2026-07-20),
+   now joined by the product-dataflow and accumulator arms (16 more
+   cells, 2026-07-21).
+5. Energy (CACTI) — unchanged: document-only.

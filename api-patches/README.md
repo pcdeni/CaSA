@@ -64,3 +64,17 @@ Readback-mode control for the Road-B popcount path (`set_readback_mode` is
 
 `0001` is unchanged since 07-17 (`prog.{cpp,h}` did not move); only `0002`
 was regenerated against the same pristine base.
+
+## 0003 — accum-mode receiver + DIFF-mode plumbing (Road B host side)
+
+Everything the POPCOUNT_ACCUM readback engine (`rtl/`) needs from the
+platform: idempotent `set_readback_mode` SET words (decode-state safe,
+unlike the legacy parity toggle), the bounded `consumeDataAccum`
+receiver (per-execute windows; tick-paced interruptible kernel reads;
+quiet-window exit — `PIM_ACCUM_QUIET_MS`, `PIM_ACCUM_TICK_MS`, with the
+post-DIFF transition drain floored at 500 ms), `receiveDataTry` /
+`drain_stray` consumers, and poisoned-state fail-fast on h2c errors
+(no more SIGABRT mid-stream with a live drain thread). Applies on top
+of 0001+0002. Consumption-pattern references:
+`app/test_popcount_hw.cpp`, `lane2/lane2_gemv_server.cpp`
+(`LANE2_ACCUM=2`), `docs/ROADB_2026_07.md`.

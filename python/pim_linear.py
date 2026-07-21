@@ -78,6 +78,24 @@ BITPLANE_FACTORS = np.array([1, 2, 4, 8, 16, 32, 64, -128], dtype=np.int32)
 MAGIC_V2 = 0xB17EF002
 MAGIC_LOAD = 0xB17EF003   # LOAD_WEIGHTS (one-time per linear's slice)
 MAGIC_MM3D = 0xB17EF004   # MATMUL_HANDLE (subsequent calls)
+MAGIC_V2G = 0xB17EF005    # V2 with per-group partial response (PIM_GROUP_RESP=1)
+MAGIC_V2S = 0xB17EF006    # V2 single-track (PIM_1BIT_SINGLE=1): pos masks only
+
+
+def _xbp_weighted_popcount(x_bp_sub):
+    """sum_b fac_b * popcount(x bitplane b) over a chunk range — the
+    single-track reconstruction constant. For 1-bit weights (neg == ~pos
+    on every real/replicated output slot) the dual-track dot decomposes as
+    y = pc_pos - pc_neg = 2*pc_pos - popcount(x), bitplane-weighted, so
+    the server only computes the pos track (half the DRAM work) and the
+    host applies y = 2*y_resp - this. Slots whose masks are all-zero
+    padding get -this instead of 0 — every consumer trims to n_real (or
+    n_copies*n_real) before use, so the garbage never escapes."""
+    s = 0
+    for b in range(N_BITPLANES):
+        col = np.ascontiguousarray(x_bp_sub[:, b]).view(np.uint8)
+        s += int(BITPLANE_FACTORS[b]) * int(np.unpackbits(col).sum())
+    return s
 _NEXT_HANDLE_ID = [0]     # global handle-id counter
 _V2_FALLBACK_COUNT = [0]  # slices that fell back LOAD→V2 (diagnostics)
 
@@ -348,14 +366,14 @@ class PimBitLinear(nn.Module):
         n_chunks = d_in // 32
         n_slices = (d_out + D_OUT_SLICE - 1) // D_OUT_SLICE
         powers = (np.uint32(1) << np.arange(32, dtype=np.uint32))[None, :]
-        # Common header for every request to this slice (everything is fixed
-        # except the per-token x_bitplane payload). Pre-build the bytes once.
-        header = (struct.pack('<I', MAGIC_V2)
-                  + struct.pack('<I', d_in)
-                  + struct.pack('<I', D_OUT_SLICE)
-                  + struct.pack('<I', n_chunks)
-                  + struct.pack('<I', N_BITPLANES))
         bp_factor_bytes = BITPLANE_FACTORS.tobytes()
+        # Single-track (1-bit) mode: server computes only the pos track and
+        # the host reconstructs via the complement identity. Requires a
+        # server that knows MAGIC_V2S, so server-mode only; incompatible
+        # with V2G (grouped responses stay dual).
+        _want_single = (os.environ.get('PIM_1BIT_SINGLE', '0') == '1'
+                        and use_server
+                        and os.environ.get('PIM_GROUP_RESP') != '1')
         for s in range(n_slices):
             a = s * D_OUT_SLICE
             b = min(a + D_OUT_SLICE, d_out)
@@ -387,10 +405,20 @@ class PimBitLinear(nn.Module):
                 start = k * n_real
                 pos_mask[:, start:start+n_real] = pos_mask[:, :n_real]
                 neg_mask[:, start:start+n_real] = neg_mask[:, :n_real]
+            # Single-track eligibility is per slice: every real output must
+            # be zero-free (1-bit weights) so neg == ~pos on real bits.
+            slice_single = _want_single and bool((W_slice[:n_real] != 0).all())
+            v2_magic = MAGIC_V2S if slice_single else MAGIC_V2
+            header = (struct.pack('<I', v2_magic)
+                      + struct.pack('<I', d_in)
+                      + struct.pack('<I', D_OUT_SLICE)
+                      + struct.pack('<I', n_chunks)
+                      + struct.pack('<I', N_BITPLANES))
             # Three body templates:
             # 1. v2 fallback (full d_in mask each call): kept as the
             #    correctness-guaranteed path. One request per d_out slice.
-            static_prefix_v2 = header + pos_mask.tobytes() + neg_mask.tobytes()
+            static_prefix_v2 = header + pos_mask.tobytes() + (
+                b'' if slice_single else neg_mask.tobytes())
 
             # 1b. Multi-DIMM V2 split (2026-07-20 balance fix): per-server
             #     chunk-range V2 bodies. The full-body V2 fallback used to
@@ -406,7 +434,41 @@ class PimBitLinear(nn.Module):
             #     byte-identical legacy full-body path.
             v2_parts = None
             _n_srv_cfg = len(self._servers) if use_server else 1
-            if self._group_scales is not None:
+            if self._group_scales is not None and os.environ.get('PIM_GROUP_RESP') == '1':
+                # V2G (2026-07-21): ONE grouped request per server per
+                # slice. The server (MAGIC_V2G) returns per-group int32
+                # partials [n_groups_part, 2048] instead of one summed
+                # vector, so the whole slice needs n_srv round-trips
+                # instead of n_groups — same bytes, same DRAM work, same
+                # vote-then-scale math. Groups split CONTIGUOUSLY across
+                # servers (equal group counts → byte-balanced).
+                v2_parts = []
+                gc_ = self._group_chunks
+                n_groups_ = n_chunks // gc_
+                _ns = max(1, _n_srv_cfg)
+                per_g = (n_groups_ + _ns - 1) // _ns
+                for si in range(_ns):
+                    g_a = si * per_g
+                    g_b = min(g_a + per_g, n_groups_)
+                    if g_a >= g_b:
+                        continue
+                    c_a = g_a * gc_
+                    c_b = g_b * gc_
+                    part_header = (struct.pack('<I', MAGIC_V2G)
+                                   + struct.pack('<I', (c_b - c_a) * 32)
+                                   + struct.pack('<I', D_OUT_SLICE)
+                                   + struct.pack('<I', c_b - c_a)
+                                   + struct.pack('<I', N_BITPLANES)
+                                   + struct.pack('<I', gc_))
+                    v2_parts.append({
+                        'server_idx': si,
+                        'c_a': c_a, 'c_b': c_b,
+                        'g_a': g_a, 'g_b': g_b,
+                        'prefix': (part_header
+                                   + pos_mask[c_a:c_b].tobytes()
+                                   + neg_mask[c_a:c_b].tobytes()),
+                    })
+            elif self._group_scales is not None:
                 # Bonsai group mode: per-GROUP V2 part bodies (each part =
                 # one 128-input scale window = group_chunks chunks). The
                 # single full-body V2 request cannot carry per-group scales
@@ -417,7 +479,7 @@ class PimBitLinear(nn.Module):
                 for g in range(n_chunks // gc_):
                     c_a = g * gc_
                     c_b = c_a + gc_
-                    part_header = (struct.pack('<I', MAGIC_V2)
+                    part_header = (struct.pack('<I', v2_magic)
                                    + struct.pack('<I', (c_b - c_a) * 32)
                                    + struct.pack('<I', D_OUT_SLICE)
                                    + struct.pack('<I', c_b - c_a)
@@ -425,9 +487,11 @@ class PimBitLinear(nn.Module):
                     v2_parts.append({
                         'server_idx': g % max(1, _n_srv_cfg),
                         'c_a': c_a, 'c_b': c_b, 'group': g,
+                        'single': slice_single,
                         'prefix': (part_header
                                    + pos_mask[c_a:c_b].tobytes()
-                                   + neg_mask[c_a:c_b].tobytes()),
+                                   + (b'' if slice_single
+                                      else neg_mask[c_a:c_b].tobytes())),
                     })
             elif _n_srv_cfg > 1:
                 v2_parts = []
@@ -437,16 +501,18 @@ class PimBitLinear(nn.Module):
                     c_b = min(c_a + per, n_chunks)
                     if c_a >= c_b:
                         continue
-                    part_header = (struct.pack('<I', MAGIC_V2)
+                    part_header = (struct.pack('<I', v2_magic)
                                    + struct.pack('<I', (c_b - c_a) * 32)
                                    + struct.pack('<I', D_OUT_SLICE)
                                    + struct.pack('<I', c_b - c_a)
                                    + struct.pack('<I', N_BITPLANES))
                     v2_parts.append({
                         'server_idx': si, 'c_a': c_a, 'c_b': c_b,
+                        'single': slice_single,
                         'prefix': (part_header
                                    + pos_mask[c_a:c_b].tobytes()
-                                   + neg_mask[c_a:c_b].tobytes()),
+                                   + (b'' if slice_single
+                                      else neg_mask[c_a:c_b].tobytes())),
                     })
 
             # 2. Per-sub-d_in LOAD_WEIGHTS bodies (each sub ≤ MAX_CHUNKS_PER_SUB
@@ -509,6 +575,7 @@ class PimBitLinear(nn.Module):
             slice_entry = {
                 'a': a, 'b': b, 'n_real': n_real,
                 'n_copies': n_copies,  # 1 = no replication; ≥2 = vote across copies
+                'single': slice_single,   # V2S single-track (1-bit) slice
                 'static_prefix': static_prefix_v2,
                 'v2_parts': v2_parts,   # None single-DIMM; per-server split multi
                 'bp_factor_bytes': bp_factor_bytes,
@@ -731,10 +798,27 @@ class PimBitLinear(nn.Module):
                                             + x_bp_sub.tobytes()
                                             + bp_factor_bytes_g
                                             + struct.pack('<I', cal_idx))
-                                    resp = self._servers[si].request(body)
-                                    partials[si][it['group']] += np.frombuffer(
-                                        resp, dtype=np.int32,
-                                        count=D_OUT_SLICE)
+                                    if 'g_a' in it:
+                                        # V2G grouped part: per-group
+                                        # partial vectors in one response.
+                                        ng_part = it['g_b'] - it['g_a']
+                                        resp = self._servers[si].request(
+                                            body,
+                                            expect_resp_len=ng_part
+                                            * D_OUT_SLICE * 4)
+                                        partials[si][it['g_a']:it['g_b']] += (
+                                            np.frombuffer(resp, dtype=np.int32)
+                                            .reshape(ng_part, D_OUT_SLICE))
+                                    else:
+                                        resp = self._servers[si].request(body)
+                                        y_p = np.frombuffer(
+                                            resp, dtype=np.int32,
+                                            count=D_OUT_SLICE)
+                                        if it.get('single'):
+                                            # V2S: y = 2*y_pos - Σx (weighted)
+                                            y_p = 2 * y_p - np.int32(
+                                                _xbp_weighted_popcount(x_bp_sub))
+                                        partials[si][it['group']] += y_p
                             except Exception as e:
                                 errs[si] = e
 
@@ -878,14 +962,19 @@ class PimBitLinear(nn.Module):
                             def _run_part(pi):
                                 try:
                                     part = parts[pi]
+                                    x_bp_part = x_bitplane[part['c_a']:part['c_b']]
                                     body = (part['prefix']
-                                            + x_bitplane[part['c_a']:part['c_b']].tobytes()
+                                            + x_bp_part.tobytes()
                                             + bp_factor_bytes
                                             + struct.pack('<I', cal_idx))
                                     resp = self._servers[part['server_idx']].request(body)
-                                    partials[pi] = np.frombuffer(
+                                    y_p = np.frombuffer(
                                         resp, dtype=np.int32,
                                         count=D_OUT_SLICE)
+                                    if part.get('single'):
+                                        y_p = 2 * y_p - np.int32(
+                                            _xbp_weighted_popcount(x_bp_part))
+                                    partials[pi] = y_p
                                 except Exception as e:
                                     errs[pi] = e
                             _serial = os.environ.get('PIM_MULTIDIMM_SERIAL') == '1'
@@ -910,8 +999,12 @@ class PimBitLinear(nn.Module):
                                 + struct.pack('<I', cal_idx))
                         resp = self._server.request(body)
                         self._n_inner_requests += 1
-                        return np.frombuffer(resp, dtype=np.int32,
-                                              count=D_OUT_SLICE).copy()
+                        y_full = np.frombuffer(resp, dtype=np.int32,
+                                               count=D_OUT_SLICE).copy()
+                        if slc.get('single'):
+                            y_full = 2 * y_full - np.int32(
+                                _xbp_weighted_popcount(x_bitplane))
+                        return y_full
 
                 _ts = _time.perf_counter()
                 if d_full_vote:
