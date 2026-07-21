@@ -103,3 +103,14 @@ Two small platform additions, applied on top of 0001+0002+0003:
    advanced. Consumers: `lane2/lane2_gemv_server.cpp` (accum GEMV),
    `app/test_bitnet_server.cpp` (`PIM_SEGPOP`),
    `app/test_segpop_hw.cpp` (silicon validation tool).
+
+## 0005 — build8 ACCUM_XBP control words
+
+Three idempotent SET methods for the build8 cross-bit-plane accumulator
+(image trailer `0xDBC0DE06`), applied on top of 0001–0004:
+`set_readback_mode_accxbp()` (INSTR_WIDTH+8, byte[9] bit 0), `set_acc_weight(neg,shift)`
+(INSTR_WIDTH+9, payload in tdata[3:0]), `flush_acc()` (INSTR_WIDTH+10).
+Same decode pattern as the +5/+6/+7 SET words. **Hazard:** never call on
+a pre-build8 image (the words fall through into instruction-load).
+Consumers: `app/test_accxbp_hw.cpp` (silicon validation) and, post-flash,
+`PIM_ACCUM_XBP` in `app/test_bitnet_server.cpp`.
