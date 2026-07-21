@@ -27,18 +27,22 @@ design doc that motivates it — the roadmap is itself evidence-first.
 
 ## B. Host/software levers (no bitstream needed)
 
-3b. **Client-side request batching (fewer, larger requests)** — NEW
-   2026-07-21, MEASURED-IN, top wall lever. `req-prof` decomposition:
-   the client keeps the pipe full (gap 0.2 ms), each request ≈ one
-   program ≈ 3.2 ms, wall = ~5,400 requests/forward × 3.2 ms; `recv`
-   is XDMA-latency-dominated (~1.5 ms fixed/read — why SEG_POP's 4×
-   byte cut was wall-neutral); `PIM_INLINE_BITPLANES=4` measured a net
-   LOSS (requests already carry ~1 program). Fix: batch the ~28
-   per-chunk requests per projection into few multi-unit requests (the
-   V2S wire format already allows it) → fewer, larger recv windows —
-   which is also when the SEG_POP byte collapse starts paying.
-   Validation gate: bit-exact y per op, then full-model token-identity
-   (`docs/ROADB_2026_07.md` §7).
+3b. **V2GS request batching** — DONE 2026-07-21: `MAGIC_V2GS` composes
+   the grouped response (V2G) with single-track (V2S) — one request per
+   server per slice instead of one per scale-group, token-identical,
+   268.8 → 260.3 s /8 tok (+3.2 %, the pipe-framing share). Default on
+   (`PIM_REQ_BATCH=1`). The batched profile refines the cost model: a
+   slice = ~20 XDMA round-trips (~12 write programs + ~8 exec/recv) ×
+   ~150–200 µs — which sets up the next lever precisely.
+3c. **V2 cross-round program packing** — NEXT, the genuine round-trip
+   cut V2GS unlocked. Fuse a slice's ~20 programs into few: one program
+   interleaving [write(round r); 4-bank MAJ3 bodies(round r)] across
+   rounds within the 8K-IMEM envelope — preserving write-then-use
+   locality (the upfront-batched-writes attempt of 2026-05-04 is the
+   documented anti-pattern; the MM3D packed path is the proven
+   pattern). Estimated 2–4× on the handler → ~2–3× wall. Gate:
+   layer-0 exact, then full-model token-identity.
+   Method context for both: `docs/METHOD_MVDRAM_LENS.md`.
 
 4. **LANE2_WRES clone-resident products** — DONE 2026-07-21: 59 µs/gate
    resident vs 150–180 pcwrite (~2.7×/product); fidelity trade and

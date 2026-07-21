@@ -80,6 +80,7 @@ MAGIC_LOAD = 0xB17EF003   # LOAD_WEIGHTS (one-time per linear's slice)
 MAGIC_MM3D = 0xB17EF004   # MATMUL_HANDLE (subsequent calls)
 MAGIC_V2G = 0xB17EF005    # V2 with per-group partial response (PIM_GROUP_RESP=1)
 MAGIC_V2S = 0xB17EF006    # V2 single-track (PIM_1BIT_SINGLE=1): pos masks only
+MAGIC_V2GS = 0xB17EF007   # V2 grouped + single (request batching, PIM_REQ_BATCH)
 
 
 def _xbp_weighted_popcount(x_bp_sub):
@@ -369,11 +370,19 @@ class PimBitLinear(nn.Module):
         bp_factor_bytes = BITPLANE_FACTORS.tobytes()
         # Single-track (1-bit) mode: server computes only the pos track and
         # the host reconstructs via the complement identity. Requires a
-        # server that knows MAGIC_V2S, so server-mode only; incompatible
-        # with V2G (grouped responses stay dual).
+        # server that knows MAGIC_V2S (or MAGIC_V2GS when batched). As of
+        # 2026-07-21 night single-track COMPOSES with grouped batching
+        # (V2GS), so it is no longer excluded under group-scaled models.
         _want_single = (os.environ.get('PIM_1BIT_SINGLE', '0') == '1'
-                        and use_server
-                        and os.environ.get('PIM_GROUP_RESP') != '1')
+                        and use_server)
+        # Request batching (default ON): for group-scaled models, carry ALL
+        # of a server's scale-groups in ONE grouped request (V2G dual /
+        # V2GS single) instead of one request per group — the top wall
+        # lever (recv is XDMA-latency-bound, so fewer round-trips wins).
+        # PIM_REQ_BATCH=0 restores the per-group requests. Explicit
+        # PIM_GROUP_RESP=1 forces the dual grouped path (back-compat).
+        _batch_groups = (os.environ.get('PIM_REQ_BATCH', '1') == '1'
+                         or os.environ.get('PIM_GROUP_RESP') == '1')
         for s in range(n_slices):
             a = s * D_OUT_SLICE
             b = min(a + D_OUT_SLICE, d_out)
@@ -434,19 +443,24 @@ class PimBitLinear(nn.Module):
             #     byte-identical legacy full-body path.
             v2_parts = None
             _n_srv_cfg = len(self._servers) if use_server else 1
-            if self._group_scales is not None and os.environ.get('PIM_GROUP_RESP') == '1':
-                # V2G (2026-07-21): ONE grouped request per server per
-                # slice. The server (MAGIC_V2G) returns per-group int32
-                # partials [n_groups_part, 2048] instead of one summed
-                # vector, so the whole slice needs n_srv round-trips
-                # instead of n_groups — same bytes, same DRAM work, same
-                # vote-then-scale math. Groups split CONTIGUOUSLY across
-                # servers (equal group counts → byte-balanced).
+            if self._group_scales is not None and _batch_groups:
+                # GROUPED BATCH (2026-07-21): ONE grouped request per server
+                # per slice carrying ALL of that server's scale-groups. The
+                # server returns per-group int32 partials [n_groups_part,
+                # 2048], so the whole slice needs n_srv round-trips instead
+                # of n_groups — same bytes, same DRAM work, same
+                # vote-then-scale math, far fewer XDMA round-trips (the
+                # latency-bound wall). Single-track eligible slices use
+                # MAGIC_V2GS (pos masks only, half the DRAM work) and the
+                # host reconstructs y_g = 2*y_pos_g - Σ_{c∈g} fac·pc(x_c)
+                # per group; else MAGIC_V2G (pos+neg). Groups split
+                # CONTIGUOUSLY across servers (equal counts → byte-balanced).
                 v2_parts = []
                 gc_ = self._group_chunks
                 n_groups_ = n_chunks // gc_
                 _ns = max(1, _n_srv_cfg)
                 per_g = (n_groups_ + _ns - 1) // _ns
+                g_magic = MAGIC_V2GS if slice_single else MAGIC_V2G
                 for si in range(_ns):
                     g_a = si * per_g
                     g_b = min(g_a + per_g, n_groups_)
@@ -454,7 +468,7 @@ class PimBitLinear(nn.Module):
                         continue
                     c_a = g_a * gc_
                     c_b = g_b * gc_
-                    part_header = (struct.pack('<I', MAGIC_V2G)
+                    part_header = (struct.pack('<I', g_magic)
                                    + struct.pack('<I', (c_b - c_a) * 32)
                                    + struct.pack('<I', D_OUT_SLICE)
                                    + struct.pack('<I', c_b - c_a)
@@ -464,9 +478,11 @@ class PimBitLinear(nn.Module):
                         'server_idx': si,
                         'c_a': c_a, 'c_b': c_b,
                         'g_a': g_a, 'g_b': g_b,
+                        'gc': gc_, 'single': slice_single,
                         'prefix': (part_header
                                    + pos_mask[c_a:c_b].tobytes()
-                                   + neg_mask[c_a:c_b].tobytes()),
+                                   + (b'' if slice_single
+                                      else neg_mask[c_a:c_b].tobytes())),
                     })
             elif self._group_scales is not None:
                 # Bonsai group mode: per-GROUP V2 part bodies (each part =
@@ -799,16 +815,29 @@ class PimBitLinear(nn.Module):
                                             + bp_factor_bytes_g
                                             + struct.pack('<I', cal_idx))
                                     if 'g_a' in it:
-                                        # V2G grouped part: per-group
+                                        # Grouped part (V2G/V2GS): per-group
                                         # partial vectors in one response.
                                         ng_part = it['g_b'] - it['g_a']
                                         resp = self._servers[si].request(
                                             body,
                                             expect_resp_len=ng_part
                                             * D_OUT_SLICE * 4)
-                                        partials[si][it['g_a']:it['g_b']] += (
-                                            np.frombuffer(resp, dtype=np.int32)
+                                        resp_arr = (np.frombuffer(
+                                            resp, dtype=np.int32)
                                             .reshape(ng_part, D_OUT_SLICE))
+                                        if it.get('single'):
+                                            # V2GS: reconstruct each group's
+                                            # single-track y_g = 2*y_pos_g -
+                                            # Σ_{c∈g} fac·pc(x_c). x_bp_sub is
+                                            # this part's chunk slice, so group
+                                            # gg owns x_bp_sub[gg*gc:(gg+1)*gc].
+                                            gc = it['gc']
+                                            resp_arr = resp_arr.copy()
+                                            for gg in range(ng_part):
+                                                resp_arr[gg] = 2 * resp_arr[gg] - np.int32(
+                                                    _xbp_weighted_popcount(
+                                                        x_bp_sub[gg*gc:(gg+1)*gc]))
+                                        partials[si][it['g_a']:it['g_b']] += resp_arr
                                     else:
                                         resp = self._servers[si].request(body)
                                         y_p = np.frombuffer(

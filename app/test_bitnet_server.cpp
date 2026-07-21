@@ -60,6 +60,14 @@ static constexpr uint32_t MAGIC_V2S = 0xB17EF006u;    // V2 single-track (2026-0
 // n_chunks). For 1-bit models (neg == ~pos) the client reconstructs
 // y = 2*y_pos - sum_b fac_b*popcount(x_b) host-side — halves the per-
 // request DRAM work (scratch writes + MAJ3 bodies + drains).
+static constexpr uint32_t MAGIC_V2GS = 0xB17EF007u;   // V2 grouped + single
+// (2026-07-21 night): the request-batching lever. V2G (per-group partial
+// response, kills the one-request-per-group amplification) AND V2S
+// (single-track, pos masks only) at once, so a group-scaled 1-bit model
+// (Bonsai g128) collapses its n_groups per-slice round-trips into ONE
+// request/server while keeping the half-DRAM single-track compute. Body =
+// V2G body with pos masks only; response = n_groups × d_out pos-track
+// partials; client reconstructs y_g = 2*y_pos_g - Σ_{c∈g} fac·pc(x_c).
 
 static Program build_chunk_program(int bank_id, uint32_t row_addr,
                                     const uint32_t* col_data,
@@ -1685,8 +1693,8 @@ static int process_request(SoftMCPlatform& platform,
   // Lets a group-scaled client (Bonsai g128) fetch a whole slice in ONE
   // round-trip and rescale host-side — removes the one-request-per-group
   // amplification. group_chunks == n_chunks reproduces V2 exactly.
-  bool grouped = (magic == MAGIC_V2G);
-  bool single = (magic == MAGIC_V2S);
+  bool grouped = (magic == MAGIC_V2G || magic == MAGIC_V2GS);
+  bool single = (magic == MAGIC_V2S || magic == MAGIC_V2GS);
   uint32_t group_chunks = n_chunks;
   if (grouped) {
     if (req_len < 6 * 4) {
@@ -1933,8 +1941,10 @@ static int process_request(SoftMCPlatform& platform,
             int fm = fused_coset_mode();
             if (fm == 1 || fm == 3) {
               size_t u2 = round * (size_t)N + (size_t)bk;
-              uint32_t ch2 = (uint32_t)(u2 / 2);
-              const uint32_t* m2 = ((u2 % 2) == 0)
+              // single-track: chunk = u2, always the pos mask (V2GS/V2S);
+              // dual-track: chunk = u2/2, pos on even units / neg on odd.
+              uint32_t ch2 = single ? (uint32_t)u2 : (uint32_t)(u2 / 2);
+              const uint32_t* m2 = (single || (u2 % 2) == 0)
                   ? pos_mask_all + (size_t)ch2 * d_out
                   : neg_mask_all + (size_t)ch2 * d_out;
               fused_repair_pc(banks[bk], pc.data(), m2,
@@ -1945,8 +1955,10 @@ static int process_request(SoftMCPlatform& platform,
           int weight = sign_factor * bitplane_factor[b];
           // V2G: route this unit's contribution into its chunk's group
           // slot (g == 0 always for plain V2, where group_chunks==n_chunks).
+          // single-track: chunk = u_acc; dual-track: chunk = u_acc/2.
           size_t u_acc = round * (size_t)N + (size_t)bk;
-          size_t g_acc = (size_t)((uint32_t)(u_acc / 2) / group_chunks);
+          uint32_t chunk_acc = single ? (uint32_t)u_acc : (uint32_t)(u_acc / 2);
+          size_t g_acc = (size_t)(chunk_acc / group_chunks);
           int32_t* y_g = y.data() + g_acc * d_out;
           for (uint32_t j = 0; j < d_out; j++) y_g[j] += weight * pc[j];
           if (getenv("PIM_DEBUG_RX")) {
@@ -3541,7 +3553,8 @@ int main(int argc, char** argv) {
     memcpy(&magic, req_buf.data(), 4);
     auto t_h0 = rclk::now();
     int rc;
-    if (magic == MAGIC_V2 || magic == MAGIC_V2G || magic == MAGIC_V2S) {
+    if (magic == MAGIC_V2 || magic == MAGIC_V2G || magic == MAGIC_V2S
+        || magic == MAGIC_V2GS) {
       rc = process_request(platform, banks,
                            req_buf.data(), req_len, label_base, response_fd);
     } else if (magic == MAGIC_LOAD) {
