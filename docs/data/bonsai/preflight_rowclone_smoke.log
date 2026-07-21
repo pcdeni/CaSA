@@ -1,0 +1,11 @@
+[rcsmoke] bender=2 bank=0 backup=60000 target=60016 seed=12648430
+Opened /dev/xdma0_h2c_2 -> 3
+Opened /dev/xdma0_c2h_2 -> 4
+Successfully reset the FPGA!
+[platform] BITSTREAM_IMEM in effect: 8192 (env override)
+[rcsmoke] wrote zeros to target (60016), W to backup (60000)
+  t_23=1: match=8192/8192 (100%)  PERFECT_CLONE
+  t_23=2: match=8192/8192 (100%)  PERFECT_CLONE
+  t_23=3: match=8192/8192 (100%)  PERFECT_CLONE
+  t_23=4: match=8192/8192 (100%)  PERFECT_CLONE
+[rcsmoke] DONE

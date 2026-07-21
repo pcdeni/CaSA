@@ -171,8 +171,11 @@ three runs; the 1-bit variant's raw-mode echo and chat-mode correct
 answer are both faithfully reproduced — a *capability difference between
 two quantizations of the same base model, directly visible on DRAM*).
 The client gained a default-off group-scale weight path, regression-proven
-byte-identical for BitNet with the feature off. First-run, un-optimized
-throughput and honest caveats: [`docs/BONSAI_2026_07.md`](docs/BONSAI_2026_07.md).
+byte-identical for BitNet with the feature off. The next-day measured
+ladder on the same shape — single-DIMM 100 s/tok → dual-DIMM 51.2 →
+dual-DIMM + fused coset **33.7 s/tok (2.97×)**, every configuration
+golden-exact — plus the sim-vs-silicon fused A/B story and honest
+caveats: [`docs/BONSAI_2026_07.md`](docs/BONSAI_2026_07.md).
 
 ## Related work — where this sits
 
