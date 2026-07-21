@@ -138,6 +138,8 @@ One arc runs through everything here, and each stage feeds the next:
 Everything is measured on real silicon, every claim carries its log or
 data file, and negatives are published next to positives — that is the
 repo's standing offer to anyone building in-memory LLM inference.
+(And the question everyone asks — *could it train, too?* — has a
+measured, honest answer: [`docs/TRAINING.md`](docs/TRAINING.md).)
 
 This builds directly on prior research from the
 [CMU SAFARI group](https://safari.ethz.ch/) — RowClone, Ambit,

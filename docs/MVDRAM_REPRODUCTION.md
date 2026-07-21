@@ -674,3 +674,36 @@ with ggml's own scalar vec_dot_q4_0_q8_0 order and association.
 4. Their "1-bit vector/matrix" sweeps are unsigned binary; the server's
    qb=1 matches (the smoke client generated signed 1-bit until today —
    client-side convention fix, no server change).
+
+## 2026-07-21 — Road B closes, and re-opens the paper's own dataflow
+
+The FPGA popcount accumulator (Road B, the rig-specific arm ADR-005
+keeps strictly apart from the reproduction's headline numbers) is now
+complete on silicon: three builds of the readback engine, the last
+fixing a buffer_space conservation leak that also exists in stock
+DRAM-Bender streaming DIFF mode, then 65,000-program sessions with zero
+stream-integrity faults. Full story: [`ROADB_2026_07.md`](ROADB_2026_07.md),
+sources in `rtl/` + `api-patches/0003`.
+
+The reproduction-relevant part is what it did to the dataflow choice.
+With per-read totals nearly free, the optimal GeMV shape inverts from
+our carry-save tree back to the **paper's own §V per-output product
+form** — one product row per output, aggregated at readout. Measured at
+their dims (per-op, single tuple, same conventions as the 07-20 B2
+table): 4096×4096 qb4 in **2.93 s vs the tree arm's 34.1 s (~12×)**,
+sparsity-independent, numpy-exact at small scale and inside the usual
+unvoted flake envelope at full scale. Reading it the other way: the
+June "readout wall" that forced us AWAY from the paper's dataflow was a
+property of our host-round-trip readout, not of the dataflow — with
+line-rate aggregation (which MVDRAM's §V-E streaming command generation
+implies their system effectively has), the paper's shape is the right
+one. That is a stronger, more specific corroboration of their design
+choice than the tree arm could give.
+
+**2026-07-21 addendum — quant coverage complete.** The last staged
+shape-coverage op ran: q3_K native (Llama-2-7B Q2_K blk.0.attn_v,
+K=M=4096, qb=3) — 122.1 s, **99.90 % int-exact**, inside the unvoted
+envelope. q2_K / q3_K / q4_0 / q6_K are all silicon-verified through
+the llama.cpp interception path; the model set (7B, 13B, Llama-3-8B,
+phi-4) was already covered by the sampled e2e logs in
+`docs/data/lane2/`.
