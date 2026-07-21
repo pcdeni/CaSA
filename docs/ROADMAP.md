@@ -111,10 +111,12 @@ design doc that motivates it — the roadmap is itself evidence-first.
     the 16-bank scale-out (#13, ~4× residency/parallelism headroom
     with no new sweeps) is real. Remaining: margin maps, banks 8-15,
     the selection-law probe on one new bank.
-12. **Calib-transfer procedure** — formalize: apply bank-0 calib to a new
-    bank with margin re-screen only (already half-exploited: D0 banks
-    0/2/3 share calib; cross-die transfer evidenced). Deliverable: a
-    documented recipe + transfer-success table.
+12. **Calib-transfer procedure** — DONE 2026-07-22
+    (`docs/CALIBRATION_TRANSFER.md`): the recipe + transfer-success
+    table. Banks (all 16) and same-model dies transfer byte-identically
+    (margin re-screen only); subarrays partial (pool re-derivation, the
+    long offset is block-relative); parts need lattice re-derivation.
+    16-bank scale-out is now a config exercise.
 13. **16-bank / multi-subarray scale-out** — IDEA, after 11. The idle
     spatial parallelism from docs/UTILIZATION.md (die ~99.99% idle).
     Constraints known: tFAW/tRRD scheduling (pack4 machinery), per-bank
