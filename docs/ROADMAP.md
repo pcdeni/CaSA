@@ -20,10 +20,21 @@ design doc that motivates it — the roadmap is itself evidence-first.
 2. **seq_engine pipeline integration** — DESIGNED (`rtl/SEQ_ENGINE.md`),
    deliberately sequenced AFTER SEG_POP (recv 3.1ms > exec 1.0ms).
    Mixed-stream Verilator non-regression A/B is the flash gate.
-3. **Streaming/queued execution** — IDEA. The §V-E regime (host feeds
-   commands faster than DDR consumes): program-queue in fetch, or seq
-   compound programs. The last 2–3 orders per PAPER_CONTRAST gap 2.
-   Design after 1+2 land.
+3. **Streaming/queued execution — "controller-native on our card"** —
+   UPGRADED (see `docs/CONTROLLER_NATIVE.md`, the full investigation).
+   MVDRAM's testbed was DRAM Bender on an Alveo U200 — the same
+   soft-MC class as ours; "controller-native" is their §V-E *execution
+   regime* (the DDR command bus never waits for the host), and it is
+   achievable here: ping-pong IMEM pair + a fetch stage that loads the
+   idle bank during EXECUTE, back-pressured by `buffer_space`. The
+   host becomes a pure producer at PCIe bandwidth (~0.3 % used — our
+   problem was only ever latency). This is where the round-trip lever
+   family converges, and the last 2–3 orders per `PAPER_CONTRAST.md`
+   gap 2 live. Ladder above/below it: pipelined issue (software
+   bridge), on-fabric orchestrator (soft core; 1 round-trip per
+   projection — the end-state demo), and the honest Rung-4 boundary
+   (commodity MCs expose no command-level control; every published
+   unmodified-DRAM PUD result runs a soft/custom controller).
 
 ## B. Host/software levers (no bitstream needed)
 
