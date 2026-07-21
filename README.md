@@ -78,8 +78,11 @@ This repository contains the software side of that demonstration:
   BitNet b1.58-2B-4T using them. Drop these into a DRAM-Bender
   checkout and `make`.
 - **`python/`** — orchestrator that patches Hugging Face's
-  `transformers` library to route specific BitNet projection layers to
-  the FPGA-side server while the rest of the model runs on the CPU.
+  `transformers` library to route specific projection layers to the
+  FPGA-side server while the rest of the model runs on the CPU.
+  Supports BitNet's per-tensor-scaled ternary weights and, since July
+  2026, group-scaled (g128) external weight specs — PrismML
+  Bonsai-1.7B in both its 1-bit and ternary variants.
 - **`calibration/`** — calibrated MAJ3-perfect open-row tuples for one
   of our test DIMMs. Format documented; you produce your own for new
   DIMMs.
@@ -155,6 +158,21 @@ with reproducible measurements, and — in the companion study — to
 this campaign produced that the literature did not have: a complete
 *selection law* for which rows co-activate under `doubleACT`, and the
 *clone-dead law* above — both cross-validated across dies and subarrays.
+
+### A second model family: PrismML Bonsai-1.7B (2026-07-20)
+
+The pipeline is no longer single-model. **PrismML Bonsai-1.7B** — 1-bit
+{−1,+1} and ternary quantizations of Qwen3-1.7B with **per-128-input
+group scales** (the g128 format family every llama.cpp-style quant
+uses) — runs end-to-end on the same silicon with the **server binary
+unchanged**: all 196 projection matmuls in DRAM, and all first-run
+outputs **token-exact against the fp32 CPU golden** (8/8 in each of
+three runs; the 1-bit variant's raw-mode echo and chat-mode correct
+answer are both faithfully reproduced — a *capability difference between
+two quantizations of the same base model, directly visible on DRAM*).
+The client gained a default-off group-scale weight path, regression-proven
+byte-identical for BitNet with the feature off. First-run, un-optimized
+throughput and honest caveats: [`docs/BONSAI_2026_07.md`](docs/BONSAI_2026_07.md).
 
 ## Related work — where this sits
 
@@ -281,6 +299,10 @@ Full details in `docs/HARDWARE.md`.
   possible on existing silicon.
 - **Microsoft Research** — BitNet b1.58-2B-4T, an open-weight
   2.4-billion-parameter ternary language model.
+- **Prism ML, Inc.** — Bonsai-1.7B, open-weight 1-bit and ternary
+  group-scaled quantizations of Alibaba's Qwen3-1.7B (Apache-2.0); the
+  second model family this pipeline runs (see
+  [`docs/BONSAI_2026_07.md`](docs/BONSAI_2026_07.md)).
 - **Hugging Face** — `transformers` library (we test against
   v4.52).
 - The communities behind `Manim`, `Piper TTS`, `matplotlib`, and
