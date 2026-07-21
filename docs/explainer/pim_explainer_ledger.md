@@ -174,3 +174,16 @@ workspace paths; staged for `docs/data/` per `repo_sync_plan_2026_07_20.md`.
 | "Byte-identical wrong output = logic, never noise" as standing practice | RESULT.md addendum 18 (lessons); memory record bitnet_xbp_cache_bug |
 | Cleanest recorded outputs came from the fastest configs (O1 voted run = cleanest full-model text; balanced dual-DIMM byte-identical to single) | RESULT.md addendum 21 (validation ladder: "cleanest full-model output recorded on this rig") + addendum 25 |
 | Remaining levers named: Road-B bitstream (recv volume), residency campaign (deferred with measured accounting), streaming shape | RESULT.md addenda 20d/27; STOCKTAKE phase notes |
+
+## 2026-07-21 additions (staged for the next HTML scene pass — story extensions)
+
+| Claim | Source |
+|---|---|
+| Ladder extends past 47.5: the model families diverge here — BitNet ternary and Bonsai (Qwen3-1.7B, g128). Bonsai ladder 100 (1-DIMM) → 51.2 (dual) → 33.7 (+fused coset) → 18.7 s/tok (+1-bit single-track) = 5.36×, all golden-exact | docs/BONSAI_2026_07.md (§Addendum + 2026-07-21 PM); [data:bonsai_1bit_single_2026_07_21] |
+| 1-bit single-track: for {−1,+1} weights the neg track = ~pos track, so the server computes only pos and the host reconstructs y = 2·y_pos − Σx — halves per-request DRAM work; 270.2 → 149.3 s/8tok (1.81×), token-identical | [code:python/pim_linear.py MAGIC_V2S]; docs/BONSAI_2026_07.md |
+| Road B kills the recv term: the FPGA popcount accumulator collapses each result-row read 8 KB → 96 B; build-6 silicon 9/9 suite + 60/60 endurance + 65,000 totals in order, 0 sentinel mismatches | docs/ROADB_2026_07.md; rtl/; [data:docs/data/roadb] |
+| Road B re-opens MVDRAM's own §V per-output product dataflow: 1.4–28× over the CSA-tree arm across the paper's dims (27.6× at 11008×4096), sparsity-independent; the June "readout wall" was our readout mechanism, not their dataflow | docs/ROADB_2026_07.md §3; docs/data/roadb/ab_full_table.md |
+| seq_engine (command-issue accelerator, 8–10.7×) is validated + staged, sequenced AFTER Road-B-into-production because recv (3.1 ms) > exec (1.0 ms) in the per-program profile | rtl/SEQ_ENGINE.md |
+| MVDRAM reproduction: quant coverage q2_K/q3_K/q4_0/q6_K silicon-verified; Frac/calibration implemented and measured to its limit (ZERO+2 single-op optimum does NOT compose into the chained adder: 99.51% vs SiMRA ONE+3's 99.90%) | docs/PAPER_CONTRAST.md §4 update; docs/MVDRAM_REPRODUCTION.md |
+| First exact fp32 from the reproduction: per-32-block integer partials (exact in DRAM) × host-side per-block scales = bit-identical to ggml's CPU dot; only the 32-aligned granularity makes it exact (their N≤128 partials cross q4_0 scale blocks) | docs/MVDRAM_REPRODUCTION.md (GEMV_PARTIALS); docs/TRAINING.md (precision-in-integers framing) |
+| "Could it train?" — the boundary is the optimizer's high-precision accumulator, not the matmul; frozen-backbone (LoRA) is buildable, full training needs a substrate that integrates | docs/TRAINING.md |
