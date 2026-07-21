@@ -1,5 +1,16 @@
 # Road B in the production server: the layout question, answered
 
+> **STATUS 2026-07-21 (built + silicon-validated)**: the recommended
+> SEG_POP mode below is now REAL — build 7 (`rtl/readback_engine_build7.v`,
+> trailer `0xDBC0DE05`), Verilator-proven and validated on the BCU1525
+> (3 pattern cases 2048/2048 segment-bytes exact; READ/DIFF bit-identical
+> to build 6). One deliberate divergence from the sketch: the built
+> engine packs each 6-bit popcount into a **byte** (2048 B/row, 4×)
+> rather than 96-bit-packed beats (1536 B, 5.3×) — byte alignment makes
+> the host unpack a plain array read, worth the extra 512 B. Production
+> integration: `app/test_bitnet_server.cpp` `PIM_SEGPOP=1`. Results:
+> `docs/ROADB_2026_07.md`.
+
 **Goal**: collapse the readback term that dominates the production
 BitNet/Bonsai per-token wall, the way Road B already does for the
 MVDRAM-reproduction (lane2) server. The obvious route is to make the
