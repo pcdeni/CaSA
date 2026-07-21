@@ -1,0 +1,31 @@
+   [pim-int-diff] L00.q_proj slice0 call#0 groups-sum exact=2048/2048 (100.0000%) max_err=0 mean_err=0.0000
+   [pim-int-diff] L00.q_proj slice0 call#0 groups-sum exact=2048/2048 (100.0000%) max_err=0 mean_err=0.0000
+[unit ternary/v2] q_proj     max|Δ|=0 bitwise=True req=96 resid=0 (2.5s)
+   [pim-int-diff] L00.k_proj slice0 call#0 groups-sum exact=0/1024 (0.0000%) max_err=10063 mean_err=1691.8086
+   [pim-int-diff] L00.k_proj slice0 call#0 groups-sum exact=0/1024 (0.0000%) max_err=8755 mean_err=1767.7227
+[unit ternary/v2] k_proj     max|Δ|=483 bitwise=False req=32 resid=20 (0.8s)
+   [pim-int-diff] L00.v_proj slice0 call#0 groups-sum exact=0/1024 (0.0000%) max_err=7900 mean_err=2080.5029
+   [pim-int-diff] L00.v_proj slice0 call#0 groups-sum exact=0/1024 (0.0000%) max_err=6808 mean_err=1610.3691
+[unit ternary/v2] v_proj     max|Δ|=501 bitwise=False req=32 resid=0 (0.8s)
+   [pim-int-diff] L00.o_proj slice0 call#0 groups-sum exact=2048/2048 (100.0000%) max_err=0 mean_err=0.0000
+   [pim-int-diff] L00.o_proj slice0 call#0 groups-sum exact=2048/2048 (100.0000%) max_err=0 mean_err=0.0000
+[unit ternary/v2] o_proj     max|Δ|=0 bitwise=True req=96 resid=55 (2.5s)
+   [pim-int-diff] L00.gate_proj slice0 call#0 groups-sum exact=2048/2048 (100.0000%) max_err=0 mean_err=0.0000
+   [pim-int-diff] L00.gate_proj slice1 call#0 groups-sum exact=2048/2048 (100.0000%) max_err=0 mean_err=0.0000
+   [pim-int-diff] L00.gate_proj slice2 call#0 groups-sum exact=2048/2048 (100.0000%) max_err=0 mean_err=0.0000
+   [pim-int-diff] L00.gate_proj slice0 call#0 groups-sum exact=2048/2048 (100.0000%) max_err=0 mean_err=0.0000
+   [pim-int-diff] L00.gate_proj slice1 call#0 groups-sum exact=2048/2048 (100.0000%) max_err=0 mean_err=0.0000
+   [pim-int-diff] L00.gate_proj slice2 call#0 groups-sum exact=2048/2048 (100.0000%) max_err=0 mean_err=0.0000
+[unit ternary/v2] gate_proj  max|Δ|=0 bitwise=True req=288 resid=48 (7.7s)
+   [pim-int-diff] L00.up_proj slice0 call#0 groups-sum exact=2048/2048 (100.0000%) max_err=0 mean_err=0.0000
+   [pim-int-diff] L00.up_proj slice1 call#0 groups-sum exact=2048/2048 (100.0000%) max_err=0 mean_err=0.0000
+   [pim-int-diff] L00.up_proj slice2 call#0 groups-sum exact=2048/2048 (100.0000%) max_err=0 mean_err=0.0000
+   [pim-int-diff] L00.up_proj slice0 call#0 groups-sum exact=2048/2048 (100.0000%) max_err=0 mean_err=0.0000
+   [pim-int-diff] L00.up_proj slice1 call#0 groups-sum exact=2048/2048 (100.0000%) max_err=0 mean_err=0.0000
+   [pim-int-diff] L00.up_proj slice2 call#0 groups-sum exact=2048/2048 (100.0000%) max_err=0 mean_err=0.0000
+[unit ternary/v2] up_proj    max|Δ|=0 bitwise=True req=288 resid=43 (7.9s)
+   [pim-int-diff] L00.down_proj slice0 call#0 groups-sum exact=2048/2048 (100.0000%) max_err=0 mean_err=0.0000
+   [pim-int-diff] L00.down_proj slice0 call#0 groups-sum exact=2048/2048 (100.0000%) max_err=0 mean_err=0.0000
+[unit ternary/v2] down_proj  max|Δ|=0 bitwise=True req=288 resid=94 (7.8s)
+[unit] SAFETY: 1/1 servers sim, zero xdma fds
+[unit ternary/v2] ALL EXACT: False (30.3s) -> /home/deni/Claude/bonsai_fused_ab_2026_07_21/sim_fused_ternary_v2.json

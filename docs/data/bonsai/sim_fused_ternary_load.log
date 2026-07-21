@@ -1,0 +1,37 @@
+   [pim-int-diff] L00.q_proj slice0 call#0 groups-sum exact=0/2048 (0.0000%) max_err=7740 mean_err=1754.7920
+   [pim-int-diff] L00.q_proj slice0 call#0 groups-sum exact=0/2048 (0.0000%) max_err=7723 mean_err=1772.8555
+[unit ternary/load] q_proj     max|Δ|=409 bitwise=False req=96 resid=0 (2.5s)
+   [pim-int-diff] L00.k_proj slice0 call#0 groups-sum exact=0/1024 (0.0000%) max_err=10063 mean_err=1691.8086
+   [pim-int-diff] L00.k_proj slice0 call#0 groups-sum exact=0/1024 (0.0000%) max_err=8755 mean_err=1767.7227
+[unit ternary/load] k_proj     max|Δ|=483 bitwise=False req=32 resid=20 (0.9s)
+   [pim-int-diff] L00.v_proj slice0 call#0 groups-sum exact=0/1024 (0.0000%) max_err=7900 mean_err=2080.5029
+   [pim-int-diff] L00.v_proj slice0 call#0 groups-sum exact=0/1024 (0.0000%) max_err=6808 mean_err=1610.3691
+[unit ternary/load] v_proj     max|Δ|=501 bitwise=False req=32 resid=0 (0.8s)
+   [pim-int-diff] L00.o_proj slice0 call#0 groups-sum exact=0/2048 (0.0000%) max_err=8381 mean_err=1643.6172
+   [pim-int-diff] L00.o_proj slice0 call#0 groups-sum exact=1/2048 (0.0488%) max_err=9223 mean_err=1716.7944
+[unit ternary/load] o_proj     max|Δ|=604 bitwise=False req=96 resid=55 (2.5s)
+   [pim-int-diff] L00.gate_proj slice0 call#0 groups-sum exact=0/2048 (0.0000%) max_err=9251 mean_err=1738.4888
+   [pim-int-diff] L00.gate_proj slice1 call#0 groups-sum exact=0/2048 (0.0000%) max_err=7373 mean_err=1700.2739
+   [pim-int-diff] L00.gate_proj slice2 call#0 groups-sum exact=0/2048 (0.0000%) max_err=8209 mean_err=1754.4360
+   [pim-int-diff] L00.gate_proj slice0 call#0 groups-sum exact=0/2048 (0.0000%) max_err=8963 mean_err=2400.8613
+   [pim-int-diff] L00.gate_proj slice1 call#0 groups-sum exact=1/2048 (0.0488%) max_err=9772 mean_err=2274.7422
+   [pim-int-diff] L00.gate_proj slice2 call#0 groups-sum exact=1/2048 (0.0488%) max_err=9449 mean_err=2347.6499
+[unit ternary/load] gate_proj  max|Δ|=630 bitwise=False req=288 resid=48 (7.6s)
+   [pim-int-diff] L00.up_proj slice0 call#0 groups-sum exact=0/2048 (0.0000%) max_err=7803 mean_err=1711.9473
+[pim] server bender=0: LOAD pool exhausted (ENOSPC) — later slices use V2
+[pim] LOAD→V2 fallback slices so far: 1
+   [pim-int-diff] L00.up_proj slice1 call#0 groups-sum exact=2048/2048 (100.0000%) max_err=0 mean_err=0.0000
+   [pim-int-diff] L00.up_proj slice2 call#0 groups-sum exact=2048/2048 (100.0000%) max_err=0 mean_err=0.0000
+   [pim-int-diff] L00.up_proj slice0 call#0 groups-sum exact=0/2048 (0.0000%) max_err=7737 mean_err=1828.9014
+   [pim-int-diff] L00.up_proj slice1 call#0 groups-sum exact=2048/2048 (100.0000%) max_err=0 mean_err=0.0000
+   [pim-int-diff] L00.up_proj slice2 call#0 groups-sum exact=2048/2048 (100.0000%) max_err=0 mean_err=0.0000
+[unit ternary/load] up_proj    max|Δ|=444 bitwise=False req=288 resid=43 (7.6s)
+   [pim-int-diff] L00.down_proj slice0 call#0 groups-sum exact=2048/2048 (100.0000%) max_err=0 mean_err=0.0000
+   [pim-int-diff] L00.down_proj slice0 call#0 groups-sum exact=2048/2048 (100.0000%) max_err=0 mean_err=0.0000
+[unit ternary/load] down_proj  max|Δ|=0 bitwise=True req=288 resid=94 (7.7s)
+[unit] SAFETY: 1/1 servers sim, zero xdma fds
+Traceback (most recent call last):
+  File "/home/deni/Claude/bonsai_client_2026_07_20/unit_bonsai_l0.py", line 172, in <module>
+    os.makedirs(os.path.dirname(OUTJSON), exist_ok=True)
+  File "<frozen os>", line 225, in makedirs
+FileNotFoundError: [Errno 2] No such file or directory: ''

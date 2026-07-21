@@ -1,0 +1,31 @@
+[bnet] MULTI-DIMM: [2] — d_in sub-handles split across 1 DIMMs, concurrent + summed
+[bnet] PIM config: PIM_USE_LOAD_WEIGHTS=1, banks=0,1,2,3, layout=per-DIMM (['2'])
+[bnet] loading bonsai_ternary from /home/deni/bonsai_weights/ternary (dtype=torch.float32)
+[bnet] loaded in 1.2s (1.72B params, arch=['Qwen3ForCausalLM'])
+[bnet] bonsai weight specs from /home/deni/bonsai_weights/extracted/ternary (codes + g128 group_scales + sparse residuals)
+[bnet] PIM-substituting 1/196 BitLinears = 0.5% of model BitLinears (LM head + embeddings stay in PyTorch — that's the irreducible non-BitLinear ~5%)
+[pim] substituted layer 0.self_attn.k_proj (2048 → 1024)
+[pim] 1 projections now run on PIM (server)
+
+[bnet] user: 'What is the capital of France?'
+[bnet] 7 input tokens, generating up to 1...
+/home/radarskinpc/.local/lib/python3.12/site-packages/transformers/generation/utils.py:1730: UserWarning: You have modified the pretrained model configuration to control generation. This is a deprecated strategy to control generation and will be removed in v5. Please use and modify the model generation configuration (see https://huggingface.co/docs/transformers/generation_strategies#default-text-generation-configuration )
+  warnings.warn(
+   [pim-int-diff] L00.k_proj slice0 call#0 groups-sum exact=1024/1024 (100.0000%) max_err=0 mean_err=0.0000
+   [pim-int-diff] L00.k_proj slice0 call#0 groups-sum exact=1024/1024 (100.0000%) max_err=0 mean_err=0.0000
+   [pim-int-diff] L00.k_proj slice0 call#0 groups-sum exact=1024/1024 (100.0000%) max_err=0 mean_err=0.0000
+   [pim-int-diff] L00.k_proj slice0 call#0 groups-sum exact=1024/1024 (100.0000%) max_err=0 mean_err=0.0000
+   [pim-int-diff] L00.k_proj slice0 call#0 groups-sum exact=1024/1024 (100.0000%) max_err=0 mean_err=0.0000
+   [pim-int-diff] L00.k_proj slice0 call#0 groups-sum exact=1024/1024 (100.0000%) max_err=0 mean_err=0.0000
+   [pim-int-diff] L00.k_proj slice0 call#0 groups-sum exact=1024/1024 (100.0000%) max_err=0 mean_err=0.0000
+
+[bnet] response (1 tok in 0.9s, 1.11 tok/s):
+   ' The'
+
+=== PIM forward-path timing summary ===
+layer projection               forward    quant    matmul     xbp    body   request   parse  #calls  #tok  #req
+    0 self_attn.k_proj          719.7     0.1    719.5   12.5   41.5    655.0    0.0       1     7   112
+-- totals: forward=720ms  server-request=655ms  x_bitplane-build=12ms  body-concat=41ms
+-- residual correction: 140 terms applied, sum|Δy_int|=0.308, max single |Δy_int|=0.00757 (pre-x_scale units)
+
+PimServer(2, '0,1,2,3', '/home/deni/Claude/SiMRA-DRAM-main/DRAM-Bender/sources/apps/DSN_AE_APPS/BitNet/calib_dimm2.txt', '/home/deni/Claude/SiMRA-DRAM-main/DRAM-Bender/sources/apps/DSN_AE_APPS/BitNet/bitnet-proj-server', (('PIM_POOL_LIST_FILE', '/home/deni/Claude/SiMRA-DRAM-main/DRAM-Bender/sources/apps/DSN_AE_APPS/BitNet/pool_layout_dimm2_cloneok_bank{bank}.txt'), ('PIM_SUB_END', 45952), ('PIM_SUB_START', 45312))):  pipe-write=1ms  pipe-read=681ms  calls=128  bytes-sent=1.1MB  server-time-implied=-27ms

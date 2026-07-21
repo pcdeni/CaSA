@@ -15,6 +15,12 @@ Workflow per forward(input):
      weights): build a v2 request (pos_mask + neg_mask + x_bitplane +
      bitplane_factor), send to server, receive int32 y.
   4. Concatenate slices; rescale by weight_scale / input_scale.
+
+2026-07-20 extension (default-off): PimBitLinear(weight_spec=...) accepts
+external int8 codes with OPTIONAL per-(row, 128-input-group) scales and
+sparse exact residuals (PrismML Bonsai g128 format). Group mode dispatches
+per-group partial requests (vote-then-scale) — see __init__. With
+weight_spec=None everything is the legacy BitNet path, byte-identical.
 """
 import atexit, os, struct, subprocess, sys, tempfile, threading
 import numpy as np
@@ -200,7 +206,7 @@ class PimBitLinear(nn.Module):
 
     def __init__(self, base, *, bender_id, calib_file, bank_id, runner_path,
                  server_path=None, use_server=True, verbose=False,
-                 dimm_configs=None):
+                 dimm_configs=None, weight_spec=None):
         super().__init__()
         # Keep the original module's tensors (registered as attributes)
         self.base = base
@@ -247,15 +253,79 @@ class PimBitLinear(nn.Module):
         else:
             self._server = None
 
-        # Pre-extract weight as int8 ternary [out, in].
-        w = base.weight  # bf16 [out, in] in {-1, 0, +1}
-        if w.dtype == torch.uint8:
-            # Older fallback: uint8 {0, 1, 255} → int8.
-            w_int = w.view(torch.int8).to(torch.int8)
+        # ------- optional external weight spec (Bonsai, 2026-07-20) -------
+        # weight_spec=None (default) → legacy BitNet path, byte-identical.
+        # weight_spec dict keys:
+        #   codes         int8 [out, in] in {-1,0,+1}      (required)
+        #   group_scales  f32 [out, in//group_size] or None — per-(row,
+        #                 128-input-group) scales (PrismML Bonsai g128).
+        #                 None → scalar path with 'weight_scale'.
+        #   group_size    int, default 128 (must be a multiple of 32)
+        #   residual_idx  int64 [n, 2] (row, col) — sparse exact deltas
+        #   residual_val  f32 [n]        w_true − s·code (~1e-5 of weights)
+        #   weight_scale  float scalar (only used when group_scales=None)
+        # Group mode changes the math to
+        #   y[r] = ( Σ_g s[r,g] · popcount-partial_g[r] + Σ resid Δ·x[col] )
+        #          / x_scale
+        # with vote-then-scale ordering: calib/copy votes happen on the
+        # int32 per-group partials BEFORE s[r,g] is applied.
+        self._group_scales = None
+        self._group_size = 0
+        self._group_chunks = 0
+        self._resid_rows = None
+        self._resid_cols = None
+        self._resid_vals = None
+        # Residual-correction telemetry (host-side add is ~1e-5-magnitude;
+        # measured so the run report can quantify its contribution).
+        self._resid_terms_applied = 0
+        self._resid_abs_sum = 0.0
+        self._resid_abs_max = 0.0
+        if weight_spec is None:
+            # Pre-extract weight as int8 ternary [out, in].
+            w = base.weight  # bf16 [out, in] in {-1, 0, +1}
+            if w.dtype == torch.uint8:
+                # Older fallback: uint8 {0, 1, 255} → int8.
+                w_int = w.view(torch.int8).to(torch.int8)
+            else:
+                w_int = w.to(torch.int8)
+            self._w_int = w_int.detach().cpu().numpy()    # [out, in]
+            self._weight_scale = _bf16_to_f32_scalar(base.weight_scale)
         else:
-            w_int = w.to(torch.int8)
-        self._w_int = w_int.detach().cpu().numpy()    # [out, in]
-        self._weight_scale = _bf16_to_f32_scalar(base.weight_scale)
+            codes = np.ascontiguousarray(
+                np.asarray(weight_spec['codes'], dtype=np.int8))
+            if codes.shape != (self.out_features, self.in_features):
+                raise ValueError(
+                    f"weight_spec codes shape {codes.shape} != "
+                    f"({self.out_features}, {self.in_features})")
+            self._w_int = codes
+            gs = weight_spec.get('group_scales')
+            if gs is not None:
+                if not use_server:
+                    raise ValueError("group_scales requires the server "
+                                     "backend (per-group partial dispatch)")
+                self._group_size = int(weight_spec.get('group_size', 128))
+                if self._group_size % 32 != 0:
+                    raise ValueError(f"group_size {self._group_size} must be "
+                                     f"a multiple of 32 (chunk width)")
+                self._group_chunks = self._group_size // 32
+                if self.in_features % self._group_size != 0:
+                    raise ValueError(
+                        f"d_in {self.in_features} not divisible by "
+                        f"group_size {self._group_size}")
+                gs = np.ascontiguousarray(np.asarray(gs, dtype=np.float32))
+                want = (self.out_features,
+                        self.in_features // self._group_size)
+                if gs.shape != want:
+                    raise ValueError(f"group_scales shape {gs.shape} != {want}")
+                self._group_scales = gs
+            ridx = weight_spec.get('residual_idx')
+            rval = weight_spec.get('residual_val')
+            if ridx is not None and rval is not None and len(rval) > 0:
+                ridx = np.asarray(ridx, dtype=np.int64)
+                self._resid_rows = np.ascontiguousarray(ridx[:, 0])
+                self._resid_cols = np.ascontiguousarray(ridx[:, 1])
+                self._resid_vals = np.asarray(rval, dtype=np.float32)
+            self._weight_scale = float(weight_spec.get('weight_scale', 1.0))
         self._n_calls = 0
         # Profiling counters
         self._t_total_ms = 0.0
@@ -336,7 +406,30 @@ class PimBitLinear(nn.Module):
             #     byte-identical legacy full-body path.
             v2_parts = None
             _n_srv_cfg = len(self._servers) if use_server else 1
-            if _n_srv_cfg > 1:
+            if self._group_scales is not None:
+                # Bonsai group mode: per-GROUP V2 part bodies (each part =
+                # one 128-input scale window = group_chunks chunks). The
+                # single full-body V2 request cannot carry per-group scales
+                # so group mode NEVER uses it; parts are round-robin'd
+                # across servers (all → server 0 when single-DIMM).
+                v2_parts = []
+                gc_ = self._group_chunks
+                for g in range(n_chunks // gc_):
+                    c_a = g * gc_
+                    c_b = c_a + gc_
+                    part_header = (struct.pack('<I', MAGIC_V2)
+                                   + struct.pack('<I', (c_b - c_a) * 32)
+                                   + struct.pack('<I', D_OUT_SLICE)
+                                   + struct.pack('<I', c_b - c_a)
+                                   + struct.pack('<I', N_BITPLANES))
+                    v2_parts.append({
+                        'server_idx': g % max(1, _n_srv_cfg),
+                        'c_a': c_a, 'c_b': c_b, 'group': g,
+                        'prefix': (part_header
+                                   + pos_mask[c_a:c_b].tobytes()
+                                   + neg_mask[c_a:c_b].tobytes()),
+                    })
+            elif _n_srv_cfg > 1:
                 v2_parts = []
                 per = (n_chunks + _n_srv_cfg - 1) // _n_srv_cfg
                 for si in range(_n_srv_cfg):
@@ -364,6 +457,15 @@ class PimBitLinear(nn.Module):
             #    own pool reservation on the server.
             load_subs = []
             sub_size = max(1, MAX_CHUNKS_PER_SUB)
+            if self._group_scales is not None:
+                # Group mode: a sub-handle must not straddle a scale-group
+                # boundary (its MM3D partial gets exactly ONE s[r,g]).
+                # Clamp to the group width, then round down to a divisor of
+                # it. Default group 128 → 4 chunks: PIM_MAX_CHUNKS_PER_SUB
+                # =16 self-aligns to 4 without needing the env override.
+                sub_size = min(sub_size, self._group_chunks)
+                while self._group_chunks % sub_size != 0:
+                    sub_size -= 1
             n_subs = (n_chunks + sub_size - 1) // sub_size
             for sub_i in range(n_subs):
                 c_a = sub_i * sub_size
@@ -389,7 +491,7 @@ class PimBitLinear(nn.Module):
                 n_srv = max(1, len(self._servers))
                 srv_idx = self._sub_rr % n_srv
                 self._sub_rr += 1
-                load_subs.append({
+                sub_entry = {
                     'handle_id': handle_id,
                     'c_a': c_a, 'c_b': c_b,
                     'n_chunks_sub': n_chunks_sub,
@@ -397,8 +499,14 @@ class PimBitLinear(nn.Module):
                     'mm3d_prefix': mm3d_prefix,
                     'loaded': False,
                     'server_idx': srv_idx,
-                })
-            self._slices.append({
+                }
+                if self._group_scales is not None:
+                    g = c_a // self._group_chunks
+                    assert (c_b - 1) // self._group_chunks == g, \
+                        "load sub straddles a scale-group boundary"
+                    sub_entry['group'] = g
+                load_subs.append(sub_entry)
+            slice_entry = {
                 'a': a, 'b': b, 'n_real': n_real,
                 'n_copies': n_copies,  # 1 = no replication; ≥2 = vote across copies
                 'static_prefix': static_prefix_v2,
@@ -407,7 +515,13 @@ class PimBitLinear(nn.Module):
                 'load_subs': load_subs,
                 # Stashed for int-level diff log (PIM_INT_DIFF=1).
                 'W_slice_int': W_slice[:n_real, :].astype(np.int32),
-            })
+            }
+            if self._group_scales is not None:
+                # f32 [n_real, n_groups] — REAL output rows only. Votes run
+                # on int partials first, so copy rows never need scales.
+                slice_entry['group_scales'] = np.ascontiguousarray(
+                    self._group_scales[a:b, :])
+            self._slices.append(slice_entry)
 
     @torch.no_grad()
     def forward(self, x):
@@ -437,7 +551,13 @@ class PimBitLinear(nn.Module):
             _ts = _time.perf_counter()
             y_int = self._pim_matmul_one_token(x_int8_t)
             _t_matmul_total += _time.perf_counter() - _ts
-            y_f32 = (y_int.astype(np.float32) * self._weight_scale) / flat_scale[t, 0]
+            if self._group_scales is not None:
+                # Group mode: s[r,g] (and the sparse residual correction)
+                # were already applied inside the matmul → only the
+                # activation rescale remains.
+                y_f32 = y_int / flat_scale[t, 0]
+            else:
+                y_f32 = (y_int.astype(np.float32) * self._weight_scale) / flat_scale[t, 0]
             y_out_f32[t] = y_f32
 
         out_shape = list(orig_shape[:-1]) + [self.out_features]
@@ -488,7 +608,9 @@ class PimBitLinear(nn.Module):
 
     def _pim_matmul_one_token(self, x_int8):
         """Run integer ternary @ int8 matmul for one token via PIM.
-        x_int8: int8 [in_features]. Returns int32 [out_features]."""
+        x_int8: int8 [in_features]. Returns int32 [out_features] in the
+        legacy scalar path; float32 [out_features] in group mode (per-group
+        scales + sparse residuals already applied, x_scale NOT yet)."""
         import time as _time
         d_in = self.in_features
         d_out = self.out_features
@@ -502,6 +624,10 @@ class PimBitLinear(nn.Module):
         self._t_xbp_ms += (_time.perf_counter() - _ts) * 1000
 
         y = np.zeros(d_out, dtype=np.int32)
+        # Group mode accumulates in f32 (scales applied per slice); the
+        # legacy scalar path keeps the int32 buffer + late scalar rescale.
+        y_f32 = (np.zeros(d_out, dtype=np.float32)
+                 if self._group_scales is not None else None)
         for s, slc in enumerate(self._slices):
             a, b, n_real = slc['a'], slc['b'], slc['n_real']
             if self._server is not None:
@@ -572,6 +698,111 @@ class PimBitLinear(nn.Module):
                 else:
                     d_full_vote = (slice_n_copies == 1
                                    and os.environ.get('PIM_VOTE_FULL', '1') == '1')
+                # ---------- Bonsai group mode (per-group scales) ----------
+                # Vote-then-scale: fetch int32 per-group partials (LOAD →
+                # one MM3D per sub-handle routed into its group's slot;
+                # V2 → one request per group part), vote on the INT
+                # partials (calib trips and/or in-row copies), then apply
+                # s[r,g] and reduce over groups in f32. Skips the entire
+                # legacy y_slice flow below.
+                if self._group_scales is not None:
+                    n_groups = n_chunks // self._group_chunks
+                    items = (slc['load_subs'] if use_load_mode
+                             else slc['v2_parts'])
+                    bp_factor_bytes_g = slc['bp_factor_bytes']
+                    n_srv = len(self._servers)
+
+                    def _one_calib_groups(cal_idx):
+                        partials = [np.zeros((n_groups, D_OUT_SLICE),
+                                             dtype=np.int32)
+                                    for _ in range(n_srv)]
+                        errs = [None] * n_srv
+
+                        def _run_srv(si):
+                            try:
+                                for it in items:
+                                    if it['server_idx'] != si:
+                                        continue
+                                    x_bp_sub = x_bitplane[it['c_a']:it['c_b']]
+                                    prefix = (it['mm3d_prefix']
+                                              if use_load_mode
+                                              else it['prefix'])
+                                    body = (prefix
+                                            + x_bp_sub.tobytes()
+                                            + bp_factor_bytes_g
+                                            + struct.pack('<I', cal_idx))
+                                    resp = self._servers[si].request(body)
+                                    partials[si][it['group']] += np.frombuffer(
+                                        resp, dtype=np.int32,
+                                        count=D_OUT_SLICE)
+                            except Exception as e:
+                                errs[si] = e
+
+                        _serial = (n_srv == 1 or
+                                   os.environ.get('PIM_MULTIDIMM_SERIAL') == '1')
+                        if _serial:
+                            for si in range(n_srv):
+                                _run_srv(si)
+                        else:
+                            ths = [threading.Thread(target=_run_srv,
+                                                    args=(si,))
+                                   for si in range(n_srv)]
+                            for th in ths: th.start()
+                            for th in ths: th.join()
+                        for e in errs:
+                            if e is not None:
+                                raise e
+                        self._n_inner_requests += len(items)
+                        G_acc = partials[0]
+                        for p in partials[1:]:
+                            G_acc = G_acc + p
+                        return G_acc
+
+                    _ts = _time.perf_counter()
+                    if d_full_vote:
+                        g_trips = [_one_calib_groups(c) for c in (0, 1, 2)]
+                        G = np.median(np.stack(g_trips, axis=0),
+                                      axis=0).astype(np.int32)
+                    else:
+                        cidx = (int(_force_calib)
+                                if _force_calib is not None else 0)
+                        G = _one_calib_groups(cidx)
+                    self._t_request_ms += (_time.perf_counter() - _ts) * 1000
+                    n_copies_g = slc.get('n_copies', 1)
+                    if n_copies_g > 1:
+                        copies = G[:, :n_copies_g * n_real].reshape(
+                            n_groups, n_copies_g, n_real)
+                        if n_copies_g >= 3:
+                            Gv = np.median(copies, axis=1).astype(np.int32)
+                        else:
+                            Gv = ((copies[:, 0].astype(np.int64)
+                                   + copies[:, 1].astype(np.int64)) // 2
+                                  ).astype(np.int32)
+                    else:
+                        Gv = G[:, :n_real]
+                    # Scale AFTER voting; per-row dot over groups in f32.
+                    gs_slice = slc['group_scales']   # f32 [n_real, n_groups]
+                    y_f32[a:b] = (gs_slice * Gv.T.astype(np.float32)
+                                  ).sum(axis=1, dtype=np.float32)
+                    if os.environ.get("PIM_INT_DIFF"):
+                        W_slice_int = slc.get('W_slice_int')
+                        if W_slice_int is not None:
+                            y_pim_int = Gv.astype(np.int64).sum(axis=0)
+                            y_ref_int = (W_slice_int.astype(np.int64)
+                                         @ x_int8.astype(np.int64))
+                            diff = np.abs(y_pim_int - y_ref_int)
+                            n_exact = int((diff == 0).sum())
+                            tag = getattr(self, "_diff_tag", "?")
+                            print(f"   [pim-int-diff] {tag} slice{s} "
+                                  f"call#{self._n_calls} groups-sum "
+                                  f"exact={n_exact}/{n_real} "
+                                  f"({100*n_exact/max(1,n_real):.4f}%) "
+                                  f"max_err={int(diff.max())} "
+                                  f"mean_err={float(diff.mean()):.4f}",
+                                  flush=True)
+                    continue
+                # ---------- end group mode ----------
+
                 # Helper: produce one slice's y at a given calib index. In
                 # LOAD-mode this dispatches one MM3D request per d_in
                 # sub-handle and sums the partial outputs (math: y = sum_c
@@ -757,13 +988,30 @@ class PimBitLinear(nn.Module):
                           f"max_err={max_e} mean_err={mean_e:.4f} "
                           f"y_pim[0..5]={y_pim_int[:5].tolist()} "
                           f"y_ref[0..5]={y_ref_int[:5].tolist()}", flush=True)
+        if self._group_scales is not None:
+            # Sparse residual correction: y[r] += Δ·x_int8[col] for the
+            # ~1e-5 of weights that sit a few fp16 ulps off their group
+            # level. Host-side, f32, index order = npz order (np.add.at is
+            # unbuffered → deterministic). Telemetry accumulated so runs
+            # can report the measured contribution.
+            if self._resid_rows is not None:
+                contrib = (self._resid_vals
+                           * x_int8[self._resid_cols].astype(np.float32))
+                np.add.at(y_f32, self._resid_rows, contrib)
+                self._resid_terms_applied += int(contrib.size)
+                _abs = np.abs(contrib)
+                self._resid_abs_sum += float(_abs.sum())
+                _m = float(_abs.max()) if contrib.size else 0.0
+                if _m > self._resid_abs_max:
+                    self._resid_abs_max = _m
+            return y_f32
         return y
 
 
 def pim_substitute(model, layer_indices, projections, *,
                    bender_id, calib_file, bank_id, runner_path,
                    server_path=None, use_server=True, verbose=False,
-                   dimm_configs=None):
+                   dimm_configs=None, weight_spec_fn=None):
     """In-place: replace selected projections in selected layers with
     PIM-backed versions.
 
@@ -772,6 +1020,10 @@ def pim_substitute(model, layer_indices, projections, *,
        ["self_attn.q_proj", "self_attn.k_proj", "mlp.gate_proj", ...]
     use_server: if True (default), use the long-running PIM server
        (1 subprocess shared across all PimBitLinear instances).
+    weight_spec_fn: optional callable (layer_idx, proj_path) → weight_spec
+       dict (see PimBitLinear.__init__) for models whose codes/scales come
+       from external files (PrismML Bonsai). None (default) = legacy
+       BitNet extraction from the module's own weight/weight_scale.
     """
     n_replaced = 0
     for li in layer_indices:
@@ -782,11 +1034,13 @@ def pim_substitute(model, layer_indices, projections, *,
             for p in parts[:-1]:
                 parent = getattr(parent, p)
             base = getattr(parent, parts[-1])
+            spec = weight_spec_fn(li, proj_path) if weight_spec_fn else None
             wrapped = PimBitLinear(
                 base, bender_id=bender_id, calib_file=calib_file,
                 bank_id=bank_id, runner_path=runner_path,
                 server_path=server_path, use_server=use_server,
-                verbose=verbose, dimm_configs=dimm_configs)
+                verbose=verbose, dimm_configs=dimm_configs,
+                weight_spec=spec)
             wrapped._diff_tag = f"L{li:02d}.{parts[-1]}"
             setattr(parent, parts[-1], wrapped)
             n_replaced += 1
@@ -833,6 +1087,18 @@ def print_pim_timing_summary(model):
           f"server-request={total_request:.0f}ms  "
           f"x_bitplane-build={total_xbp:.0f}ms  "
           f"body-concat={total_body:.0f}ms")
+    # Bonsai group mode only: sparse-residual telemetry (silent for BitNet).
+    _rt = 0; _rs = 0.0; _rm = 0.0
+    for layer in model.model.layers:
+        for m in layer.modules():
+            if isinstance(m, PimBitLinear) and m._resid_terms_applied:
+                _rt += m._resid_terms_applied
+                _rs += m._resid_abs_sum
+                _rm = max(_rm, m._resid_abs_max)
+    if _rt:
+        print(f"-- residual correction: {_rt} terms applied, "
+              f"sum|Δy_int|={_rs:.3f}, max single |Δy_int|={_rm:.5f} "
+              f"(pre-x_scale units)")
     # Per-PimServer pipe timing (one server shared across PimBitLinears).
     print()
     for key, srv in PimServer._shared.items():

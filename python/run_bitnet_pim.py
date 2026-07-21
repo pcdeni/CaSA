@@ -22,7 +22,51 @@ MODEL = "microsoft/bitnet-b1.58-2B-4T"
 CACHE = "/home/deni/bitnet_weights"
 CALIB = "/home/deni/Claude/SiMRA-DRAM-main/DRAM-Bender/sources/apps/DSN_AE_APPS/BitNet/calib_dimm0.txt"
 RUNNER = "/home/deni/Claude/SiMRA-DRAM-main/DRAM-Bender/sources/apps/DSN_AE_APPS/BitNet/bitnet-proj-exe"
-SERVER = "/home/deni/Claude/SiMRA-DRAM-main/DRAM-Bender/sources/apps/DSN_AE_APPS/BitNet/bitnet-proj-server"
+# PIM_SERVER_PATH overrides the server binary (e.g. a copied binary run
+# through a PIM_BACKEND=sim wrapper). Default = production path, unchanged.
+SERVER = os.environ.get(
+    "PIM_SERVER_PATH",
+    "/home/deni/Claude/SiMRA-DRAM-main/DRAM-Bender/sources/apps/DSN_AE_APPS/BitNet/bitnet-proj-server")
+
+# ---- PrismML Bonsai-1.7B (Qwen3-1.7B based; 2026-07-20) ----
+# Extracted per-projection npz: codes int8 {-1,0,+1} + group_scales f32
+# per (row, 128-input group) + sparse exact residuals. See
+# /home/deni/Claude/bonsai_prep_2026_07_20/README.md and
+# /home/deni/Claude/bonsai_client_2026_07_20/README.md.
+# 1-bit runs DUAL-TRACK with an empty zero-set (neg_mask = ~pos_mask
+# within d_in): no server change needed, but the neg track is redundant —
+# y = 2·y_postrack − Σx would halve rows/ops with a server single-track
+# flag (out of scope here).
+BONSAI_SPECS = {
+    "bonsai_1bit": {
+        "model_dir": "/home/deni/bonsai_weights/1bit",
+        "extract_dir": "/home/deni/bonsai_weights/extracted/1bit",
+    },
+    "bonsai_ternary": {
+        "model_dir": "/home/deni/bonsai_weights/ternary",
+        "extract_dir": "/home/deni/bonsai_weights/extracted/ternary",
+    },
+}
+
+
+def make_bonsai_spec_fn(extract_dir):
+    """weight_spec_fn for pim_substitute: load L<LL>.<proj>.npz on demand."""
+    import numpy as np
+
+    def spec_fn(li, proj_path):
+        name = proj_path.split(".")[-1]
+        z = np.load(os.path.join(extract_dir, f"L{li:02d}.{name}.npz"))
+        return {
+            "codes": z["codes"],
+            "group_scales": z["group_scales"],
+            "group_size": int(z["group_size"]),
+            "residual_idx": z["residual_idx"],
+            "residual_val": z["residual_val"],
+            # weight_scale (mean of group scales) kept for API-shape
+            # compat only; unused when group_scales is present.
+            "weight_scale": float(z["weight_scale"]),
+        }
+    return spec_fn
 
 _BN = "/home/deni/Claude/SiMRA-DRAM-main/DRAM-Bender/sources/apps/DSN_AE_APPS/BitNet"
 # Per-DIMM specs for multi-DIMM. Only the validated DIMMs (0, 2) are here.
@@ -48,6 +92,15 @@ DIMM_SPECS = {
 
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--model", default="bitnet",
+                    choices=["bitnet"] + sorted(BONSAI_SPECS),
+                    help="bitnet (default; unchanged behavior) or a "
+                         "PrismML Bonsai-1.7B variant (per-group g128 "
+                         "scales via the pim_linear weight_spec path).")
+    ap.add_argument("--dtype", default=None, choices=["bfloat16", "float32"],
+                    help="Host-side model dtype. Default: bfloat16 for "
+                         "bitnet (unchanged), float32 for bonsai (matches "
+                         "the golden CPU reference).")
     ap.add_argument("--layers", default="all",
                     help="Comma-separated layer indices to PIM-substitute, "
                          "or 'all' for every transformer layer (default).")
@@ -128,15 +181,40 @@ def main():
     else:
         projs = args.projs.split(",")
 
-    print(f"[bnet] loading {MODEL} (cache={CACHE})", flush=True)
-    t0 = time.time()
-    tok = AutoTokenizer.from_pretrained(MODEL, cache_dir=CACHE)
-    model = AutoModelForCausalLM.from_pretrained(
-        MODEL, torch_dtype=torch.bfloat16, cache_dir=CACHE)
-    model.eval()
-    print(f"[bnet] loaded in {time.time()-t0:.1f}s "
-          f"({sum(p.numel() for p in model.parameters())/1e9:.2f}B params)",
-          flush=True)
+    weight_spec_fn = None
+    if args.model == "bitnet":
+        print(f"[bnet] loading {MODEL} (cache={CACHE})", flush=True)
+        t0 = time.time()
+        tok = AutoTokenizer.from_pretrained(MODEL, cache_dir=CACHE)
+        model = AutoModelForCausalLM.from_pretrained(
+            MODEL, torch_dtype=torch.bfloat16, cache_dir=CACHE)
+        model.eval()
+        print(f"[bnet] loaded in {time.time()-t0:.1f}s "
+              f"({sum(p.numel() for p in model.parameters())/1e9:.2f}B params)",
+              flush=True)
+    else:
+        spec = BONSAI_SPECS[args.model]
+        dtype = (torch.bfloat16 if args.dtype == "bfloat16"
+                 else torch.float32)
+        print(f"[bnet] loading {args.model} from {spec['model_dir']} "
+              f"(dtype={dtype})", flush=True)
+        t0 = time.time()
+        tok = AutoTokenizer.from_pretrained(spec["model_dir"])
+        model = AutoModelForCausalLM.from_pretrained(
+            spec["model_dir"], torch_dtype=dtype)
+        model.eval()
+        print(f"[bnet] loaded in {time.time()-t0:.1f}s "
+              f"({sum(p.numel() for p in model.parameters())/1e9:.2f}B params, "
+              f"arch={model.config.architectures})", flush=True)
+        weight_spec_fn = make_bonsai_spec_fn(spec["extract_dir"])
+        print(f"[bnet] bonsai weight specs from {spec['extract_dir']} "
+              f"(codes + g128 group_scales + sparse residuals)", flush=True)
+        if args.model == "bonsai_1bit":
+            print("[bnet] bonsai_1bit maps to DUAL-TRACK with an empty "
+                  "zero-set (neg_mask = complement of pos_mask): runs on "
+                  "the unchanged client+server; the neg track is redundant "
+                  "(y = 2*pos_track - sum(x)); single-track halving needs "
+                  "a server flag (out of scope).", flush=True)
 
     # Resolve --layers all into the full transformer-layer index range.
     if args.layers == "all":
@@ -158,7 +236,7 @@ def main():
                    bender_id=args.bender, calib_file=args.calib,
                    bank_id=args.bank, runner_path=RUNNER,
                    server_path=SERVER, use_server=True, verbose=True,
-                   dimm_configs=dimm_configs)
+                   dimm_configs=dimm_configs, weight_spec_fn=weight_spec_fn)
 
     if os.environ.get("PIM_NO_CHAT_TEMPLATE"):
         # Demo / minimum-prefill mode: skip the chat template wrapper so
