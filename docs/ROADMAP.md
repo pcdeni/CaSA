@@ -101,13 +101,16 @@ design doc that motivates it — the roadmap is itself evidence-first.
 
 ## C. Characterization / science (learn + enable)
 
-11. **Bank-similarity audit (16 banks)** — READY (posed 2026-07-21).
-    Run the spread-profile + selection-law probe + margin
-    screen on all 16 banks of D2 (we use 4). Prediction from existing
-    data: identical lattice/law (spread profile already byte-identical
-    across the 4 measured banks; predecoder groups are design constants),
-    per-bank margin maps only. Confirms characterization-transfer ⇒ makes
-    16-bank scale-out cheap.
+11. **Bank-similarity audit** — TRANCHE 1 CONFIRMED 2026-07-21
+    (`docs/BANK_AUDIT_2026_07.md`): four never-calibrated banks under a
+    verbatim-transferred calib produce classification-identical spread
+    tables (350/350 rows × 14 primitive cases); even the flake fringe is
+    deterministic and bank-invariant; the null control shows zero
+    deposits off-lattice on every bank. Calibration transfer = margin
+    re-screen only, demonstrated on zero-characterization silicon —
+    the 16-bank scale-out (#13, ~4× residency/parallelism headroom
+    with no new sweeps) is real. Remaining: margin maps, banks 8-15,
+    the selection-law probe on one new bank.
 12. **Calib-transfer procedure** — formalize: apply bank-0 calib to a new
     bank with margin re-screen only (already half-exploited: D0 banks
     0/2/3 share calib; cross-die transfer evidenced). Deliverable: a
