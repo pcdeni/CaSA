@@ -707,3 +707,11 @@ envelope. q2_K / q3_K / q4_0 / q6_K are all silicon-verified through
 the llama.cpp interception path; the model set (7B, 13B, Llama-3-8B,
 phi-4) was already covered by the sampled e2e logs in
 `docs/data/lane2/`.
+
+**2026-07-21 addendum — 256-token sampled e2e.** The depth extension of
+the four-model sampled protocol: Llama-2-7B Q4_0, 256 generated tokens,
+24 ops routed through the in-DRAM server across the whole horizon —
+**24/24 verified, mean 99.845 % int-exact (99.77–99.90 %)**, attn and
+ffn shapes, K up to 11008. (Route c2: the CPU stays dst; the PIM is the
+verified side-channel, so text quality is the base model's own
+prompt-echo at greedy — orthogonal to the verification claim.)

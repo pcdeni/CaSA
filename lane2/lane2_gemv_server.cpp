@@ -486,6 +486,10 @@ struct Matrix {
                               // filled when LANE2_DUALTRACK / clone encode
   vector<uint8_t> plane;      // ACCUM modes: raw wire bitplanes (qb*M*bpr);
                               // horizontal W rows are built per product
+  vector<uint32_t> wres_row;  // LANE2_WRES: (i*M+m) -> resident value row
+                              // holding that W bitplane row (0 = spill,
+                              // pcwrite path). Residency owned by the last
+                              // LOADed handle.
 };
 static unordered_map<uint32_t, Matrix> MATS;
 static vector<int> LANES;   // screened segment ids, ascending
@@ -739,6 +743,18 @@ static double now_s() { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); r
 static uint32_t XROW = 0;      // resident activation value row (sentinel row)
 static vector<int> PSEG;       // AND-screened segments for product bits
 static long N_DRAIN_TRY = 0, N_DRAIN_HIT = 0;
+// LANE2_WRES=1: W-residency clone loads. LOAD pcwrites as many W bitplane
+// rows as fit into screened antichain value rows; GEMV then computes those
+// products with a clone-gate (~700 instrs: clone W->Ti1, clone x->Ti2 —
+// the fastpath-validated put order) instead of the ~4.4K-instr pcwrite
+// gate. Spill (m,i) pairs keep the pcwrite path. This is MVDRAM's own
+// resident-weights convention (their per-op numbers assume the matrix
+// lives in DRAM); it also measures the per-product floor with operand
+// streaming removed — the enabler for plane-packed multi-read totals.
+static int WRES = 0;
+static vector<uint32_t> WPOOL;           // usable value rows for W residency
+static long N_GATE_RES = 0, N_GATE_PCW = 0;
+static double T_GATE_RES = 0, T_GATE_PCW = 0;
 
 // pcwrite body emitted into an existing program (the PACK 3-chunk shape,
 // verbatim instruction sequence — same registers, same timing).
@@ -806,6 +822,36 @@ static void pr_gate(const uint32_t* wseg, uint32_t wpat, uint8_t* out) {
     die("receiveData failed in product gate — silicon wedge? (RUNBOOK: fpga-helper)", 6);
 }
 
+// Resident-W product gate: both operands arrive by RowClone (W from its
+// resident value row, x from XROW), in the fastpath-validated put order
+// (Ti1 first, Ti2 second, uniform z last — writes after the deposit-ops
+// are immune). ~700 instrs vs pr_gate's ~4.7K. Same MAJ3-AND + zero-ref
+// + rdRow(Ti0) tail, so totals/rows are directly comparable arm-to-arm.
+static void pr_gate_res(uint32_t wrow, uint8_t* out) {
+  Program p;
+  p.add_inst(SMC_LI(8, CASR)); p.add_inst(SMC_LI(BANK, BAR)); p.add_inst(SMC_LI(128, NUM_COLS_REG));
+  p.add_below(PRE(BAR, 0, 0)); p.add_inst(SMC_SLEEP(6));
+  p.add_below(doubleACT(30, 1, wrow, CL_Ti1));            // W -> Ti1 (clone)
+  p.add_inst(SMC_SLEEP(6)); p.add_below(PRE(BAR, 0, 0)); p.add_inst(SMC_SLEEP(6));
+  p.add_below(doubleACT(30, 1, XROW, CL_Ti2));            // x -> Ti2 (clone)
+  p.add_inst(SMC_SLEEP(6)); p.add_below(PRE(BAR, 0, 0)); p.add_inst(SMC_SLEEP(6));
+  p.add_below(wrRow_immediate_label(BAR, CL_Ti0, 0u, LBL++));   // z = 0
+  p.add_inst(SMC_SLEEP(6)); p.add_below(PRE(BAR, 0, 0)); p.add_inst(SMC_SLEEP(6));
+  p.add_below(wrRow_immediate_label(BAR, CL_Tfr, ONE, LBL++));  // reference
+  p.add_inst(SMC_SLEEP(6)); p.add_below(PRE(BAR, 0, 0)); p.add_inst(SMC_SLEEP(6));
+  for (int j = 0; j < 3; j++) { p.add_inst(SMC_SLEEP(6)); p.add_below(frac_b(0, CL_Tfr)); p.add_inst(SMC_SLEEP(6)); }
+  p.add_inst(SMC_SLEEP(6)); p.add_below(PRE(BAR, 0, 0)); p.add_inst(SMC_SLEEP(6));
+  p.add_below(doubleACT(0, 0, CL_Trf, CL_Trs));           // MAJ3 = AND (z=0)
+  p.add_inst(SMC_SLEEP(6)); p.add_below(PRE(BAR, 0, 0)); p.add_inst(SMC_SLEEP(6));
+  pr_emit_zero_ref(p);
+  p.add_below(rdRow_immediate_label(BAR, CL_Ti0, LBL++));
+  p.add_inst(all_nops()); p.add_inst(all_nops());
+  p.add_below(PRE(BAR, 0, 0)); p.add_inst(SMC_END());
+  pr_exec_checked(p); N_MAJ++;
+  if (out && PF->receiveData(out, 8192) != 8192)
+    die("receiveData failed in resident product gate", 6);
+}
+
 // x-load: pcwrite the activation row AND read it back in the SAME program
 // (a no-read program's DIFF flush is nondeterministically eaten by the
 // maintenance ignore_flush race — a trailing read makes the flush armed and
@@ -861,6 +907,13 @@ static long pr_popcount_row(const uint8_t* rowb) {
   long pc = 0;
   for (int s = 0; s < 2048; s++) { uint32_t w; memcpy(&w, rowb + s * 4, 4); pc += __builtin_popcount(w); }
   return pc;
+}
+
+// place a wire bitplane row's K bits onto the PSEG segments (zeros elsewhere)
+static void pr_place_bits(const uint8_t* wr, uint32_t K, Row& out) {
+  fill(out.begin(), out.end(), 0u);
+  for (uint32_t n = 0; n < K; n++)
+    if ((wr[n >> 3] >> (n & 7)) & 1) out[PSEG[n >> 5]] |= 1u << (n & 31);
 }
 
 // startup: pick XROW, AND-screen segments through the real product gate,
@@ -965,6 +1018,35 @@ static void pr_startup(const vector<uint8_t>& mask, int trials) {
           "product on-segment %ld words wrong, off-segment %ld junk bits; "
           "repeat-read popcount %ld -> %ld (delta %ld)\n",
           xbad, on_bad, off_bits, pc1, pc2, pc2 - pc1);
+  // 5. LANE2_WRES: collect the remaining usable value rows as the W
+  //    residency pool — same antichain-mask rule and marker screen as the
+  //    XROW pick (direct r/w exact + clone-to-Ti1 intact, since W clones
+  //    into Ti1).
+  if (WRES) {
+    for (int i = 0; i < 9; i++)
+      for (int j = i + 1; j < 9; j++)
+        for (int k = j + 1; k < 9; k++) {
+          uint32_t m = (1u << sb[i]) | (1u << sb[j]) | (1u << sb[k]);
+          if ((m & 384) == 384) continue;
+          uint32_t row = CL_SUB + ((CL_Ti0 - CL_SUB) ^ m);
+          if (row == XROW) continue;
+          bool clash = false;
+          for (uint32_t r : CAL.open) if (row == r) clash = true;
+          for (uint32_t r : {CL_Ti0, CL_Ti1, CL_Ti2, CL_Tfr}) if (row == r) clash = true;
+          if (clash) continue;
+          pcwrite(row, marker.data());
+          uint8_t buf[8192]; cl_read_row(row, buf);
+          if (memcmp(buf, mexp, 8192) != 0) continue;
+          cl_zero_tuple();
+          cl_rowclone(row, CL_Ti1);
+          cl_read_row(CL_Ti1, buf);
+          int match = 0; for (int b = 0; b < 8192; b++) if (buf[b] == mexp[b]) match++;
+          if (match < 8192 - 64) continue;
+          WPOOL.push_back(row);
+        }
+    fprintf(stderr, "[lane2] WRES pool: %zu resident W rows (marker + clone-to-Ti1 screened)\n",
+            WPOOL.size());
+  }
   fprintf(stderr, "[lane2] ACCUM startup done in %.1f s (%ld execs)\n",
           now_s() - ts, N_EXEC);
 }
@@ -1018,11 +1100,18 @@ static void handle_gemv_accum(uint32_t handle, Matrix& mat, uint32_t rb, const u
       long long fac = (long long)FAC((int)i, (int)mat.qb) * FAC((int)c, (int)rb);
       for (uint32_t m = 0; m < mat.M && !fail; m++) {
         if (since_x >= xrefresh) do_xload();
-        const uint8_t* wr = mat.plane.data() + ((size_t)i * mat.M + m) * bpr;
-        fill(wseg.begin(), wseg.end(), 0u);
-        for (uint32_t n = 0; n < mat.K; n++)
-          if ((wr[n >> 3] >> (n & 7)) & 1) wseg[PSEG[n >> 5]] |= 1u << (n & 31);
-        pr_gate(wseg.data(), 0u, RD ? rowbuf.data() : nullptr);
+        uint32_t wrow_res = mat.wres_row.empty()
+            ? 0u : mat.wres_row[(size_t)i * mat.M + m];
+        double tg0 = now_s();
+        if (wrow_res) {
+          pr_gate_res(wrow_res, RD ? rowbuf.data() : nullptr);
+          N_GATE_RES++; T_GATE_RES += now_s() - tg0;
+        } else {
+          const uint8_t* wr = mat.plane.data() + ((size_t)i * mat.M + m) * bpr;
+          pr_place_bits(wr, mat.K, wseg);
+          pr_gate(wseg.data(), 0u, RD ? rowbuf.data() : nullptr);
+          N_GATE_PCW++; T_GATE_PCW += now_s() - tg0;
+        }
         recs.push_back({0, m, i, c, -1});
         since_x++;
         if (RD) {
@@ -1104,6 +1193,11 @@ static void handle_gemv_accum(uint32_t handle, Matrix& mat, uint32_t rb, const u
   if (RD) fprintf(stderr, ", xload %ld words off\n", xload_badw);
   else fprintf(stderr, ", drains %ld/%ld hit, sentinel mis %ld, malformed %ld\n",
                N_DRAIN_HIT - hit0, N_DRAIN_TRY - try0, sent_mis, malformed);
+  if (N_GATE_RES + N_GATE_PCW > 0)
+    fprintf(stderr, "[lane2]   gates: %ld resident (%.0f us/gate) + %ld pcwrite "
+            "(%.0f us/gate)\n",
+            N_GATE_RES, N_GATE_RES ? 1e6 * T_GATE_RES / N_GATE_RES : 0.0,
+            N_GATE_PCW, N_GATE_PCW ? 1e6 * T_GATE_PCW / N_GATE_PCW : 0.0);
 
   if (fail) { ack_gemv_err(handle, 2); return; }
   vector<uint8_t> resp(16 + (size_t)mat.M * 4);
@@ -1140,6 +1234,27 @@ static void handle_load(const uint8_t* req, size_t len) {
     }
     Matrix mat; mat.qb = qb; mat.K = K; mat.M = M;
     mat.plane.assign(req + 20, req + 20 + (size_t)qb * M * bpr);
+    if (WRES && !WPOOL.empty()) {
+      // Fill the residency pool: complete qb-plane sets for the first
+      // M_res outputs (a partial set would split one output across paths
+      // for no reason). One pcwrite per resident row, ONCE per LOAD.
+      double t0 = now_s();
+      mat.wres_row.assign((size_t)qb * M, 0);
+      size_t M_res = WPOOL.size() / qb; if (M_res > M) M_res = M;
+      Row wseg(2048);
+      size_t r = 0;
+      for (size_t m = 0; m < M_res; m++)
+        for (uint32_t i = 0; i < qb; i++) {
+          const uint8_t* wr = mat.plane.data() + ((size_t)i * M + m) * bpr;
+          pr_place_bits(wr, K, wseg);
+          pcwrite(WPOOL[r], wseg.data());
+          mat.wres_row[(size_t)i * M + m] = WPOOL[r];
+          r++;
+        }
+      fprintf(stderr, "[lane2] WRES: %zu W rows resident (outputs 0..%zu x qb=%u) "
+              "in %.2f s; %zu pool rows unused\n",
+              r, M_res ? M_res - 1 : 0, qb, now_s() - t0, WPOOL.size() - r);
+    }
     MATS[handle] = std::move(mat);
     fprintf(stderr, "[lane2] LOAD handle=%u q=%u K=%u M=%u (ACCUM product mode: "
             "raw planes host-resident, W rows built per product)\n", handle, qb, K, M);
@@ -1343,6 +1458,7 @@ int main(int argc, char** argv) {
   }
   if (const char* e = getenv("LANE2_ACCUM")) ACCUM = atoi(e);
   if (ACCUM < 0 || ACCUM > 2) die("LANE2_ACCUM must be 0, 1 (read arm) or 2 (accum arm)", 1);
+  if (ACCUM) WRES = (getenv("LANE2_WRES") && atoi(getenv("LANE2_WRES"))) ? 1 : 0;
   if (const char* e = getenv("LANE2_REF_POLICY")) {
     if (string(e) == "zero2") { REF_INIT = 0u; REF_NFRAC = 2; }
     else if (string(e) != "" && string(e) != "legacy")
