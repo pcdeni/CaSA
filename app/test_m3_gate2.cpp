@@ -147,10 +147,13 @@ int main(int argc, char** argv) {
   };
 
   // ---- Phase A: census ---------------------------------------------------
-  // Single-unit offsets (k=1). Bit-9 (512) is EXCLUDED: its latch behavior
-  // is subarray-position-dependent (rigchar 2026-07-22) — allocator treats
-  // it as unavailable until characterized per-position.
-  const uint32_t UNIT_OFFS[] = {1, 2, 4, 6, 8, 16, 24, 32, 64, 96, 128, 256, 384};
+  // Single-unit offsets (k=1). Bit-9 (512) is excluded BY DEFAULT: its
+  // latch behavior is subarray-position-dependent (rigchar 2026-07-22).
+  // M3G2_D512=1 adds it — the per-position probe for THIS window (the
+  // A2 deposit-verify then delivers the verdict).
+  vector<uint32_t> UNIT_OFFS = {1, 2, 4, 6, 8, 16, 24, 32, 64, 96, 128, 256, 384};
+  if (getenv("M3G2_D512") && atoi(getenv("M3G2_D512")) != 0)
+    UNIT_OFFS.push_back(512);
   printf("\n## Phase A — shadow supply census (k=1 single-unit offsets)\n");
   long total_pairs = 0;
   set<uint32_t> covered_src;
@@ -172,7 +175,10 @@ int main(int argc, char** argv) {
   // k=3 / k=4 all-clear fan-out cosets.
   uint32_t k3_src = 0, k3_d = 0, k4_src = 0, k4_d = 0;
   long k3_n = 0, k4_n = 0;
-  for (uint32_t d : {99u, 385u, 481u, 27u, 103u}) {     // 3 units each
+  // TRUE 3-unit distances only (bit0 + two group projections, or three
+  // group projections). 385 = 1+384 is TWO units and was wrongly in this
+  // list in v1 — caught by m3_alloc_test; b0's first "k=3" run was k=2.
+  for (uint32_t d : {99u, 481u, 27u, 103u, 35u, 121u}) {
     for (uint32_t r : pool) if (coset_clear(r, d)) { k3_n++; if (!k3_src) { k3_src = r; k3_d = d; } }
   }
   for (uint32_t d : {483u, 487u, 127u, 411u}) {          // 4 units each
@@ -332,6 +338,41 @@ int main(int argc, char** argv) {
       }
       printf("  chain verdict: %s (%d/10 bad)\n", bad ? "FAIL" : "CLEAN", bad);
     }
+  }
+
+  // ---- Phase E: k=3 fan-out (1 op -> 7 targets) ---------------------------
+  if (k3_src) {
+    auto cs3 = coset_of_d(k3_src, k3_d);
+    vector<uint32_t> targets;
+    for (uint32_t r : cs3) if (r != k3_src) targets.push_back(r);
+    printf("\n## Phase E — fan-out d=%u (%zu units, 1 op -> %zu targets), 10 trials\n",
+           k3_d, coset_of_d(0, k3_d).size() == 8 ? (size_t)3 : (size_t)2, targets.size());
+    int bad3 = 0;
+    for (int t = 0; t < 10; t++) {
+      vector<uint32_t> W(2048);
+      for (auto& v : W) v = rng();
+      set_exp(W);
+      zero_rows(targets);
+      write_row(k3_src, W);
+      Program dep = deposit_prog(k3_src, k3_src ^ k3_d, 10, 2);
+      pf.execute(dep);
+      int worst = 0;
+      for (size_t i = 0; i < targets.size(); i += 8) {
+        vector<uint32_t> g(targets.begin() + i, targets.begin() + min(targets.size(), i + 8));
+        vector<vector<uint8_t>> got;
+        read_rows(g, got);
+        for (auto& r : got) worst = max(worst, mism(r.data(), exp.data()));
+      }
+      vector<vector<uint8_t>> gs;
+      read_rows({k3_src}, gs);
+      int ms = mism(gs[0].data(), exp.data());
+      if (worst || ms) bad3++;
+      printf("  t=%02d worst_target_mism=%d src_mism=%d %s\n", t, worst, ms,
+             (worst || ms) ? "<-- BAD" : "OK");
+    }
+    printf("  k=3 verdict: %s (%d/10 bad)\n", bad3 ? "FAIL" : "CLEAN", bad3);
+  } else {
+    printf("\n## Phase E — k=3: no all-clear coset in this window, skipped\n");
   }
 
   // ---- Phase D: deposit burst vs per-column writes ------------------------

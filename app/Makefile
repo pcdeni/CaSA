@@ -199,3 +199,6 @@ m3-scratch-ab-exe: test_m3_scratch_ab.o $(SHARED_OBJS)
 
 m3-gate2-exe: test_m3_gate2.o $(SHARED_OBJS)
 	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+m3-alloc-test: m3_alloc_test.cpp m3_alloc.h
+	$(CC) $(CPPFLAGS) $< -o $@

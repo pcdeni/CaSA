@@ -119,8 +119,16 @@ Tool `app/test_m3_gate2.cpp`; raw logs `docs/data/m3/gate2_*`.
    law-valid k=1 pairs across 13 single-unit offsets; 91.5% / 73.6% of
    pool sources have ≥1 shadow. **Every geometrically-available offset
    class deposits byte-exact on both dies** (b0 including d=256; bit-9
-   excluded pending per-position characterization). k=3 all-clear
-   cosets exist (1 b2 / 7 b0); k=4 none in these windows.
+   excluded pending per-position characterization). k=3: b2 has ONE true-k=3
+   all-clear coset (d=99, units {1,2,96}) — validated CLEAN 10/10 (1 op
+   → 7 rows, gate2f log); b0 has ZERO (its earlier "7" counted d=385
+   cosets — 385 = 1+384 is TWO units, a v1 candidate-list bug caught by
+   the `m3_alloc.h` unit test; b0 fan-out stands at k=2). d=512 (bit-9)
+   is allocator-usable on the b2 window (56 pairs, deposit byte-exact);
+   b0's window has no geometric d=512 pair. k=4 none in these windows.
+   The law arithmetic (units/cosets) + the census/burst/fan-out
+   enumeration now live in `app/m3_alloc.h` with a census-validated
+   unit test (`m3-alloc-test`).
 2. **Source retention (aref off)** — first flip ~30 s (b2) / ~120 s
    (b0); `dst_mism == src_mism` at every mark, i.e. the deposit adds
    ZERO error of its own. Consequence: enroll deposit sources in the
