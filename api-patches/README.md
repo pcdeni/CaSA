@@ -136,3 +136,49 @@ both passes, BOTH dies, 2026-07-22) and `PIM_ACCUM_XBP` in
 `app/test_bitnet_server.cpp` (single-track grouped matvecs: per-plane
 weight latch, one 8 KB int32 drain per round, SEG_POP fallback for
 dual-track / K>1 / fused-repair requests).
+
+## 0000 — Board interface: multi-bender channels + SIM backend (foundation — apply FIRST)
+
+Closes a pre-existing series gap (2026-07-22): patches 0002+ produce a
+`platform.cpp` that references BoardInterface features pristine upstream
+does not have, so the series alone never compiled against a truly
+pristine tree. This foundation patch carries our long-standing board
+port:
+
+- per-DIMM XDMA channel selection (`/dev/xdma0_{h2c,c2h}_N`) so one
+  QUAD bitstream exposes four independent DRAM-Bender instances;
+- `IFACE::SIM` — in-process behavioral DDR + SiMRA model backend
+  (`PIM_BACKEND=sim`);
+- `SEND_BUF_SIZE` 32×8192 (8K-IMEM bitstreams) and `RECV_BUF_SIZE`
+  64 KB (the kernel xdma driver can return slightly more than the
+  requested size when FPGA-side residual data has accumulated).
+
+## 0006 — build9 streaming producer (Rung-1 host side)
+
+Host half of the build-9 ping-pong streaming fetch
+(`rtl/BUILD9_VERIFICATION.md`); applied on top of 0000+0001..0005.
+
+1. `set_stream_en(bool)` — the STREAM_EN control word (bit
+   INSTR_WIDTH+11), idempotent SET pattern. **Hazard:** on pre-build9
+   images the word falls through the decode chain into the
+   instruction-load path — never call it unless the flashed image is
+   build9+ (trailer magic `0xDBC0DE08`).
+2. Streaming producer/consumer: `stream_start(payload_bytes)` /
+   `stream_send(Program&)` / `stream_recv(buf, size)` / `stream_stop()`.
+   Unlike `execute()` (one receiver thread per program, joined before
+   the next send — host-serialized even though the FPGA pipelines),
+   streaming runs ONE persistent drain (`consumeDataStream`) that
+   splits the concatenated c2h stream into `(payload+32)`-byte records
+   with a payload-offset-aware parser — correct under BOTH per-program
+   TLAST framing and coalesced kernel reads (the in-process sim caught
+   the naive short-read-only trailer strip corrupting coalesced
+   chunks). `stream_send` only posts h2c; XDMA back-pressures via the
+   frontend's tready when the idle IMEM bank is full.
+3. Scope: READ/SEG_POP programs only (per-program trailers are the
+   in-order result delimiters); accum-family modes keep the
+   execute→receive cadence.
+
+Validated pre-silicon: record parser 12/12 (payloads {8192, 2048} ×
+chunkings 1 B…32 KB, `app/record_parser_test.cpp`); compile+link clean;
+the silicon A/B tool is `app/test_stream_hw.cpp` (`stream-hw-exe` —
+legacy vs streaming byte-identity + wall).

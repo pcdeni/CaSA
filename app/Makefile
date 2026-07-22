@@ -202,3 +202,12 @@ m3-gate2-exe: test_m3_gate2.o $(SHARED_OBJS)
 
 m3-alloc-test: m3_alloc_test.cpp m3_alloc.h
 	$(CC) $(CPPFLAGS) $< -o $@
+
+stream-hw-exe: test_stream_hw.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+# Standalone host-side unit test of the streaming record parser (no
+# FPGA, no SoftMC objects): validates payload extraction across payload
+# sizes x chunk boundaries. Run before trusting any streaming change.
+record-parser-test: record_parser_test.cpp
+	$(CC) $(CPPFLAGS) $< -o $@
