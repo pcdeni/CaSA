@@ -112,7 +112,8 @@ One arc runs through everything here, and each stage feeds the next:
    address algebra of Multi-RowCopy's lattice) and the **clone-dead
    law** (which rows can be RowClone-refreshed). Both cross-die
    deterministic. → [`docs/LATTICE_ADDRESSING_2026_07.md`](docs/LATTICE_ADDRESSING_2026_07.md),
-   [xor-spread explainer](https://pcdeni.github.io/CaSA/explainer/xor-spread.html).
+   [xor-spread explainer](https://pcdeni.github.io/CaSA/explainer/xor-spread.html),
+   [DRAM internals atlas](https://pcdeni.github.io/CaSA/explainer/dram-internals.html).
 2. **Turn the laws into engineering** — spread-safe pool placement,
    coset-broadcast loading, the fused activation update, per-bank
    parallelism. This is what took BitNet 632 → 47.5 s/tok with

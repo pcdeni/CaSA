@@ -49,7 +49,7 @@
   <h1>Mapping the DRAM we compute in — an internals atlas</h1>
   <div class="sub">What one corrupted weight pool taught us about row decoders, predecoder blocks, and the address lattice inside commodity DDR4 &nbsp;·&nbsp; measurements 2026-05 → 2026-07-22, BCU1525 / DRAM Bender, 4 DIMMs</div>
 </header>
-<div class="banner">Companion to <span class="mono">xor_spread_explainer.html</span> (the animated single-phenomenon walkthrough). Every claim below carries its measurement artifact and date; raw logs live in the working dirs named per section.</div>
+<div class="banner">Companion to <span class="mono">xor-spread.html</span> (the animated single-phenomenon walkthrough). Every claim below carries its measurement artifact and date; raw logs live in the working dirs named per section.</div>
 <div class="wrap">
 <nav class="toc">
   <a href="#door">1 · The bug that was a door</a>
@@ -306,7 +306,7 @@ cheap.</div>
   <li><b>Self-pollution scope:</b> vulnerable-offset maps exist for our dies; is it universal to MAJ-timing double-ACTs on other parts?</li>
   <li><b>Predecoder-block size:</b> 512 vs 1024 behavior differs by bit pair on our parts — a finer atlas could pin the full pair→scope map.</li>
 </ul>
-<p class="dim" style="margin-top:26px">Companion: <span class="mono">xor_spread_explainer.html</span> (animated walkthrough of the original phenomenon) ·
+<p class="dim" style="margin-top:26px">Companion: <span class="mono">xor-spread.html</span> (animated walkthrough of the original phenomenon) ·
 staged repo docs: <span class="mono">LATTICE_ADDRESSING_2026_07.md</span>, <span class="mono">BANK_AUDIT_2026_07.md</span>, <span class="mono">CALIBRATION_TRANSFER.md</span> ·
 all raw logs in the workspace dirs named above.</p>
 </section>
