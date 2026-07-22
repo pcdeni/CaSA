@@ -1,0 +1,73 @@
+# bank=1 s_id=72 pool=294 window=[45313,45951) tuple_rows=1053
+
+## Phase A — shadow supply census (k=1 single-unit offsets)
+  d=1    pairs=133
+  d=2    pairs=61
+  d=4    pairs=72
+  d=6    pairs=81
+  d=8    pairs=56
+  d=16   pairs=60
+  d=24   pairs=62
+  d=32   pairs=75
+  d=64   pairs=80
+  d=96   pairs=60
+  d=128  pairs=60
+  d=256  pairs=0
+  d=384  pairs=1
+  d=512  pairs=56
+  TOTAL k=1 pairs=857  sources_covered=271/294 (92.2%)
+  k=3 all-clear cosets=1  k=4 all-clear=0 (none)
+Opened /dev/xdma0_h2c_2 -> 3
+Opened /dev/xdma0_c2h_2 -> 4
+Successfully reset the FPGA!
+
+## Phase A2 — per-offset deposit verify (1 pair each)
+[platform] BITSTREAM_IMEM in effect: 8192 (env override)
+[platform] PIM_RECV_TIMEOUT_MS in effect: 30000
+  d=1    45321->45320 dst_mism=0 src_mism=0
+  d=2    45349->45351 dst_mism=0 src_mism=0
+  d=4    45313->45317 dst_mism=0 src_mism=0
+  d=6    45313->45319 dst_mism=0 src_mism=0
+  d=8    45329->45337 dst_mism=0 src_mism=0
+  d=16   45321->45337 dst_mism=0 src_mism=0
+  d=24   45313->45337 dst_mism=0 src_mism=0
+  d=32   45313->45345 dst_mism=0 src_mism=0
+  d=64   45313->45377 dst_mism=0 src_mism=0
+  d=96   45313->45409 dst_mism=0 src_mism=0
+  d=128  45315->45443 dst_mism=0 src_mism=0
+  d=256  (no pair)
+  d=384  45817->45945 dst_mism=0 src_mism=0
+  d=512  45315->45827 dst_mism=0 src_mism=0
+
+## Phase B — source retention across deposit reuse (aref off)
+  t=  0s dst_mism=0 src_mism=0
+  t= 10s dst_mism=0 src_mism=0
+
+## Phase C — deposit chain SRC -(10,2)-> DST -(30,1)-> PROBE
+  chain: 45321 -> 45320 -> 45322
+  t=00 probe_mism=0 dst_mism=0 src_mism=0 OK
+  t=01 probe_mism=0 dst_mism=0 src_mism=0 OK
+  t=02 probe_mism=0 dst_mism=0 src_mism=0 OK
+  t=03 probe_mism=0 dst_mism=0 src_mism=0 OK
+  t=04 probe_mism=0 dst_mism=0 src_mism=0 OK
+  t=05 probe_mism=0 dst_mism=0 src_mism=0 OK
+  t=06 probe_mism=0 dst_mism=0 src_mism=0 OK
+  t=07 probe_mism=0 dst_mism=0 src_mism=0 OK
+  t=08 probe_mism=0 dst_mism=0 src_mism=0 OK
+  t=09 probe_mism=0 dst_mism=0 src_mism=0 OK
+  chain verdict: CLEAN (0/10 bad)
+
+## Phase E — k=3 fan-out (d=99, 1 op -> 7 targets), 10 trials
+  t=00 worst_of_7_mism=0 src_mism=0 OK
+  t=01 worst_of_7_mism=0 src_mism=0 OK
+  t=02 worst_of_7_mism=0 src_mism=0 OK
+  t=03 worst_of_7_mism=0 src_mism=0 OK
+  t=04 worst_of_7_mism=0 src_mism=0 OK
+  t=05 worst_of_7_mism=0 src_mism=0 OK
+  t=06 worst_of_7_mism=0 src_mism=0 OK
+  t=07 worst_of_7_mism=0 src_mism=0 OK
+  t=08 worst_of_7_mism=0 src_mism=0 OK
+  t=09 worst_of_7_mism=0 src_mism=0 OK
+  k=3 verdict: CLEAN (0/10 bad)
+
+[g2] DONE (fast mode: phase D skipped)

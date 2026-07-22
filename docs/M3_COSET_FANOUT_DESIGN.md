@@ -69,3 +69,83 @@ that replaces `per_column_write_row` with a resident-backup + coset
 the screened tuple (the `test_sublattice_bcast` machinery), then
 layer-0-exact, then full-model token-identity, then the wcol/handler
 delta. Design-next; the pool-layout allocator change is the real work.
+
+## First gate: PASSED (2026-07-22, both dies, zero exceptions)
+
+Tool `app/test_m3_scratch_ab.cpp` (`m3-scratch-ab-exe`); raw logs
+`docs/data/m3/`. Run on production geometry (bender 2 / bank 1 / s72
+pool, cross-checked bender 0 / bank 1 / s77 pool), build-8b image
+(the primitive is bitstream-independent), `BITSTREAM_IMEM=8192`.
+
+| phase | b2 | b0 |
+|---|---|---|
+| k=1 deposit, 20 trials, t=(10,2) | 20/20 byte-exact, src intact, 0 leak | 20/20, 0 leak |
+| k=2 fan-out (1 op → 3 targets), 20 trials | 20/20 all targets exact | 20/20 |
+| timing (10,1)(10,2)(30,1)(30,2) | all exact | all exact |
+| wcol 3-chunk (4519 insts, 3 programs) | 0.176 ms/load | 0.259 ms/load |
+| coset deposit (17 insts, 1 program) | 0.044 ms/load | 0.066 ms/load |
+| ratio | **265.8× insts, 4.02× wall** | **265.8× insts, 3.94× wall** |
+
+This is the first deposit validation entirely **outside calibrated
+tuples** — source and targets are production pool / shadow rows, the
+fired set predicted by the selection law held in every trial, and the
+content survived 100 back-to-back re-executions.
+
+**Design finding — the legacy pool is M3-hostile by construction.** The
+production pool is an *independent set over the coupling conflict
+graph*: it contains no two rows at spread offsets (that is what made
+independent per-column writes safe), i.e. it deliberately excludes
+exactly the rows M3 deposits into. The M3 shape is therefore SRC = a
+screened pool row (resident weight), DST(s) = rows in the pool's
+*coupled shadow* — in-window, non-pool, non-tuple rows at law-unit
+offsets. The coupling the legacy screen avoided is the load channel.
+The allocator pairs each resident row with its shadow coset; a one-time
+byte-verify of candidate shadow rows is the margin screen
+(`CALIBRATION_TRANSFER.md` pattern). Empirically the shadow rows used
+here were byte-perfect across all trials on both dies.
+
+The wall ratio ≈ the program-count ratio (3→1): per-execute round-trips
+bind, as everywhere else (`METHOD_MVDRAM_LENS.md`). Under Rung-1
+streaming the 265.8× instruction cut is what survives — wcol becomes
+DDR-bus time. Next gate: server `PIM_BCAST_LOAD` in the V2 emitter +
+the shadow-pair allocator, sequenced after the Rung-1 producer loop
+lands (one invasive server change at a time).
+
+## Gate 2 (2026-07-22, same day): the four server-integration questions
+
+Tool `app/test_m3_gate2.cpp`; raw logs `docs/data/m3/gate2_*`.
+
+1. **Shadow supply census** — 801 (b2/bank1/s72) / 694 (b0/bank1/s77)
+   law-valid k=1 pairs across 13 single-unit offsets; 91.5% / 73.6% of
+   pool sources have ≥1 shadow. **Every geometrically-available offset
+   class deposits byte-exact on both dies** (b0 including d=256; bit-9
+   excluded pending per-position characterization). k=3: b2 has ONE true-k=3
+   all-clear coset (d=99, units {1,2,96}) — validated CLEAN 10/10 (1 op
+   → 7 rows, gate2f log); b0 has ZERO (its earlier "7" counted d=385
+   cosets — 385 = 1+384 is TWO units, a v1 candidate-list bug caught by
+   the `m3_alloc.h` unit test; b0 fan-out stands at k=2). d=512 (bit-9)
+   is allocator-usable on the b2 window (56 pairs, deposit byte-exact);
+   b0's window has no geometric d=512 pair. k=4 none in these windows.
+   The law arithmetic (units/cosets) + the census/burst/fan-out
+   enumeration now live in `app/m3_alloc.h` with a census-validated
+   unit test (`m3-alloc-test`).
+2. **Source retention (aref off)** — first flip ~30 s (b2) / ~120 s
+   (b0); `dst_mism == src_mism` at every mark, i.e. the deposit adds
+   ZERO error of its own. Consequence: enroll deposit sources in the
+   existing MM3D-entry ACT-refresh windows (sub-second cadence in
+   production) — no new mechanism.
+3. **Deposit chaining** — SRC –(10,2)→ DST –(30,1)→ PROBE clean 10/10
+   on both dies: deposit targets are valid RowClone sources, validating
+   the scratch→Rfirst consumption hop at the row level.
+4. **Deposit burst — M3 pays BEFORE streaming**: 32 scratch loads in
+   ONE program (358 insts) vs 96 pcwrite programs (144,608 insts) =
+   **114.4× (b2) / 105.3× (b0) wall, all targets byte-exact**
+   (0.0026 ms/load). The wcol term collapses today; open question for
+   the server gate is deposit-ahead-of-use freshness across a request's
+   MAJ3 activity (the 2026-05-04 rounds-ahead lesson) — layer-0 /
+   full-model gates answer it.
+
+Strategic note: with round-trip-bound now triple-confirmed (SEG_POP /
+ACCUM_XBP / M3 gate 1), Rung-1 streaming inverts the regime — bus time
+(= instructions) becomes the wall, making the 265.8×/403.9× instruction
+cuts the top post-streaming lever; the two compose.

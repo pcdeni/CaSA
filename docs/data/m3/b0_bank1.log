@@ -1,0 +1,65 @@
+# bank=1 s_id=77 pool=348 rows [38401..39038] excl(tuple rows)=883
+# P1 (k=1): SRC=38403 DST=38402 (d=1)
+# P2 (k=2): SRC=38481 d=97 coset: 38448 38449 38480 38481
+Opened /dev/xdma0_h2c_0 -> 3
+Opened /dev/xdma0_c2h_0 -> 4
+Successfully reset the FPGA!
+
+## Phase 1 — k=1 deposit content, 20 trials, t=(10,2)
+[platform] BITSTREAM_IMEM in effect: 8192 (env override)
+[platform] PIM_RECV_TIMEOUT_MS in effect: 30000
+t=00 dst_mism=0 src_mism=0 probe_leaks=0/4 OK
+t=01 dst_mism=0 src_mism=0 probe_leaks=0/4 OK
+t=02 dst_mism=0 src_mism=0 probe_leaks=0/4 OK
+t=03 dst_mism=0 src_mism=0 probe_leaks=0/4 OK
+t=04 dst_mism=0 src_mism=0 probe_leaks=0/4 OK
+t=05 dst_mism=0 src_mism=0 probe_leaks=0/4 OK
+t=06 dst_mism=0 src_mism=0 probe_leaks=0/4 OK
+t=07 dst_mism=0 src_mism=0 probe_leaks=0/4 OK
+t=08 dst_mism=0 src_mism=0 probe_leaks=0/4 OK
+t=09 dst_mism=0 src_mism=0 probe_leaks=0/4 OK
+t=10 dst_mism=0 src_mism=0 probe_leaks=0/4 OK
+t=11 dst_mism=0 src_mism=0 probe_leaks=0/4 OK
+t=12 dst_mism=0 src_mism=0 probe_leaks=0/4 OK
+t=13 dst_mism=0 src_mism=0 probe_leaks=0/4 OK
+t=14 dst_mism=0 src_mism=0 probe_leaks=0/4 OK
+t=15 dst_mism=0 src_mism=0 probe_leaks=0/4 OK
+t=16 dst_mism=0 src_mism=0 probe_leaks=0/4 OK
+t=17 dst_mism=0 src_mism=0 probe_leaks=0/4 OK
+t=18 dst_mism=0 src_mism=0 probe_leaks=0/4 OK
+t=19 dst_mism=0 src_mism=0 probe_leaks=0/4 OK
+
+## Phase 2 — k=2 fan-out (1 op -> 3 targets), 20 trials, t=(10,2)
+t=00 worst_target_mism=0 src_mism=0 OK
+t=01 worst_target_mism=0 src_mism=0 OK
+t=02 worst_target_mism=0 src_mism=0 OK
+t=03 worst_target_mism=0 src_mism=0 OK
+t=04 worst_target_mism=0 src_mism=0 OK
+t=05 worst_target_mism=0 src_mism=0 OK
+t=06 worst_target_mism=0 src_mism=0 OK
+t=07 worst_target_mism=0 src_mism=0 OK
+t=08 worst_target_mism=0 src_mism=0 OK
+t=09 worst_target_mism=0 src_mism=0 OK
+t=10 worst_target_mism=0 src_mism=0 OK
+t=11 worst_target_mism=0 src_mism=0 OK
+t=12 worst_target_mism=0 src_mism=0 OK
+t=13 worst_target_mism=0 src_mism=0 OK
+t=14 worst_target_mism=0 src_mism=0 OK
+t=15 worst_target_mism=0 src_mism=0 OK
+t=16 worst_target_mism=0 src_mism=0 OK
+t=17 worst_target_mism=0 src_mism=0 OK
+t=18 worst_target_mism=0 src_mism=0 OK
+t=19 worst_target_mism=0 src_mism=0 OK
+
+## Phase 3 — timing confirm (content-exact?)
+t=(10,1) dst_mism=0
+t=(10,2) dst_mism=0
+t=(30,1) dst_mism=0
+t=(30,2) dst_mism=0
+
+## Phase 4 — cost A/B, iters=100
+armA(wcol 3-chunk): 4519 insts, 3 programs, 0.259 ms/load
+armB(coset deposit): 17 insts, 1 program,  0.066 ms/load
+ratio: insts 265.8x, wall 3.94x  (post-hammer dst_mism=0 src_mism=0)
+
+[m3] P1 bad=0/20  P2 bad=0/20  -> ALL_CLEAN
