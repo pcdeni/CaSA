@@ -113,3 +113,32 @@ diff stays identical. Verdict: **build-8b cleared for Vivado**
 
 Silicon artifacts: silicon_{segpop,popcount,accxbp}_b2.log and the
 failing 8a accumulator dumps acc_dump.pass{0,1}.bin, this dir.
+
+## Production A/B (2026-07-22, bender 2, bonsai_1bit single-track, 2 tok)
+
+All arms `PIM_VOTE_FULL=0 PIM_REQ_BATCH=1 PIM_1BIT_SINGLE=1 PIM_SEGPOP=1`,
+token-identical to golden ('The capital') on every arm, zero eligibility
+fallbacks:
+
+| arm | fused | accxbp | wall | exec/req | recv/req |
+|---|---|---|---|---|---|
+| baseline (fused) | ON | off | 542.0 s | 8.6 ms | 24.8 ms |
+| accxbp | off | ON | 946.5 s | 40.0 ms | **6.9 ms** |
+| clean baseline | off | off | 874.2 s | ~15 ms | 46.3 ms |
+
+Verdict: the in-fabric drain collapse is REAL and systematic
+(recv 46 → 6.9 ms/request vs the clean baseline) but the wall is
++8% (874 → 946 s): accumulate programs emit no c2h, yet every
+execute() still spawns the pristine receiver, which pays the XDMA
+one-program surface lag as a deferred-join tax (exec ~15 → 40 ms) —
+the per-request handler total lands unchanged (~75 ms). The lever
+collapses DRAINS, but this host-orchestrated system is bound by
+per-EXECUTE round-trips (all 128 stand) — the same finding as
+SEG_POP's wall-neutrality, now confirmed from the drain side too.
+**PIM_ACCUM_XBP stays default-off; SEG_POP remains the production
+readout.** Named follow-up (gated on a PIM_RECV_DEBUG trace of an
+accumulate execute, not a speculative rewrite): spawn no receiver for
+no-c2h accumulate executes — if exec returns to baseline the
+arithmetic flips to ~1.8×. The higher-value RTL direction remains the
+streaming fetch that amortizes the executes themselves
+(docs/CONTROLLER_NATIVE.md, Rung 1).
