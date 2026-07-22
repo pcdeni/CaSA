@@ -15,15 +15,18 @@ across:
 |---|---|---|---|
 | **cells** (within a tuple) | — | nothing; this IS the margin | full per-cell screen (the lottery) |
 | **banks** (same die) | **byte-identical, all 16** | tuple rows, timings, open-rows, deposit lattice | margin re-screen only |
-| **dies** (same part number) | **byte-identical** | everything as for banks | margin re-screen only |
+| **dies** (same die family) | **byte-identical** | everything as for banks | margin re-screen only |
 | **subarrays** (same bank) | **PARTIAL** | short-range coupling + MAJ3 tuple geometry | pool layout re-derivation **+** margin screen |
 | **parts** (different model) | chip-specific | the *method* only | fault-sweep + lattice re-derivation, then timings |
 
 The load-bearing measurement: bank 0's tuple, transferred verbatim to all
 15 other banks, produces a **byte-identical deposit structure on every
 bank** (350/350 constellation rows × 14 primitive cases); only per-bank
-cell margins differ (banks 8–11 carry a ~4-cell flake). Across
-same-model dies the fault sets and calibration are byte-identical too.
+cell margins differ (banks 1–3 and 8–11 carry an identical ~4-cell
+sub-threshold fringe on one non-production case). Across dies the fault
+sets and calibration are byte-identical too — measured between our two
+SK hynix modules, which are two *different* part numbers (one
+dual-rank): the invariance follows the die design, not the module SKU.
 
 Subarrays are the exception, and we know why: the co-activation lattice's
 **long-range** offsets are *predecoder-block-relative*, not fixed —
@@ -50,10 +53,11 @@ allocator's spread-avoidance changes.
    stayed within the voting/screen envelope.)
 4. Done — the bank joins the residency pool and the round-parallelism.
 
-## Recipe: adopt a new die (same part)
+## Recipe: adopt a new die (same die family)
 
 Identical to the bank recipe, one margin re-screen for the whole die
-(fault sets transfer byte-identically across our two same-model modules).
+(fault sets transfer byte-identically across our two hynix modules —
+different part numbers, one dual-rank).
 Use the existing calib file with the die's bender id.
 
 ## Recipe: adopt a new subarray (the hard one)
@@ -74,6 +78,6 @@ never characterized — cheaper than the full campaign but not free.
 16-bank scale-out (4× residency + spatial parallelism) is a **config
 exercise** on a characterized die — the single most expensive experiment
 (the calibration sweep) is amortized across the whole die and its
-same-model siblings. This is what makes the in-DRAM approach practical to
+die-family siblings. This is what makes the in-DRAM approach practical to
 scale, and it is the empirical backing for `UTILIZATION.md`'s "the die is
 ~99.99 % idle — the parallelism is there for free."

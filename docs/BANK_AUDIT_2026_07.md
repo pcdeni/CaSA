@@ -127,14 +127,41 @@ question with data: the operative structural unit for long-range
 addressing is the predecoder block, and operations must be planned
 block-relative.
 
-## All 16 banks (2026-07-22): lattice uniform die-wide
+**Re-derivation addendum (2026-07-22)**: the long deposit is the same
+*absolute* row — **45597** — at every shift where it appears (+0, +128,
++384, +512); only the tuple moves, which is why the offset shrinks and
+flips sign. Two things the table understates: at +256 the fired row *is*
+45597 (that "(none)" is the degenerate self-coincidence, not an
+absence), and at +768 the partner sits at probed offset −512 yet stays
+clean — the one decisive proof that the coupling is *gone* outside the
+block rather than merely outside the probed constellation (+640/+1024
+put 45597 at unprobed offsets). Note the firing member is NOT the
+single-bit ⊕256 partner (R⊕256 = 45085, offset −256, stays untouched —
+consistent with the D2 profile's missing ⊕256): it is the *multi-bit*
+coset member of the far pair that lands on the block-anchored row (⊕768
+at +0, ⊕896 at +128, …). Which member of the candidate set fires is
+position-dependent; the invariant is the landing row, 45597. Single-bit
+XOR intuition misses this entirely.
 
-Extended the constellation probe to banks 8–15 (bank 0's tuple
-transferred verbatim). **Deposit structure byte-identical on all 16
-banks** (0,4–15 measured; the "here" deposit-row set matches bank 0
-exactly for every bank). The only variation is per-bank margin: banks
-8–11 show a 4-cell flake (2044/2048) on a few otherwise-untouched rows —
-the yield lottery, not a lattice change. So the transfer thesis is now
-proven at full die scale: **one bank's calibration drives all 16; only a
-per-bank margin re-screen differs.** The 16-bank scale-out (residency /
-spatial parallelism) is a config exercise on this die, no new sweeps.
+## All 16 banks (2026-07-22): lattice uniform die-wide — COMPLETE
+
+Extended the constellation probe to banks 8–15, then (re-verification
+pass, same night) to the last unprobed banks 1–3 — the production banks,
+until then covered only indirectly by token-identical inference. **All
+16 banks are now directly measured, and the deposit-row set is
+md5-identical across all 16 logs.**
+
+The only variation is a deterministic fringe split on ONE case,
+doubleACT(0,0)→far: banks {0, 4–7, 12–15} flake sparsely (−1/+256 only)
+while banks {1–3, 8–11} flake at an identical 18-offset set (−24 through
++512; −48 and further negative stay clean) at ~4 cells per row
+(2044/2048) — the same asymmetric set, offset-for-offset, on all 7
+banks. That reproducibility says sub-threshold (0,0) disturb exists
+die-wide and merely crosses the tool's classification threshold on 7
+banks — margin class, not a lattice change. It is production-irrelevant
+twice over: (0,0)→far is not a production shape, and banks 1–3 are the
+daily production banks. The transfer thesis now stands at full die
+scale with no indirect links: **one bank's calibration drives all 16;
+only a per-bank margin re-screen differs.** The 16-bank scale-out
+(residency / spatial parallelism) is a config exercise on this die, no
+new sweeps.

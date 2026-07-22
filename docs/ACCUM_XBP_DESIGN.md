@@ -90,8 +90,9 @@ the host splits pos/neg groups).
   transitions), require an identical failure-set diff vs build-7,
   then the silicon tool, then `PIM_ACCUM_XBP=1` in the server with
   layer-0-exact → full-model token-identity.
-- Trailer magic increments (0xDBC0DE06); the SET word takes the next
-  free frontend control bit.
+- Trailer magic increments (0xDBC0DE07, build-8b; the 8a image carried
+  0xDBC0DE06 and a widx bug — see the silicon round below); the SET word
+  takes the next free frontend control bit.
 
 ## Where it lands
 
@@ -102,3 +103,23 @@ measured, recv → ~6–8 ms ⇒ handler ~43 → ~25 ms ⇒ roughly **1.6–1.7�
 wall** — and it composes with, rather than competes against, the
 Rung-1 streaming fetch (`CONTROLLER_NATIVE.md`), which amortizes the
 *exec* round-trips the same way.
+
+## The silicon round (2026-07-22)
+
+Build-8a validated everything except the accumulate index: the
+per-program realign keyed on `read_seq_incoming` as if it were a
+one-shot pulse, but on silicon it pulses per fetched SMC_INFO packet
+and overlaps the returning beats — the realign starved the per-beat
+increment, pinning beats 0..126 into word 0 (dump-proven,
+deterministic). Build-8b realigns on announcement-edge + quiet read
+path; trailer magic is now **0xDBC0DE07**, and the Verilator gate
+carries a silicon-faithful overlapped-announcement scenario that
+reproduces the 8a failure. Two host-side lessons landed in
+`platform.cpp` on the way: `flush_acc()` must provide its own c2h
+reader (no execute() runs behind the drain), and the XDMA surface lag
+can glue a stranded 32-B program trailer to the front of the flush
+payload (the flush receiver strips leading 0xDBC0DExx blocks — safe:
+no accum-mode payload word can take that value). Server-integration
+note: in ACCUM_XBP phases the accumulate programs emit no c2h, so
+shrink `PIM_ACCUM_QUIET_MS` (the 500 ms/execute default would swamp
+the win).
