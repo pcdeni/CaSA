@@ -290,6 +290,51 @@ static inline void row_pc(const uint8_t* row, int* out, int n) {
   else segment_popcount(row, out, n);
 }
 
+// PIM_ACCUM_XBP=1 (build8b image ONLY, trailer magic 0xDBC0DE07): on
+// eligible single-track matvec requests, fold the per-bitplane
+// place-value sum into the readback engine's ACCUM_XBP accumulator —
+// per plane the host latches ±2^shift out-of-band and executes (the
+// reads emit NO c2h); ONE flush_acc + 8192-B int32 drain per round
+// replaces the per-program drains (recv wakes ÷ n_bitplanes).
+// Request-level eligibility (else byte-identical fallback): single-track
+// (all sign +), K==1 (one plane per program), every bitplane_factor
+// = ±2^k (k ≤ 7), d_out ≤ 2048, no fused per-row repair possible,
+// every round's units in ONE output-group slot, PIM_DEBUG_RX unset.
+// HAZARD: on a pre-build8 image the SET word falls through the frontend
+// decode into instruction-load — never set PIM_ACCUM_XBP=1 on older
+// images (same class as the PIM_SEGPOP hazard above).
+static int g_accxbp = -1;               // env PIM_ACCUM_XBP (init_debug_flags)
+static bool g_mode_accxbp_now = false;  // host view: engine in ACCUM_XBP
+static void ensure_accxbp(SoftMCPlatform& platform, bool on) {
+  if (g_accxbp <= 0) return;
+  if (on == g_mode_accxbp_now) return;
+  if (on) {
+    // idempotent SET ×2 (lost-word repair). Each send re-runs the
+    // 128-cycle accumulator clear — safe HERE only because nothing has
+    // accumulated yet; NEVER re-send between planes (it wipes the sum;
+    // the accxbp-hw tool learned this on silicon).
+    platform.set_readback_mode_accxbp();
+    platform.set_readback_mode_accxbp();
+    g_mode_segpop_now = false;          // engine left SEG_POP if it was there
+  } else {
+    platform.set_readback_mode(false);
+    platform.set_readback_mode(false);
+    platform.drain_stray(1500, 8);      // absorb mode-exit stragglers
+    g_mode_segpop_now = false;          // next ensure_readback re-arms SEG_POP
+  }
+  g_mode_accxbp_now = on;
+}
+// ±2^k (k ≤ 7) → build8 weight encode {neg, shift}; false = not encodable.
+static inline bool accxbp_encode(int32_t f, int* neg, int* shift) {
+  if (f == 0) return false;
+  uint32_t a = (uint32_t)(f < 0 ? -(int64_t)f : (int64_t)f);
+  if (a & (a - 1)) return false;        // not a power of two
+  int s = __builtin_ctz(a);
+  if (s > 7) return false;
+  *neg = (f < 0) ? 1 : 0; *shift = s;
+  return true;
+}
+
 // Read-back a single row's contents into row_buf (must be ≥ 8192 bytes).
 // Used by LOAD-time write verification and MM3D-start decay detection.
 // Always a RAW read: drops to READ mode first when SEG_POP is active.
@@ -1408,6 +1453,20 @@ static void init_debug_flags() {
       fprintf(stderr, "[server] PIM_SEGPOP=1: build7 SEG_POP readback "
               "(2048 B/row, host segment_popcount eliminated)\n");
   }
+  if (g_accxbp < 0) {
+    g_accxbp = env_flag("PIM_ACCUM_XBP", 0);
+    if (g_accxbp) {
+      fprintf(stderr, "[server] PIM_ACCUM_XBP=1: build8b in-fabric "
+              "cross-bit-plane accumulator on eligible single-track "
+              "matvecs (one 8 KB drain per round)\n");
+      // Accumulate/write programs emit NO c2h in this mode: each
+      // execute's bounded accum receiver would otherwise idle the full
+      // PIM_ACCUM_QUIET_MS (default 500 ms). Shrink both knobs unless
+      // the user pinned them explicitly.
+      setenv("PIM_ACCUM_QUIET_MS", "8", 0);
+      setenv("PIM_ACCUM_TICK_MS",  "4", 0);
+    }
+  }
   if (g_v2_pack < 0) {
     // Default ON since 2026-07-21 (full-model token-identical, wcol
     // 10.8->6.4 ms/request, 2-tok wall 147.6->132.8 s). =0 restores the
@@ -1836,6 +1895,34 @@ static int process_request(SoftMCPlatform& platform,
   const size_t n_units = (size_t)n_chunks * (single ? 1 : 2);
   const size_t n_rounds = (n_units + N - 1) / N;       // # of N-bank executes per bitplane
 
+  // PIM_ACCUM_XBP request-level eligibility (see the g_accxbp block).
+  bool req_accxbp = g_accxbp > 0 && single && g_inline_bp == 1
+                    && d_out <= 2048 && n_bitplanes <= 32
+                    && !getenv("PIM_DEBUG_RX");
+  int axb_neg[32] = {0}, axb_shift[32] = {0};
+  if (req_accxbp) {
+    for (uint32_t b = 0; req_accxbp && b < n_bitplanes; b++)
+      if (!accxbp_encode(bitplane_factor[b], &axb_neg[b], &axb_shift[b]))
+        req_accxbp = false;
+    // fused per-row pc repair cannot ride the in-fabric sum
+    if (req_accxbp && calib_idx == 0) {
+      int fm = fused_coset_mode();
+      if (fm == 1 || fm == 3)
+        for (auto& bkk : banks)
+          if (!bkk.fused_col_bad.empty()) { req_accxbp = false; break; }
+    }
+    // every round's units must land in ONE output-group slot
+    for (size_t r = 0; req_accxbp && r < n_rounds; r++) {
+      size_t u_lo = r * (size_t)N;
+      size_t u_hi = std::min(n_units, u_lo + (size_t)N) - 1;
+      if (u_lo / group_chunks != u_hi / group_chunks) req_accxbp = false;
+    }
+    if (!req_accxbp)
+      fprintf(stderr, "[server] PIM_ACCUM_XBP: request ineligible — "
+              "per-program readout fallback\n");
+  }
+  const long axb_skips0 = platform.oversize_skips();
+
   // Per-request silicon-side timing (server-internal profile).
   using clk = std::chrono::steady_clock;
   using ns_t = std::chrono::nanoseconds;
@@ -1996,6 +2083,19 @@ static int process_request(SoftMCPlatform& platform,
           free(iseq);
         }
       }
+      if (req_accxbp) {
+        // In-fabric accumulation: enter the mode lazily (idempotent; the
+        // entry clear runs before anything has accumulated), latch this
+        // plane's ±2^shift, execute — and DON'T receive: the drain
+        // happens once per round, after the plane loop.
+        ensure_accxbp(platform, true);
+        platform.set_acc_weight(axb_neg[bp_start], axb_shift[bp_start]);
+        auto t_exec0 = clk::now();
+        platform.execute(p);
+        t_exec_ns += std::chrono::duration_cast<ns_t>(clk::now() - t_exec0).count();
+        n_maj3_execs++;
+        continue;
+      }
       ensure_readback(platform, true);   // PIM_SEGPOP: matvec reads in SEG_POP
       auto t_exec0 = clk::now();
       platform.execute(p);
@@ -2066,6 +2166,41 @@ static int process_request(SoftMCPlatform& platform,
       }
       t_pop_ns += std::chrono::duration_cast<ns_t>(clk::now() - t_pop0).count();
     }
+
+    // PIM_ACCUM_XBP: this round's planes accumulated in-fabric — ONE
+    // drain returns the finished per-segment place-value sums.
+    if (req_accxbp) {
+      auto t_recv0 = clk::now();
+      platform.flush_acc();
+      static thread_local std::vector<int32_t> axb_acc(2048);
+      int rc = platform.receiveData(axb_acc.data(), 8192);
+      t_recv_ns += std::chrono::duration_cast<ns_t>(clk::now() - t_recv0).count();
+      if (rc != 8192) {
+        fprintf(stderr, "[server] ACCUM_XBP drain rc=%d expected=8192 "
+                "(round=%zu)\n", rc, round);
+        return -1;
+      }
+      auto t_pop0 = clk::now();
+      // single-track: chunk == unit, and the whole round is one group
+      // slot (request-gated) — route by the round's first unit.
+      size_t g_acc = (round * (size_t)N) / group_chunks;
+      int32_t* y_g = y.data() + g_acc * d_out;
+      for (uint32_t j = 0; j < d_out; j++) y_g[j] += axb_acc[j];
+      t_pop_ns += std::chrono::duration_cast<ns_t>(clk::now() - t_pop0).count();
+    }
+  }
+  // PIM_ACCUM_XBP epilogue: an oversize-skipped program would have
+  // silently dropped a whole plane from the in-fabric sums (the
+  // accum-stream hazard class — see oversize_skips()) — fail loudly.
+  // Then restore READ mode (SEG_POP re-arms on the next ensure_readback).
+  if (req_accxbp) {
+    if (platform.oversize_skips() != axb_skips0) {
+      fprintf(stderr, "[server] ACCUM_XBP: oversize skips advanced "
+              "mid-request — results incomplete, aborting\n");
+      ensure_accxbp(platform, false);
+      return -1;
+    }
+    ensure_accxbp(platform, false);
   }
 
   long long t_total_ns = std::chrono::duration_cast<ns_t>(

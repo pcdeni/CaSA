@@ -68,3 +68,77 @@ Verdict: **the RTL edits are correct.** Cleared for the Vivado build.
 The residual risk (frontend control-word decode) is covered by the static
 audit above + the proven +5/+6/+7 precedent; the flash-order hazard is
 identical to build-7 (never send the SET words on a pre-build8 image).
+
+## build-8b (2026-07-22): the silicon round — two host bugs, one RTL bug
+
+Build-8a synthesized clean (WNS +0.026, only the 3 pre-existing CWs,
+magic 0xDBC0DE06), was flashed, and the regression ladder passed on it
+(rowclone PERFECT_CLONE; segpop + popcount suites ALL_PASS; in-band
+trailer magic dbc0de06 confirmed via PIM_RECV_DEBUG). `accxbp-hw-exe`
+then failed, and the failure decomposed into three findings:
+
+1. **flush_acc() had no reader (host).** The drain is a c2h message with
+   no execute() behind it, so nothing moved it from the kernel ring into
+   api_recv_buf — receiveData timed out 0/8192 (the opt-in stall guard
+   did its job). Fix: flush_acc spawns the bounded accum receiver BEFORE
+   sending the word, mirroring execute()'s spawn-before-send.
+2. **Glued stranded trailer (host).** The XDMA surface lag strands the
+   last accxbp program's 32-B trailer; it surfaced glued to the FRONT of
+   the flush payload (seg 0 read back 0xDBC0DE06 — the magic as int32).
+   Fix: a flush-only receiver policy (`receiver_flush_wait`) strips
+   leading 0xDBC0DExx blocks — safe because no accum-mode payload word
+   can take that value (DIFF/ACCXBP magnitude-bounded, SEG_POP bytes
+   6-bit) — and only a payload-bearing read counts as the message.
+3. **The RTL bug: realign starved the increment.** With framing fixed the
+   dump showed acc word0 = Σ beats 0..126 and word1 = beat 127 exactly,
+   deterministic across passes (clear included). Root cause:
+   `read_seq_incoming` is NOT a one-shot per-program pulse — it pulses
+   per fetched SMC_INFO packet and overlaps the returning beats (the
+   build-4 outstanding counter consumes exactly that shape) — and the
+   realign branch had level priority over the per-beat increment. The TB
+   drove a single pre-burst pulse and could not see it. Fix (build-8b):
+   realign only on an announcement EDGE arriving while the read path is
+   quiet (`rd_outstanding_r == 0 && ~rd_valid`); pipelined multi-rdRow
+   programs stay correct via the natural 128-beat wrap. Trailer magic
+   bumped to **0xDBC0DE07**.
+
+**TB hardening:** new scenario (l2) drives the silicon-faithful shape —
+announcement pulses coincident with beats, stopping two beats early, a
+tail bubble before the final beat, announce counts balanced so
+buffer_space conservation still holds. Sanity: the pre-fix RTL FAILS
+(l2) with the silicon signature (3/128 lanes exact); the fixed RTL
+passes (l) and (l2) at 128/128 each, magic 07, and the b7 failure-set
+diff stays identical. Verdict: **build-8b cleared for Vivado**
+(build8b_2026_07_22.log on the box).
+
+Silicon artifacts: silicon_{segpop,popcount,accxbp}_b2.log and the
+failing 8a accumulator dumps acc_dump.pass{0,1}.bin, this dir.
+
+## Production A/B (2026-07-22, bender 2, bonsai_1bit single-track, 2 tok)
+
+All arms `PIM_VOTE_FULL=0 PIM_REQ_BATCH=1 PIM_1BIT_SINGLE=1 PIM_SEGPOP=1`,
+token-identical to golden ('The capital') on every arm, zero eligibility
+fallbacks:
+
+| arm | fused | accxbp | wall | exec/req | recv/req |
+|---|---|---|---|---|---|
+| baseline (fused) | ON | off | 542.0 s | 8.6 ms | 24.8 ms |
+| accxbp | off | ON | 946.5 s | 40.0 ms | **6.9 ms** |
+| clean baseline | off | off | 874.2 s | ~15 ms | 46.3 ms |
+
+Verdict: the in-fabric drain collapse is REAL and systematic
+(recv 46 → 6.9 ms/request vs the clean baseline) but the wall is
++8% (874 → 946 s): accumulate programs emit no c2h, yet every
+execute() still spawns the pristine receiver, which pays the XDMA
+one-program surface lag as a deferred-join tax (exec ~15 → 40 ms) —
+the per-request handler total lands unchanged (~75 ms). The lever
+collapses DRAINS, but this host-orchestrated system is bound by
+per-EXECUTE round-trips (all 128 stand) — the same finding as
+SEG_POP's wall-neutrality, now confirmed from the drain side too.
+**PIM_ACCUM_XBP stays default-off; SEG_POP remains the production
+readout.** Named follow-up (gated on a PIM_RECV_DEBUG trace of an
+accumulate execute, not a speculative rewrite): spawn no receiver for
+no-c2h accumulate executes — if exec returns to baseline the
+arithmetic flips to ~1.8×. The higher-value RTL direction remains the
+streaming fetch that amortizes the executes themselves
+(docs/CONTROLLER_NATIVE.md, Rung 1).

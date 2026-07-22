@@ -68,6 +68,9 @@ popcount-hw-exe: test_popcount_hw.o $(SHARED_OBJS)
 segpop-hw-exe: test_segpop_hw.o $(SHARED_OBJS)
 	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
 
+accxbp-hw-exe: test_accxbp_hw.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
 columnwise-smoke-exe: test_columnwise_smoke.o $(SHARED_OBJS)
 	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
 

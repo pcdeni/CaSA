@@ -54,7 +54,7 @@ static std::vector<std::vector<Beat> > msgs; // tlast-delimited messages
 static std::vector<Beat> open_msg;
 
 #if defined(TB_BUILD8)
-static const uint32_t MAGIC = 0xDBC0DE06u;
+static const uint32_t MAGIC = 0xDBC0DE07u;  // build8b: widx edge+quiet realign
 #elif defined(TB_BUILD7)
 static const uint32_t MAGIC = 0xDBC0DE05u;
 #elif defined(TB_BUILD6)
@@ -751,6 +751,37 @@ static void axb_plane_reads(int nbeats, uint32_t (*seg_val)(int,int)) {
     top->rd_valid = 0;
     idle(4);   // let the RMW pipeline drain the last beat
 }
+// SILICON-FAITHFUL announcement shape (2026-07-22): read_seq_incoming is
+// NOT a pre-burst one-shot — SMC_INFO packets keep arriving while earlier
+// beats return, so announcement pulses COINCIDE with rd_valid, they stop
+// a couple of beats before the burst ends, and a tail bubble precedes the
+// final beat. On the pre-fix RTL the level-priority realign then pins
+// axb_widx: word0 = Σ beats 0..n-2, word1 = the last beat alone (the
+// exact silicon accxbp-hw dump). The fixed RTL (edge + quiet realign)
+// must be lane-exact under this shape too. Announce counts are balanced
+// (total announced == nbeats) so outstanding/buffer_space accounting
+// stays conserved: the last two reads are announced together, early.
+static void axb_plane_reads_overlap(int nbeats, uint32_t (*seg_val)(int,int)) {
+    // read 0 announced on its own quiet cycle — the fresh-sequence edge
+    // the realign keys on.
+    announce_reads(1);
+    for (int b = 0; b < nbeats; b++) {
+        if (b == nbeats - 1) {           // returns caught up: tail bubble
+            top->rd_valid = 0; idle(3);
+        }
+        for (int s = 0; s < 16; s++) top->rd_data[s] = seg_val(b, s);
+        top->rd_valid = 1;
+        if (b + 1 <= nbeats - 3) {       // announce read b+1 WITH beat b
+            top->read_seq_incoming = 1; top->incoming_reads = 1;
+        } else if (b + 1 == nbeats - 2) { // last two announced together
+            top->read_seq_incoming = 1; top->incoming_reads = 2;
+        }
+        tick();
+        top->read_seq_incoming = 0; top->incoming_reads = 0;
+    }
+    top->rd_valid = 0;
+    idle(4);
+}
 // distinct per-(beat,segment) popcount, reused across planes so the
 // accumulation Σ w_k·pc is non-trivial and order-sensitive.
 static uint32_t axb_pat(int b, int s) {
@@ -759,8 +790,9 @@ static uint32_t axb_pat(int b, int s) {
     return (nb >= 32) ? 0xFFFFFFFFu : ((1u << nb) - 1u);
 }
 
-static void scenario_accxbp() {
-    printf(" (l) ACCUM_XBP: cross-bit-plane in-fabric place-value sum\n");
+static void scenario_accxbp_with(const char* hdr,
+        void (*plane_driver)(int, uint32_t (*)(int,int))) {
+    printf("%s", hdr);
     hard_reset();                      // READ_MODE
     to_accxbp_mode();
     uint32_t bs0 = top->buffer_space;
@@ -772,7 +804,7 @@ static void scenario_accxbp() {
     for (int i = 0; i < NB * 16; i++) expect[i] = 0;
     for (int p = 0; p < 4; p++) {
         set_acc_weight(W[p][0], W[p][1]);
-        axb_plane_reads(NB, axb_pat);
+        plane_driver(NB, axb_pat);
         long w = (W[p][0] ? -1L : 1L) * (1L << W[p][1]);
         for (int b = 0; b < NB; b++)
             for (int s = 0; s < 16; s++)
@@ -814,7 +846,7 @@ static void scenario_accxbp() {
     // second accumulate-and-drain: accumulator must have zeroed on flush.
     msgs.clear(); open_msg.clear();
     set_acc_weight(0, 0);
-    axb_plane_reads(NB, axb_pat);
+    plane_driver(NB, axb_pat);
     flush_acc();
     idle(400);
     check("accxbp 2nd program: one clean message (no desync)", msgs.size() == 1);
@@ -838,6 +870,16 @@ static void scenario_accxbp() {
     to_read_mode_set();
     check("accxbp->READ transition leaves buffer_space at start",
           top->buffer_space == bs0);
+}
+static void scenario_accxbp() {
+    scenario_accxbp_with(
+        " (l) ACCUM_XBP: cross-bit-plane in-fabric place-value sum\n",
+        axb_plane_reads);
+}
+static void scenario_accxbp_overlap() {
+    scenario_accxbp_with(
+        " (l2) ACCUM_XBP: silicon-faithful overlapped announcements\n",
+        axb_plane_reads_overlap);
 }
 #endif
 
@@ -882,6 +924,7 @@ int main(int argc, char** argv) {
     // untouched), THEN the SEG_POP datapath, THEN the ACCUM_XBP datapath.
     scenario_segpop();
     scenario_accxbp();
+    scenario_accxbp_overlap();
 #endif
     printf("=== %s: %s (%d failing checks) ===\n",
            variant, failures ? "FAIL" : "ALL PASS", failures);
