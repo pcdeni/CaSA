@@ -1,0 +1,12 @@
+Opened /dev/xdma0_h2c_2 -> 3
+Opened /dev/xdma0_c2h_2 -> 4
+Successfully reset the FPGA!
+Set readback mode: READ (build4 SET word).
+Set readback mode: READ (build4 SET word).
+[platform] BITSTREAM_IMEM in effect: 8192 (env override)
+[platform] PIM_RECV_TIMEOUT_MS in effect: 30000
+[stream] A legacy   : 64 rows, 0 bad, 8.9 ms (0.139 ms/row)
+Set STREAM_EN: on (build9 SET word).
+Set STREAM_EN: off (build9 SET word).
+[stream] B streaming: 64 rows, 0 bad, 3.0 ms (0.046 ms/row)  speedup 3.02x
+[stream] ALL_PASS (A_bad=0 B_bad=0)

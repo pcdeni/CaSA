@@ -123,3 +123,29 @@ per-send clear, but full streaming validation is silicon-only (the
 pre-staged `stream-hw-exe` runs the legacy-vs-streaming A/B + wall the
 moment build-9 is flashed). RTL is Verilator-proven; host code is
 compile- + unit-validated; only the silicon wall number is pending.
+
+## SILICON VALIDATED (2026-07-22 evening, build-9b image)
+
+First flash was the magic-07 staging incident (see RUN_AFTER_FLASH.md
+banner); build-9b (readback line 829 = 0xDBC0DE08, bit md5 5261a88b…)
+flashed clean:
+
+- Ladder: rowclone PERFECT_CLONE, segpop ALL_PASS (3 EXACT cases),
+  popcount ALL_PASS — on b2; rowclone+segpop green on b0. Trailer magic
+  **0xDBC0DE08 in-band** (16/16 trailers) on both dies. Stream-off FSM
+  is regression-clean, as the first-flash image already proved.
+- **Streaming A/B (stream-hw-exe), byte-identical in-order, 0 bad:**
+  | die | N | legacy ms/row | stream ms/row | speedup |
+  |---|---|---|---|---|
+  | b2 | 64 | 0.139 | 0.046 | **3.02×** |
+  | b0 | 64 | 0.047 | 0.017 | **2.68×** |
+  | b2 | 256 | 0.097 | 0.039 | **2.49×** |
+  N=256 = sustained ping-pong across 256 back-to-back programs / >128
+  bank swaps, zero corruption. The ~150–200 µs per-program fetch-idle
+  is gone from the steady state — the Rung-1 claim, measured.
+- Logs: stream_ab_b2.log, stream_ab_b0.log, stream_ab_b2_n256.log,
+  ladder9b_*.log (this dir).
+
+Next: the server producer loop (PIM_STREAM in test_bitnet_server.cpp,
+READ/SEG_POP-only scope, in-order matching + sentinel/oversize
+discipline) — the production wall number.
