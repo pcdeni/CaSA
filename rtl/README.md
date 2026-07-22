@@ -113,3 +113,16 @@ partition move of `docs/METHOD_MVDRAM_LENS.md`.
   found and fixed in sim.
 - Composes with SEG_POP (per-segment popcount path unchanged) and READ/
   DIFF (bit-identical). Flash-order hazard identical to build 7.
+
+## build-8b (2026-07-22)
+
+The 8a image validated everything except the accumulate word index:
+`read_seq_incoming` is a level/multi-pulse overlapping the returning
+beats, and the level-priority realign starved the per-beat increment
+(acc word0 = Σ beats 0..126, word1 = beat 127 — dump-proven,
+deterministic). 8b realigns on announcement-edge + quiet read path
+(`rd_outstanding == 0 && ~rd_valid`); trailer magic bumps to
+`0xDBC0DE07`. The TB gains scenario (l2) — silicon-faithful overlapped
+announcements + tail bubble — which reproduces the 8a failure on the
+pre-fix RTL (3/128 lanes) and passes 128/128 on the fix. Silicon:
+`accxbp-hw-exe` EXACT (0/2048, both passes) on both dies.

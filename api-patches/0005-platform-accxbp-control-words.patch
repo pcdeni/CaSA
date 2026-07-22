@@ -1,13 +1,10 @@
 --- a/DRAM-Bender/sources/api/platform.h
 +++ b/DRAM-Bender/sources/api/platform.h
-@@ -74,6 +74,16 @@
-      * @param diff true -> DIFF_MODE, false -> READ_MODE
-      */
-     void set_readback_mode(bool diff);
-+    // build7: SET SEG_POP mode (per-32b-segment popcount readout, READ-like
-+    // framing, 2048 B/row). Silicon build7 image (trailer magic 0xDBC0DE05).
-+    void set_readback_mode_segpop();
-+    // build8 (trailer 0xDBC0DE06): cross-bit-plane accumulator mode. Set
+@@ -77,6 +77,13 @@
+     // build7: SET SEG_POP mode (per-32b-segment popcount readout, READ-like
+     // framing, 2048 B/row). Silicon build7 image (trailer magic 0xDBC0DE05).
+     void set_readback_mode_segpop();
++    // build8b (trailer 0xDBC0DE07): cross-bit-plane accumulator mode. Set
 +    // the mode, then per bit-plane program set_acc_weight(neg,shift) before
 +    // its reads; flush_acc() drains 128 int32×16-lane words (8192 B) as one
 +    // message and zeroes the accumulator. NEVER call on a pre-build8 image.
@@ -17,56 +14,27 @@
  
      /**
       * Bounded, NON-poisoning receive probe: waits up to timeout_ms for
-@@ -128,6 +138,15 @@
-      *  must not be used for further execute/receive after this. */
-     bool recv_stalled() const { return recv_timed_out; }
+@@ -213,6 +220,14 @@
+     // true (transition execute): keep draining until a quiet window, to
+     // absorb a stranded message AND the program's own trailer in one go.
+     bool receiver_quiet_drain = false;
++    // Per-spawn policy for the FLUSH_ACC drain (build8): the XDMA surface
++    // lag can strand the last accxbp program's 32-B trailer and glue it to
++    // the FRONT of the flush payload (or deliver it as its own short
++    // read). When set, consumeDataAccum strips leading 0xDBC0DExx trailer
++    // blocks and treats only a read that yields real payload as the
++    // message (pure-trailer reads keep the window open). Set ONLY by
++    // flush_acc(); execute() clears it — all other paths byte-identical.
++    bool receiver_flush_wait = false;
  
-+    /** Count of execute() calls refused by the IMEM-size gate (program
-+     *  larger than BITSTREAM_IMEM: printed + skipped, nothing sent). Apps
-+     *  whose result integrity depends on every program having actually
-+     *  run (e.g. accum-total streams, where end-of-stream kickers can
-+     *  silently backfill a skipped program's missing chunk — the 2026-07-21
-+     *  PLANE_PACK spill incident) MUST snapshot this around a batch and
-+     *  fail the batch if it advanced. */
-+    long oversize_skips() const { return n_oversize_skips; }
-+
-     #ifdef PYSMC
-     int py_receiveData(int num_words);
-     #endif
-@@ -181,6 +200,7 @@
-     // pristine consumeData above, byte-identical.
-     void consumeDataAccum();
-     bool recv_timed_out = false;
-+    long n_oversize_skips = 0;   // see oversize_skips()
-     // Host-side tracking of the readback engine mode, updated by
-     // set_readback_mode()/toggle_readback_mode(). Drives ONLY the choice
-     // of receiver thread body in execute(); READ-mode-only apps never see
+   #ifdef PYSMC
+   public:
 --- a/DRAM-Bender/sources/api/platform.cpp
 +++ b/DRAM-Bender/sources/api/platform.cpp
-@@ -203,6 +203,70 @@
+@@ -223,6 +223,89 @@
    }
  }
  
-+// build7 (2026-07-21): SET SEG_POP readback mode (bit INSTR_WIDTH+7,
-+// byte[8]=0x80). SEG_POP streams a fixed 2048 B/row then a trailer — it is
-+// READ-like framing, NOT accum/DIFF, so the host uses the pristine
-+// consumeData receiver (accum_mode=false) and receiveData(2048). Entering
-+// from DIFF arms one transition drain, same as entering READ. Idempotent.
-+void SoftMCPlatform::set_readback_mode_segpop()
-+{
-+  if(is_dummy) return;
-+  ((uint8_t*) instr_buf)[8] = (uint8_t) 0x80;
-+  int sent = iface -> sendData(instr_buf, 32 /*in bytes*/);
-+  memset(instr_buf, 0, 32);
-+  if(sent)
-+    std::cerr << "Could not set readback mode (SEG_POP)!" << std::endl;
-+  else {
-+    std::cout << "Set readback mode: SEG_POP (build7 SET word)." << std::endl;
-+    bool was = accum_mode.exchange(false, std::memory_order_relaxed);
-+    if (was) transition_drains_left = 1;   // DIFF -> SEG_POP: arm one drain
-+  }
-+}
-+
 +// build8 (ACCUM_XBP) control words. byte[8] bit7 (0x80) = INSTR_WIDTH+7
 +// (SEG_POP); byte[9] bits 0/1/2 = INSTR_WIDTH+8/9/10. All idempotent SET
 +// words, same mechanism as the +5/+6/+7 words. Image = trailer 0xDBC0DE06.
@@ -102,9 +70,48 @@
 +
 +// Arm the accumulator drain: the engine streams its 128 words as one c2h
 +// message and zeroes itself. Caller then receiveData(8192) once.
++//
++// The drain message has NO program behind it — no execute() runs, so no
++// receiver thread exists to move it from the kernel c2h ring into
++// api_recv_buf, and receiveData() (which only pops that queue) would
++// block on nothing. (Silicon 2026-07-22: first accxbp-hw-exe run timed
++// out 0/8192 exactly this way.) So THIS call provides the reader: spawn
++// the bounded accum receiver — exits at its first complete message, the
++// 8192 B payload + 32 B trailer — BEFORE the h2c word, mirroring
++// execute()'s spawn-before-send order and its guarded join of a
++// possibly-stuck previous receiver.
 +void SoftMCPlatform::flush_acc()
 +{
 +  if(is_dummy) return;
++  if (recv_timed_out) {
++    std::cerr << "[platform] flush_acc() SKIPPED: platform poisoned by an"
++              << " earlier receiveData timeout." << std::endl;
++    return;
++  }
++  if(receiver.joinable()) {
++    long guard_ms = 0;
++    if (const char* v = getenv("PIM_RECV_TIMEOUT_MS")) if (*v) guard_ms = atol(v);
++    if (guard_ms > 0 && !receiver_done.load(std::memory_order_acquire)) {
++      auto t0 = std::chrono::steady_clock::now();
++      while (!receiver_done.load(std::memory_order_acquire)) {
++        if (std::chrono::duration_cast<std::chrono::milliseconds>(
++                std::chrono::steady_clock::now() - t0).count() >= guard_ms) {
++          fprintf(stderr, "[platform] drain thread stuck in kernel c2h read"
++                  " for %ld ms — poisoning platform, detaching thread. Reset"
++                  " the rig before further use.\n", guard_ms);
++          recv_timed_out = true;
++          receiver.detach();
++          return;
++        }
++        std::this_thread::yield();
++      }
++    }
++    receiver.join();
++  }
++  receiver_done.store(false, std::memory_order_release);
++  receiver_quiet_drain = false;      // exit at the first complete message
++  receiver_flush_wait  = true;       // strip glued trailers, wait for payload
++  receiver = std::thread(&SoftMCPlatform::consumeDataAccum, this);
 +  ((uint8_t*) instr_buf)[9] = (uint8_t) 0x04;   // INSTR_WIDTH+10
 +  int sent = iface -> sendData(instr_buf, 32);
 +  memset(instr_buf, 0, 32);
@@ -114,11 +121,55 @@
  void SoftMCPlatform::execute(Program &prog)
  {
    if(is_dummy)
-@@ -251,6 +315,7 @@
-                 << " Reduce K (PIM_INLINE_BITPLANES), or set"
-                 << " BITSTREAM_IMEM=8192 if running on the rebuilt bitstream."
-                 << std::endl;
-+      n_oversize_skips++;   // observable: see oversize_skips() in platform.h
-       free(iseq);
-       return;  // skip send; downstream receiveData will time out cleanly.
+@@ -322,6 +405,7 @@
+     // stranded final message (see set_readback_mode / drain_stray).
+     bool bounded = accum_mode.load(std::memory_order_relaxed);
+     receiver_quiet_drain = false;      // normal accum: exit at first message
++    receiver_flush_wait  = false;      // flush policy is flush_acc()-only
+     if (!bounded && transition_drains_left > 0) {
+       bounded = true;
+       transition_drains_left--;
+@@ -489,6 +573,20 @@
+     int got = iface->recvData(xdma_recv_buf, CHUNK);
+     if (got > 0) {
+       int useful = (got < CHUNK) ? got - 32 : got;
++      const char* payload = (const char*)xdma_recv_buf;
++      if (receiver_flush_wait && got < CHUNK) {
++        // FLUSH drain: the surface lag can glue stranded 32-B program
++        // trailers (word0 = 0xDBC0DExx) to the FRONT of the 8192+32
++        // flush message (silicon 2026-07-22: seg 0 read back 0xDBC0DE06
++        // and the payload tail landed in drain_stray). No accum-mode
++        // payload word can be 0xDBC0DExx — DIFF totals and ACCXBP lanes
++        // are magnitude-bounded, SEG_POP bytes are 6-bit — so strip
++        // leading trailer blocks by magic.
++        while (useful >= 32 &&
++               ((*(const uint32_t*)payload) & 0xFFFFFF00u) == 0xDBC0DE00u) {
++          payload += 32; useful -= 32;
++        }
++      }
+       if (s_recv_debug) {
+         fprintf(stderr, "[recv-debug] accum got=%d useful=%d\n", got, useful);
+         if (got < CHUNK && got >= 32) {
+@@ -500,13 +598,18 @@
+       }
+       if (useful > 0) {
+         int total = useful / 4;
+-        int pushed = api_recv_buf.push((int*)xdma_recv_buf, total);
++        int pushed = api_recv_buf.push((int*)payload, total);
+         while (pushed < total)
+-          pushed += api_recv_buf.push((int*)xdma_recv_buf + pushed,
++          pushed += api_recv_buf.push((int*)payload + pushed,
+                                      total - pushed);
+       }
+-      if (got < CHUNK && !receiver_quiet_drain)
+-        break;    // complete message consumed — pristine-style exit
++      if (got < CHUNK && !receiver_quiet_drain) {
++        if (!receiver_flush_wait || useful > 0)
++          break;  // complete message consumed — pristine-style exit
++        // flush wait + pure-trailer read: the payload hasn't surfaced
++        // yet — keep the window open (the quiet clock below still
++        // bounds the wait).
++      }
+       last_data = std::chrono::steady_clock::now();
+       continue;   // transition drain (or full chunk): keep reading
      }

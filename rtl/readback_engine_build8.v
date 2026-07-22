@@ -326,6 +326,7 @@ module readback_engine(
   reg        axb_beat_valid;   // cycle after rd_valid: pc_out_l4 + rdout valid
   reg [6:0]  axb_widx;         // read-issue index (beat within row)
   reg [6:0]  axb_widx_d1;      // the word being written back this cycle
+  reg        rseq_r_axb;       // build8b: edge-detect read_seq_incoming (LEVEL)
   reg [511:0] axb_wr_word;     // combinational: rdout + (+/- pc<<shift)
   reg        acc_drain_pending;
   reg        acc_streaming;    // build8: >=1 drain word in the FIFO (proc_flush)
@@ -352,6 +353,7 @@ module readback_engine(
     if (rst) begin
       acc_w_neg <= `LOW; acc_w_shift <= 3'd0;
       axb_beat_valid <= `LOW; axb_widx <= 7'd0; axb_widx_d1 <= 7'd0;
+      rseq_r_axb <= `LOW;
       acc_drain_pending <= `LOW; acc_busy <= `LOW; acc_dphase <= `LOW;
       acc_didx <= 8'd0; acc_dword_valid <= `LOW; acc_streaming <= `LOW;
       acc_clearing <= `LOW; acc_cidx <= 8'd0;
@@ -376,12 +378,28 @@ module readback_engine(
       // words — read(N+1) and write(N) never share an address.
       axb_beat_valid <= rd_valid && ~ignore_read_r
                         && (mode_r == ACCUM_XBP_MODE);
-      // each read PROGRAM re-reads the same product row: realign the
-      // word index to 0 at its read announcement so every bit-plane
-      // accumulates into the SAME 128 words. read_seq_incoming is the
-      // per-program SMC_INFO read announcement (never coincident with a
-      // returning beat).
-      if (read_seq_incoming && (mode_r == ACCUM_XBP_MODE))
+      // each read SEQUENCE re-reads a product row: realign the word
+      // index to 0 at the read ANNOUNCEMENT EDGE so every bit-plane (and,
+      // in multi-bank programs, every bank's rdRow — chunks of one input,
+      // summed additively) accumulates into the SAME 128 words.
+      //
+      // build8 silicon 2026-07-22: read_seq_incoming is NOT a one-shot
+      // per-program pulse — it pulses per fetched SMC_INFO packet and
+      // overlaps the burst's returning beats (the build4 outstanding
+      // counter below consumes exactly that shape). The original
+      // level-priority realign here starved the increment: beats 0..126
+      // pinned to word 0, beat 127 landed in word 1 (dump-proven,
+      // deterministic). The TB drove a one-cycle pre-burst pulse and
+      // missed it. Realign ONLY on an announcement EDGE arriving while
+      // the read path is QUIET (nothing announced-outstanding, no beat
+      // this cycle) — i.e. the first announcement of a fresh sequence.
+      // Mid-sequence announcements/edges can't realign, and pipelined
+      // multi-rdRow programs stay correct via the natural 128-beat wrap
+      // (every production read is a full 128-beat row).
+      rseq_r_axb <= read_seq_incoming;
+      if (read_seq_incoming && !rseq_r_axb
+          && (rd_outstanding_r == 16'd0) && ~rd_valid
+          && (mode_r == ACCUM_XBP_MODE))
         axb_widx <= 7'd0;
       else if (rd_valid && ~ignore_read_r && (mode_r == ACCUM_XBP_MODE)) begin
         axb_widx_d1 <= axb_widx;
@@ -808,7 +826,7 @@ module readback_engine(
   assign c2h_tvalid_0 = trailer_beat ? `HIGH : fifo_valid;
   assign c2h_tdata_0  = trailer_beat ?
       {cnt_accum_write, cnt_drain, cnt_flush_eaten, cnt_flush_edge,
-       cnt_ref_init, cnt_zq_init, cnt_rd_init, 32'hDBC0DE06} : rbf_dout;
+       cnt_ref_init, cnt_zq_init, cnt_rd_init, 32'hDBC0DE07} : rbf_dout;
 
   assign buffer_space = buffer_space_r >> 1;
   

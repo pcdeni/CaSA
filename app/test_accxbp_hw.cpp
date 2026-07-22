@@ -1,5 +1,5 @@
 // build8 ACCUM_XBP silicon validation: in-fabric cross-bit-plane
-// accumulator. The build8 image (trailer 0xDBC0DE06) adds a 4th readback
+// accumulator. The build8b image (trailer 0xDBC0DE07) adds a 4th readback
 // mode: reads are consumed into a 128×(16 int32-lane) accumulator as
 // acc[seg] += weight · popcount(row segment), with the weight
 // (sign + power-of-two shift) latched out-of-band per read program via
@@ -99,6 +99,11 @@ int main(int argc, char** argv) {
     pf.flush_acc();
     vector<uint8_t> buf(8192, 0);
     int got = pf.receiveData(buf.data(), 8192);
+    if (const char* dp = getenv("ACCXBP_DUMP")) {
+      char path[512]; snprintf(path, sizeof path, "%s.pass%d.bin", dp, pass);
+      FILE* f = fopen(path, "wb");
+      if (f) { fwrite(buf.data(), 1, 8192, f); fclose(f); }
+    }
     int bad = 0, first = -1;
     for (int s = 0; s < 2048; s++) {
       int32_t v; memcpy(&v, buf.data() + s * 4, 4);

@@ -104,13 +104,35 @@ Two small platform additions, applied on top of 0001+0002+0003:
    `app/test_bitnet_server.cpp` (`PIM_SEGPOP`),
    `app/test_segpop_hw.cpp` (silicon validation tool).
 
-## 0005 — build8 ACCUM_XBP control words
+## 0005 — build8b ACCUM_XBP control words + flush drain plumbing
 
 Three idempotent SET methods for the build8 cross-bit-plane accumulator
-(image trailer `0xDBC0DE06`), applied on top of 0001–0004:
-`set_readback_mode_accxbp()` (INSTR_WIDTH+8, byte[9] bit 0), `set_acc_weight(neg,shift)`
-(INSTR_WIDTH+9, payload in tdata[3:0]), `flush_acc()` (INSTR_WIDTH+10).
-Same decode pattern as the +5/+6/+7 SET words. **Hazard:** never call on
-a pre-build8 image (the words fall through into instruction-load).
-Consumers: `app/test_accxbp_hw.cpp` (silicon validation) and, post-flash,
-`PIM_ACCUM_XBP` in `app/test_bitnet_server.cpp`.
+plus the host-side drain plumbing the first silicon round proved
+necessary (image trailer `0xDBC0DE07`; the interim 8a image `0xDBC0DE06`
+carried a word-index realign bug — full story in
+`rtl/BUILD8_VERIFICATION.md`), applied on top of 0001–0004:
+
+- `set_readback_mode_accxbp()` (INSTR_WIDTH+8), `set_acc_weight(neg,
+  shift)` (+9, payload in tdata[3:0]), `flush_acc()` (+10) — the same
+  decode pattern as the +5/+6/+7 SET words. **Hazard:** never call on a
+  pre-build8 image (the words fall through into instruction-load).
+- `flush_acc()` spawns its own bounded c2h reader BEFORE sending the
+  word — the drain has no `execute()` behind it, so nothing else moves
+  it from the kernel ring into the receive queue (first silicon run:
+  a clean 0/8192 stall, caught by the 0002 timeout guard).
+- `receiver_flush_wait`: the XDMA surface lag can glue a stranded 32-B
+  program trailer onto the FRONT of the flush payload (silicon: segment
+  0 read back the trailer magic as an int32). The flush receiver strips
+  leading `0xDBC0DExx` words — safe because no accum-mode payload word
+  can take that value (DIFF/ACCXBP magnitude-bounded, SEG_POP bytes
+  6-bit) — and only a payload-bearing read ends the wait.
+- ACCXBP-mode accumulate/write programs emit NO c2h: the per-execute
+  accum receiver would idle its full quiet window per program, so the
+  server integration shrinks `PIM_ACCUM_QUIET_MS`/`PIM_ACCUM_TICK_MS`
+  to 8/4 ms when `PIM_ACCUM_XBP=1` (user env overrides win).
+
+Consumers: `app/test_accxbp_hw.cpp` (silicon validation — EXACT 0/2048,
+both passes, BOTH dies, 2026-07-22) and `PIM_ACCUM_XBP` in
+`app/test_bitnet_server.cpp` (single-track grouped matvecs: per-plane
+weight latch, one 8 KB int32 drain per round, SEG_POP fallback for
+dual-track / K>1 / fused-repair requests).
