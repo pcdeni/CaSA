@@ -196,3 +196,6 @@ resident-tile-exe: test_resident_tile.o $(SHARED_OBJS)
 
 m3-scratch-ab-exe: test_m3_scratch_ab.o $(SHARED_OBJS)
 	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+m3-gate2-exe: test_m3_gate2.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)

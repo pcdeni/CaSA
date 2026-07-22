@@ -110,3 +110,34 @@ streaming the 265.8× instruction cut is what survives — wcol becomes
 DDR-bus time. Next gate: server `PIM_BCAST_LOAD` in the V2 emitter +
 the shadow-pair allocator, sequenced after the Rung-1 producer loop
 lands (one invasive server change at a time).
+
+## Gate 2 (2026-07-22, same day): the four server-integration questions
+
+Tool `app/test_m3_gate2.cpp`; raw logs `docs/data/m3/gate2_*`.
+
+1. **Shadow supply census** — 801 (b2/bank1/s72) / 694 (b0/bank1/s77)
+   law-valid k=1 pairs across 13 single-unit offsets; 91.5% / 73.6% of
+   pool sources have ≥1 shadow. **Every geometrically-available offset
+   class deposits byte-exact on both dies** (b0 including d=256; bit-9
+   excluded pending per-position characterization). k=3 all-clear
+   cosets exist (1 b2 / 7 b0); k=4 none in these windows.
+2. **Source retention (aref off)** — first flip ~30 s (b2) / ~120 s
+   (b0); `dst_mism == src_mism` at every mark, i.e. the deposit adds
+   ZERO error of its own. Consequence: enroll deposit sources in the
+   existing MM3D-entry ACT-refresh windows (sub-second cadence in
+   production) — no new mechanism.
+3. **Deposit chaining** — SRC –(10,2)→ DST –(30,1)→ PROBE clean 10/10
+   on both dies: deposit targets are valid RowClone sources, validating
+   the scratch→Rfirst consumption hop at the row level.
+4. **Deposit burst — M3 pays BEFORE streaming**: 32 scratch loads in
+   ONE program (358 insts) vs 96 pcwrite programs (144,608 insts) =
+   **114.4× (b2) / 105.3× (b0) wall, all targets byte-exact**
+   (0.0026 ms/load). The wcol term collapses today; open question for
+   the server gate is deposit-ahead-of-use freshness across a request's
+   MAJ3 activity (the 2026-05-04 rounds-ahead lesson) — layer-0 /
+   full-model gates answer it.
+
+Strategic note: with round-trip-bound now triple-confirmed (SEG_POP /
+ACCUM_XBP / M3 gate 1), Rung-1 streaming inverts the regime — bus time
+(= instructions) becomes the wall, making the 265.8×/403.9× instruction
+cuts the top post-streaming lever; the two compose.
