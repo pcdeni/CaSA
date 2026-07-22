@@ -79,12 +79,12 @@ design doc that motivates it — the roadmap is itself evidence-first.
    surfaced a silent-skip integrity hazard now fixed with
    `oversize_skips()` observability — read `docs/ROADB_2026_07.md` §6
    before building accum-total systems on this stack.
-6. **M3 coset-broadcast operand fan-out** — IDEA→DESIGN next. The
-   production wcol killer AND the unlock for V2-path packing (PACK_ROUNDS
-   is MM3D-only because V2 needs write-then-use locality — broadcast
-   loading changes the locality story). Needs pool-layout co-design with
-   the validated sub-lattice broadcast mechanism
-   (`docs/LATTICE_ADDRESSING_2026_07.md`).
+6. **M3 coset-broadcast operand fan-out** — DESIGNED 2026-07-22
+   (`docs/M3_COSET_FANOUT_DESIGN.md`). The wcol killer: replace
+   per-column scratch writes with a resident-backup + coset `doubleACT`
+   (4.98× fewer instrs / 2.81× wall proven for the broadcast itself).
+   Also unlocks V2-path round-packing and partly sidesteps the residency
+   ceiling. Software-only; pool-layout allocator change is the work.
 7. **PIM_PARALLEL_BANKS=1 probe** — DONE 2026-07-21: pack4 provably
    ENGAGED (program-dump signature) yet wall effect 3.3 % ≈ variance —
    the ceiling math for a compute-issue lever on a readout-bound wall.
@@ -111,10 +111,12 @@ design doc that motivates it — the roadmap is itself evidence-first.
     the 16-bank scale-out (#13, ~4× residency/parallelism headroom
     with no new sweeps) is real. Remaining: margin maps, banks 8-15,
     the selection-law probe on one new bank.
-12. **Calib-transfer procedure** — formalize: apply bank-0 calib to a new
-    bank with margin re-screen only (already half-exploited: D0 banks
-    0/2/3 share calib; cross-die transfer evidenced). Deliverable: a
-    documented recipe + transfer-success table.
+12. **Calib-transfer procedure** — DONE 2026-07-22
+    (`docs/CALIBRATION_TRANSFER.md`): the recipe + transfer-success
+    table. Banks (all 16) and same-model dies transfer byte-identically
+    (margin re-screen only); subarrays partial (pool re-derivation, the
+    long offset is block-relative); parts need lattice re-derivation.
+    16-bank scale-out is now a config exercise.
 13. **16-bank / multi-subarray scale-out** — IDEA, after 11. The idle
     spatial parallelism from docs/UTILIZATION.md (die ~99.99% idle).
     Constraints known: tFAW/tRRD scheduling (pack4 machinery), per-bank

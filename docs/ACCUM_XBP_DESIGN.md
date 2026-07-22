@@ -33,6 +33,33 @@ bit-plane program. Fold the sum into the readback engine and a group's
         execute(4-bank bodies for this plane)      # reads accumulate
     FLUSH_ACCUM; receiveData(8192)                 # ONE drain per group
 
+## Integration boundary (the honest constraint)
+
+The accumulator applies ONE latched weight to every read in a program's
+window. That fits the production layout only when every read a program
+issues shares that weight — which holds in exactly one case, and it is
+the case that matters most:
+
+- **Single-track (Bonsai V2S), K=1 — CLEAN FIT.** One program per
+  bitplane; its M bank-rows are M different input *chunks* at that
+  bitplane, all sign +, so they accumulate at the plane's single weight
+  and — because different chunks contribute additively to the same
+  output — the per-segment accumulator sum is exactly right. This is the
+  current production config, so ACCUM_XBP lands where it is needed.
+- **Dual-track (BitNet) — NOT a drop-in.** A program's bank-rows mix pos
+  and neg units (different sign → different weight). ACCUM_XBP would
+  need the pos and neg units split into separate programs (each with its
+  own sign in the weight), or a per-read weight sequence (more RTL).
+- **K>1 — excluded.** K>1 packs multiple bitplanes into one program;
+  their weights differ, so ACCUM_XBP requires K=1. (K=1 is already the
+  production cadence; K>1 was measured a net loss anyway — `ROADB` §7.)
+
+So the production integration is: `PIM_ACCUM_XBP=1` on the single-track
+K=1 path, set the weight per bitplane program, drain once per group. The
+server change is in the same three readout sites SEG_POP touched, gated
+so dual-track/K>1 fall back to SEG_POP. Write it AFTER silicon validates
+the mode (`accxbp-hw-exe`) — not before.
+
 Round-trips per group: 8 execs + **1 drain** (today: 8 execs + 8
 drains). recv wakes ÷8; bytes 8 KB vs 8 × 2048 B (2×). Single-track
 first: sign is uniformly +1, so the weight table is just the 8
@@ -63,8 +90,9 @@ the host splits pos/neg groups).
   transitions), require an identical failure-set diff vs build-7,
   then the silicon tool, then `PIM_ACCUM_XBP=1` in the server with
   layer-0-exact → full-model token-identity.
-- Trailer magic increments (0xDBC0DE06); the SET word takes the next
-  free frontend control bit.
+- Trailer magic increments (0xDBC0DE07, build-8b; the 8a image carried
+  0xDBC0DE06 and a widx bug — see the silicon round below); the SET word
+  takes the next free frontend control bit.
 
 ## Where it lands
 
@@ -75,3 +103,23 @@ measured, recv → ~6–8 ms ⇒ handler ~43 → ~25 ms ⇒ roughly **1.6–1.7�
 wall** — and it composes with, rather than competes against, the
 Rung-1 streaming fetch (`CONTROLLER_NATIVE.md`), which amortizes the
 *exec* round-trips the same way.
+
+## The silicon round (2026-07-22)
+
+Build-8a validated everything except the accumulate index: the
+per-program realign keyed on `read_seq_incoming` as if it were a
+one-shot pulse, but on silicon it pulses per fetched SMC_INFO packet
+and overlaps the returning beats — the realign starved the per-beat
+increment, pinning beats 0..126 into word 0 (dump-proven,
+deterministic). Build-8b realigns on announcement-edge + quiet read
+path; trailer magic is now **0xDBC0DE07**, and the Verilator gate
+carries a silicon-faithful overlapped-announcement scenario that
+reproduces the 8a failure. Two host-side lessons landed in
+`platform.cpp` on the way: `flush_acc()` must provide its own c2h
+reader (no execute() runs behind the drain), and the XDMA surface lag
+can glue a stranded 32-B program trailer to the front of the flush
+payload (the flush receiver strips leading 0xDBC0DExx blocks — safe:
+no accum-mode payload word can take that value). Server-integration
+note: in ACCUM_XBP phases the accumulate programs emit no c2h, so
+shrink `PIM_ACCUM_QUIET_MS` (the 500 ms/execute default would swamp
+the win).

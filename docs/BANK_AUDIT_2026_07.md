@@ -74,3 +74,94 @@ partial). Verdict: bank scale-out is a CONFIG EXERCISE now (correct on
 first try, virgin banks included); its wall payoff arrives with the
 recv-side levers (ACCUM_XBP byte collapse, Rung-1 streaming) and
 cluster mining from the existing sweep CSVs.
+
+## Subarray-transfer probe (2026-07-22): PARTIAL — the boundary is real
+
+Shifting the s72 tuple by +640 and +1280 rows (into never-screened
+subarrays) and re-running the constellation probe:
+- **short-range coupling transfers**: the −1 deposit (doubleACT far/tuple)
+  and the ±1/±2 MAJ3-like flake fringe are identical at all three offsets.
+- **long-range coupling does NOT**: the **+256 deposit present at sub
+  45312 vanishes at sub 45952 and 46592** — the +256 XOR target at the
+  shifted position no longer couples, though it sits inside the probed
+  constellation. The co-activation lattice's large offsets are
+  subarray-position-dependent (a predecoder-block / sense-amp-segment
+  boundary effect — the 640/1024 atlas question, #14).
+
+Consequence for scale-out: **bank-transfer is free** (identical lattice,
+proven), so the cheap residency path is 16 banks × the 3 screened
+subarrays (~4× headroom, config-only). **Subarray expansion is NOT free**
+— a shifted tuple likely still computes MAJ3 (short-range), but its
+pool layout (spread-collision avoidance) must be re-derived per subarray,
+and new subarrays need their own margin screen. Cluster mining from the
+2026-05-20 CSVs can't help: only s72/78/86 were ever swept on D2.
+
+## Boundary atlas (#14, 2026-07-22): the long offset is block-relative
+
+Sweeping the s72 tuple across a fine shift grid and recording the
+long-range deposit offset on doubleACT(30,1)→far:
+
+| shift | sub | long deposit | short |
+|---|---|---|---|
+| +0   | 45312 | **+256** | −1 |
+| +128 | 45440 | **+128** | −1 |
+| +256 | 45568 | (none)   | −1 |
+| +384 | 45696 | **−128** | −1 |
+| +512 | 45824 | **−256** | −1 |
+| +640 | 45952 | (none)   | −1 |
+| +768 | 46080 | (none)   | −1 |
+| +1024| 46336 | (none)   | −1 |
+
+The long-range co-activation offset is **not a fixed lattice constant** —
+it tracks the tuple's position relative to a ~512-row (predecoder-block)
+boundary: magnitude shrinks toward a block midpoint, vanishes there, then
+flips sign, and is absent once the tuple lands in a different block's
+interior. The short-range −1 coupling is position-invariant. This is the
+mechanism behind the two transfer verdicts: **bank-transfer preserves the
+intra-block position → identical lattice (free); subarray-transfer moves
+it → different long coupling (pool layouts must be re-derived)**. It also
+matches the selection-law's documented predecoder-block scope
+([[selection_law]] memory: the law crosses 640-row sense-amp segments but
+is bounded by the 1024/512 predecoder block). Closes the 640/1024 atlas
+question with data: the operative structural unit for long-range
+addressing is the predecoder block, and operations must be planned
+block-relative.
+
+**Re-derivation addendum (2026-07-22)**: the long deposit is the same
+*absolute* row — **45597** — at every shift where it appears (+0, +128,
++384, +512); only the tuple moves, which is why the offset shrinks and
+flips sign. Two things the table understates: at +256 the fired row *is*
+45597 (that "(none)" is the degenerate self-coincidence, not an
+absence), and at +768 the partner sits at probed offset −512 yet stays
+clean — the one decisive proof that the coupling is *gone* outside the
+block rather than merely outside the probed constellation (+640/+1024
+put 45597 at unprobed offsets). Note the firing member is NOT the
+single-bit ⊕256 partner (R⊕256 = 45085, offset −256, stays untouched —
+consistent with the D2 profile's missing ⊕256): it is the *multi-bit*
+coset member of the far pair that lands on the block-anchored row (⊕768
+at +0, ⊕896 at +128, …). Which member of the candidate set fires is
+position-dependent; the invariant is the landing row, 45597. Single-bit
+XOR intuition misses this entirely.
+
+## All 16 banks (2026-07-22): lattice uniform die-wide — COMPLETE
+
+Extended the constellation probe to banks 8–15, then (re-verification
+pass, same night) to the last unprobed banks 1–3 — the production banks,
+until then covered only indirectly by token-identical inference. **All
+16 banks are now directly measured, and the deposit-row set is
+md5-identical across all 16 logs.**
+
+The only variation is a deterministic fringe split on ONE case,
+doubleACT(0,0)→far: banks {0, 4–7, 12–15} flake sparsely (−1/+256 only)
+while banks {1–3, 8–11} flake at an identical 18-offset set (−24 through
++512; −48 and further negative stay clean) at ~4 cells per row
+(2044/2048) — the same asymmetric set, offset-for-offset, on all 7
+banks. That reproducibility says sub-threshold (0,0) disturb exists
+die-wide and merely crosses the tool's classification threshold on 7
+banks — margin class, not a lattice change. It is production-irrelevant
+twice over: (0,0)→far is not a production shape, and banks 1–3 are the
+daily production banks. The transfer thesis now stands at full die
+scale with no indirect links: **one bank's calibration drives all 16;
+only a per-bank margin re-screen differs.** The 16-bank scale-out
+(residency / spatial parallelism) is a config exercise on this die, no
+new sweeps.

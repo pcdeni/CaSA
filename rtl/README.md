@@ -85,3 +85,31 @@ DIFF-accum are bit-identical to build 6.
   (matvec reads in SEG_POP; raw-byte verify paths auto-switch to READ).
 - **Flash-order hazard**: on a pre-build7 image the `0x80` word falls
   through frontend decode into instruction-load — flash first, then run.
+
+## Build 8 — ACCUM_XBP cross-bit-plane accumulator (2026-07-22, Verilator-proven)
+
+Fourth readback mode: an in-fabric **place-value accumulator** that folds
+the host's Σ_b 2^i·popcount_b across bit-plane programs. A 128×512-bit
+accumulator (16 signed-int32 lanes/word) reads-modify-writes on each
+consumed beat — `acc[word].lane += (±pc_out_l4[lane]) << shift` — where
+the weight (sign + power-of-two shift = the bit-plane factor) is latched
+out-of-band per program. FLUSH_ACC drains the 128 words as one message
+and zeroes the accumulator. A group's n_bitplanes per-plane readbacks
+become **one** drained vector — a round-trip cut (recv wakes ÷
+n_bitplanes) the same shape SEG_POP was for bytes, and the step-5
+partition move of `docs/METHOD_MVDRAM_LENS.md`.
+
+- Files: `readback_engine_build8.v`, `frontend_build8.v` (control words
+  +8 SET mode / +9 SET_ACC_WEIGHT payload `{neg,shift}` / +10 FLUSH_ACC),
+  `softmc_core_build8.v`. Trailer magic `0xDBC0DE06`.
+- Mode-entry cost: a 128-cycle accumulator zero sweep (the BRAM has no
+  reset); the host idles ≥128 cycles before the first read.
+- Verification (`BUILD8_VERIFICATION.md`): failure-set diff vs build 7
+  (zero new failures on shared scenarios), the ACCUM_XBP scenario
+  **128/128 lane-exact** (Σ over 4 planes incl. the −2³ top plane),
+  buffer_space conserved, back-to-back no-desync, accumulator zeroed
+  between drains, clean READ transition. A real FWFT ordering bug
+  (proc_flush must rise on the first pushed word, not on arming) was
+  found and fixed in sim.
+- Composes with SEG_POP (per-segment popcount path unchanged) and READ/
+  DIFF (bit-identical). Flash-order hazard identical to build 7.
