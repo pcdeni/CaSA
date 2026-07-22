@@ -1,6 +1,6 @@
 --- a/DRAM-Bender/sources/api/platform.h
 +++ b/DRAM-Bender/sources/api/platform.h
-@@ -84,6 +84,17 @@
+@@ -84,6 +84,29 @@
      void set_readback_mode_accxbp();
      void set_acc_weight(int neg, int shift);
      void flush_acc();
@@ -11,14 +11,26 @@
 +    // program back-to-back (no per-program join — XDMA back-pressures),
 +    // stream_recv() one program's result at a time, stream_stop() to end.
 +    void set_stream_en(bool on);
++    // stream_start(N>0): UNIFORM mode — every streamed program returns
++    // exactly N payload bytes (+32B trailer). stream_start(SIZED) (or any
++    // value <= 0): SIZED mode — every stream_send() must pass that
++    // program's expected payload_bytes (0 for write-only programs, which
++    // emit just the trailer); the drain pops one size per record. Mixed
++    // production sequences (packed wcol writes + SEG_POP execs) need
++    // SIZED mode.
++    static constexpr int STREAM_SIZED = -1;
 +    void stream_start(int payload_bytes = 8192);
-+    void stream_send(Program & prog);
++    // payload_bytes: REQUIRED in SIZED mode; ignored in UNIFORM mode
++    // (pass -1). Oversize programs POISON the platform instead of
++    // skipping — a silently skipped streamed program desyncs every
++    // later record; gate sizes at the app layer first.
++    void stream_send(Program & prog, int payload_bytes = -1);
 +    int  stream_recv(void* dst_buf, int size);
 +    void stream_stop();
  
      /**
       * Bounded, NON-poisoning receive probe: waits up to timeout_ms for
-@@ -193,6 +204,11 @@
+@@ -193,6 +216,17 @@
      boost::lockfree::spsc_queue<int> api_recv_buf{API_BUF_SIZE/4};
      void* xdma_recv_buf;
      void consumeData();
@@ -26,13 +38,19 @@
 +    // back, splitting on per-program trailers, until stream_stop_req.
 +    void consumeDataStream();
 +    std::atomic<bool> stream_stop_req{false};
-+    int stream_payload_bytes = 8192;   // per-program readback record size
++    int stream_payload_bytes = 8192;   // UNIFORM record size; <=0 => SIZED
++    // SIZED mode: per-program expected payload sizes, pushed by
++    // stream_send (producer = app thread) BEFORE its h2c bytes can
++    // produce any c2h output, popped by consumeDataStream (consumer =
++    // drain thread) at each record start — so the drain never sees data
++    // whose size it doesn't know yet.
++    boost::lockfree::spsc_queue<int> stream_size_q{65536};
      // Bounded per-execute drain used in DIFF/accum mode (and for the one
      // transition execute right after leaving it) — build5 host-side
      // absorption of the XDMA small-transfer surface lag (2026-07-20, see
 --- a/DRAM-Bender/sources/api/platform.cpp
 +++ b/DRAM-Bender/sources/api/platform.cpp
-@@ -242,6 +242,121 @@
+@@ -242,6 +242,155 @@
    }
  }
  
@@ -74,7 +92,10 @@
 +// so it is correct whether the backend frames per-program or coalesces.
 +void SoftMCPlatform::stream_start(int payload_bytes)
 +{
-+  stream_payload_bytes = (payload_bytes > 0) ? payload_bytes : 8192;
++  // >0: uniform records of that size. <=0 (STREAM_SIZED): per-program
++  // sizes via stream_send(prog, payload_bytes) -> stream_size_q.
++  stream_payload_bytes = payload_bytes;
++  while (stream_size_q.pop()) {}   // clear any stale sizes from a prior session
 +  if(is_dummy) return;
 +  if(receiver.joinable()) {                 // drain any prior per-program receiver
 +    if(!receiver_done.load(std::memory_order_acquire)) {
@@ -94,15 +115,30 @@
 +  }
 +  stream_stop_req.store(false, std::memory_order_release);
 +  receiver_done.store(false, std::memory_order_release);
++  // Install the tick no-op handler BEFORE the thread exists: stream_stop
++  // pthread_kills the drain with this signal, and an early stop racing
++  // the drain's own install would otherwise hit the default action
++  // (process termination).
++  std::call_once(s_accum_tick_once, []{
++    struct sigaction sa; memset(&sa, 0, sizeof(sa));
++    sa.sa_handler = accum_tick_noop; sigemptyset(&sa.sa_mask); sa.sa_flags = 0;
++    sigaction(PIM_ACCUM_TICK_SIG, &sa, nullptr);
++  });
 +  receiver = std::thread(&SoftMCPlatform::consumeDataStream, this);
 +}
 +
-+void SoftMCPlatform::stream_send(Program &prog)
++void SoftMCPlatform::stream_send(Program &prog, int payload_bytes)
 +{
 +  if(is_dummy) { free(prog.get_inst_array()); return; }
 +  if(recv_timed_out) {
 +    std::cerr << "[platform] stream_send SKIPPED: platform poisoned." << std::endl;
 +    free(prog.get_inst_array()); return;
++  }
++  const bool sized = (stream_payload_bytes <= 0);
++  if (sized && payload_bytes < 0) {
++    std::cerr << "[platform] stream_send: SIZED session but no "
++              << "payload_bytes given — poisoning (stream would desync)\n";
++    recv_timed_out = true; free(prog.get_inst_array()); return;
 +  }
 +  uint64_t* iseq = (uint64_t*) prog.get_inst_array();
 +  int bytes   = prog.size();
@@ -113,10 +149,17 @@
 +    return vv > 0 ? vv : BITSTREAM_IMEM_INSTS;
 +  }();
 +  if(n_inst > s_bitstream_imem) {
++    // A skipped streamed program = a missing record = every later
++    // result attributed to the wrong program. Unlike execute()'s
++    // skip-and-count, streaming must POISON. Gate sizes upstream.
 +    std::cerr << "[platform] stream_send: program too large ("
-+              << n_inst << " > " << s_bitstream_imem << ") — skipped\n";
-+    n_oversize_skips++; free(iseq); return;
++              << n_inst << " > " << s_bitstream_imem
++              << ") — POISONING (no silent skip in a stream)\n";
++    n_oversize_skips++; recv_timed_out = true; free(iseq); return;
 +  }
++  // Push the size BEFORE h2c: the drain pops it at record start, and no
++  // c2h byte of this program can exist before sendData below returns.
++  if (sized) stream_size_q.push(payload_bytes);
 +  uint64_t* temp_ptr = (uint64_t*) instr_buf;
 +  for(int i = 0; i < bytes/8; i++) temp_ptr[i*4] = iseq[i];
 +  int sent = iface -> sendData(instr_buf, bytes*4);
@@ -135,6 +178,15 @@
 +{
 +  if(is_dummy) return;
 +  stream_stop_req.store(true, std::memory_order_release);
++  // Kick the drain out of its tick-bounded kernel read NOW instead of
++  // waiting for the next periodic tick (up to PIM_ACCUM_TICK_MS): the
++  // per-request session teardown otherwise costs ~tens of ms × every
++  // request (measured 64.8→87.3 s on the layer-0 gate, 2026-07-22 —
++  // the whole regression was this latency). Same no-op signal the
++  // drain's own timer uses; harmless if the thread is already past the
++  // read or finished.
++  if(receiver.joinable() && !receiver_done.load(std::memory_order_acquire))
++    pthread_kill(receiver.native_handle(), PIM_ACCUM_TICK_SIG);
 +  if(receiver.joinable()) {
 +    long guard_ms = 0;
 +    if (const char* v = getenv("PIM_RECV_TIMEOUT_MS")) if (*v) guard_ms = atol(v);
@@ -154,7 +206,7 @@
  // Latch the per-plane weight: neg (sign) + shift (3-bit, = the bit-plane
  // power-of-two). Payload in h2c_tdata[3:0] (byte[0] low nibble), decoded
  // by the frontend as {neg, shift[2:0]} and sampled by the engine only
-@@ -256,8 +371,9 @@
+@@ -256,8 +405,9 @@
    if(sent) std::cerr << "Could not set acc weight!" << std::endl;
  }
  
@@ -166,7 +218,7 @@
  //
  // The drain message has NO program behind it — no execute() runs, so no
  // receiver thread exists to move it from the kernel c2h ring into
-@@ -469,6 +585,94 @@
+@@ -469,6 +619,127 @@
    receiver_done.store(true, std::memory_order_release);
  }
  
@@ -211,16 +263,26 @@
 +    }
 +  }
 +  // Robust record parser. Each program's c2h is exactly
-+  // (stream_payload_bytes payload + 32 B trailer). We do NOT rely on a
-+  // per-program short read to find the boundary — the backend may frame
-+  // per-program (silicon TLAST → one short read each) OR coalesce
-+  // several programs into one kernel read (the sim exposed this, 07-22).
-+  // Instead we track a byte offset within the current record: bytes
-+  // 0..payload-1 are pushed, bytes payload..payload+31 are dropped
-+  // (trailer), then the record repeats. Partial records survive across
-+  // kernel reads because rec_off is a persistent thread-local cursor.
-+  const int PAY = (stream_payload_bytes > 0) ? stream_payload_bytes : 8192;
-+  const int REC = PAY + 32;
++  // (payload + 32 B trailer). We do NOT rely on a per-program short read
++  // to find the boundary — the backend may frame per-program (silicon
++  // TLAST → one short read each) OR coalesce several programs into one
++  // kernel read (the sim exposed this, 07-22). Instead we track a byte
++  // offset within the current record: bytes 0..payload-1 are pushed,
++  // bytes payload..payload+31 are dropped (trailer), then the record
++  // repeats. Partial records survive across kernel reads because rec_off
++  // is a persistent cursor.
++  //
++  // UNIFORM mode (stream_payload_bytes > 0): every record has the same
++  // payload. SIZED mode (<=0): each record's payload comes from
++  // stream_size_q, pushed by stream_send BEFORE its h2c — so by the time
++  // any of a program's bytes arrive here, its size is already queued (a
++  // failed pop with bytes in hand is a microrace; spin briefly).
++  // Zero-size records (write-only programs) are just 32-B trailers.
++  const bool sized = (stream_payload_bytes <= 0);
++  int PAY = sized ? 0 : stream_payload_bytes;
++  int REC = PAY + 32;
++  bool have_rec = !sized;      // sized: must pop a size at record start
++  bool proto_err = false;
 +  int rec_off = 0;
 +  while (true) {
 +    int got = iface->recvData(xdma_recv_buf, CHUNK);
@@ -230,6 +292,19 @@
 +      const char* p = (const char*)xdma_recv_buf;
 +      int left = got;
 +      while (left > 0) {
++        if (sized && !have_rec) {
++          int sz = -1;
++          while (!stream_size_q.pop(sz)) {
++            if (stream_stop_req.load(std::memory_order_acquire)) break;
++            std::this_thread::yield();
++          }
++          if (sz < 0) {   // bytes on the wire with no declared size
++            fprintf(stderr, "[platform] STREAM PROTOCOL ERROR: c2h bytes "
++                    "with no queued size (left=%d) — abandoning drain\n", left);
++            proto_err = true; break;
++          }
++          PAY = sz; REC = PAY + 32; have_rec = true;
++        }
 +        if (rec_off < PAY) {                 // inside payload → push
 +          int take = PAY - rec_off; if (take > left) take = left;
 +          int total = take / 4;              // payload is 4-byte aligned
@@ -242,18 +317,28 @@
 +        } else {                             // inside trailer → drop
 +          int take = REC - rec_off; if (take > left) take = left;
 +          p += take; left -= take; rec_off += take;
-+          if (rec_off == REC) rec_off = 0;   // record complete → next
++          if (rec_off == REC) {              // record complete → next
++            rec_off = 0;
++            if (sized) have_rec = false;
++          }
 +        }
 +      }
++      if (proto_err) break;
++      // A record may have just completed with a stop already pending —
++      // exit NOW rather than re-entering the (tick-bounded) kernel read.
++      if (stream_stop_req.load(std::memory_order_acquire) && rec_off == 0 &&
++          (!sized || (!have_rec && stream_size_q.empty()))) break;
 +      continue;
 +    }
 +    if (got < 0) break;                       // real kernel error — exit
 +    // got == 0: tick-interrupted, nothing pending. Exit only once a stop
-+    // is requested AND we are at a clean record boundary (no half-record
-+    // stranded); otherwise keep waiting for more programs.
-+    if (stream_stop_req.load(std::memory_order_acquire) && rec_off == 0) break;
++    // is requested AND we are at a clean record boundary AND (sized) no
++    // declared program's record is still outstanding.
++    if (stream_stop_req.load(std::memory_order_acquire) && rec_off == 0 &&
++        (!sized || (!have_rec && stream_size_q.empty()))) break;
 +    std::this_thread::yield();
 +  }
++  if (proto_err) recv_timed_out = true;
 +  if (have_timer) timer_delete(tick_timer);
 +  receiver_done.store(true, std::memory_order_release);
 +}

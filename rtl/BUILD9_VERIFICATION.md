@@ -149,3 +149,46 @@ flashed clean:
 Next: the server producer loop (PIM_STREAM in test_bitnet_server.cpp,
 READ/SEG_POP-only scope, in-order matching + sentinel/oversize
 discipline) — the production wall number.
+
+## Producer-loop gate: full-model FAILED → root cause = build-7 SEG_POP
+## packer desync under streaming (2026-07-22 night)
+
+Phase-1 server integration (PIM_STREAM=1, per-request sized sessions):
+layer-0 token-identical (62.8 vs 64.8 s legacy — and the first streamed
+run exposed a real session-teardown tax, fixed via pthread_kill tick;
+also proved the harness) — but the MANDATORY full-model run diverged
+('1. The capital of France is the' vs '1. 2. 2.'), silently (zero
+platform errors). The layer-0 "pass" was CPU-masked (only layer 0 on
+PIM): per-op popcount corruption existed there too.
+
+Primitive isolation (stream-hw arms C–G, silicon, b2):
+- D pure-SEGPOP streams: byte-identical to legacy (0/32).
+- E/E2/E4/E6 MIXED write+segpop streams: ~31/32 rows garbage —
+  independent of recv interleave, row spacing (stride-16), and write
+  size (1-chunk = 3-chunk).
+- E5 the SAME mixed stream in READ mode: 0/32 — writes, ordering,
+  framing all exonerated.
+- F single group in a fresh session: clean (short sessions dodge it).
+- G [write][read][read][read]: r1=r2=r3 ≈ 1530/2048 bytes wrong —
+  STICKY, and the sample shows EVERY 4TH BYTE CORRECT (≈¾ wrong = the
+  4-counts-per-32-bit-word packer emitting 3 lanes from a desynced
+  phase).
+
+**Verdict: the build-7 SEG_POP output packer's lane counter desyncs
+when a zero-beat (write-only) program's trailer passes through it in a
+back-to-back streamed session, and stays desynced (no IDLE dwell to
+reset it). Legacy cadence masked it via per-program IDLE. No host
+workaround exists (sticky ⇒ discard-reads don't help; per-round mode
+resets forfeit the streaming win).**
+
+Consequences:
+- PIM_STREAM stays default-OFF and is NOT production-safe for SEG_POP
+  paths until the RTL fix (build-10: reset the segpop packer lane/state
+  at every program start; Verilator TB must reproduce the ¾-lane
+  garbage on pre-fix RTL — the 8a→8b discipline verbatim).
+- READ-mode streaming remains fully validated (PR #12 claims stand).
+- The teardown fix (stream_stop tick-signal) and the sized-record
+  parser are correct and stay.
+- Open loose end (recorded honestly): E3's clean-then-dirty flip across
+  tool revisions — consistent with sticky state inherited from prior
+  arms, not yet independently pinned.

@@ -95,6 +95,11 @@ static Program build_chunk_program(int bank_id, uint32_t row_addr,
   return p;
 }
 
+// fwd decl (defined with the Rung-1 stream-session block below): stream
+// inside an open session, legacy execute otherwise.
+static inline void pexec(SoftMCPlatform& platform, Program& p,
+                         int payload_bytes);
+
 static void per_column_write_row(SoftMCPlatform& platform, int bank_id,
                                   uint32_t row, const uint32_t* data_2048) {
   int col_start = 0;
@@ -103,7 +108,7 @@ static void per_column_write_row(SoftMCPlatform& platform, int bank_id,
     Program p = build_chunk_program(bank_id, row,
                                      data_2048 + col_start * 16,
                                      col_start, n_cols);
-    platform.execute(p);
+    pexec(platform, p, 0);   // write-only: bare-trailer record in a stream
     col_start += n_cols;
   }
 }
@@ -152,7 +157,7 @@ static void per_column_write_rows_packed(SoftMCPlatform& platform,
       // a chunk body is ~1.5K insts; flush before it would overflow.
       if (!empty && p.size() / 8 + 1600 > 7600) {
         p.add_inst(SMC_END());
-        platform.execute(p);
+        pexec(platform, p, 0);
         (*n_execs_out)++;
         p = Program();
         empty = true;
@@ -165,7 +170,7 @@ static void per_column_write_rows_packed(SoftMCPlatform& platform,
   }
   if (!empty) {
     p.add_inst(SMC_END());
-    platform.execute(p);
+    pexec(platform, p, 0);
     (*n_execs_out)++;
   }
 }
@@ -273,7 +278,20 @@ static Program build_refresh_subarray_loop_program(
 // decode into instruction-load — never set PIM_SEGPOP=1 on older images.
 static int g_segpop = -1;               // env PIM_SEGPOP (init_debug_flags)
 static bool g_mode_segpop_now = false;  // host view of the engine mode
+static bool g_mode_accxbp_now = false;  // host view: engine in ACCUM_XBP
 static void ensure_readback(SoftMCPlatform& platform, bool segpop) {
+  // Leaving ACCUM_XBP is LAZY: the engine stays in accxbp across
+  // eligible requests (a per-request exit costs ~1.5 s of drain_stray
+  // plus the next execute's 500 ms transition-drain floor — measured as
+  // the Arm-B ~10x tax, 2026-07-22). Only a consumer that actually
+  // needs READ/SEG_POP framing pays the one-time transition here.
+  if (g_mode_accxbp_now) {
+    platform.set_readback_mode(false);
+    platform.set_readback_mode(false);
+    platform.drain_stray(1500, 8);
+    g_mode_accxbp_now = false;
+    g_mode_segpop_now = false;
+  }
   if (g_segpop <= 0) return;            // feature off/unparsed: never switch
   if (segpop == g_mode_segpop_now) return;
   if (segpop) { platform.set_readback_mode_segpop(); platform.set_readback_mode_segpop(); }
@@ -281,6 +299,56 @@ static void ensure_readback(SoftMCPlatform& platform, bool segpop) {
   g_mode_segpop_now = segpop;
 }
 static inline size_t row_read_bytes() { return g_segpop > 0 ? 2048u : 8192u; }
+
+// ---- Rung-1 producer loop (PIM_STREAM=1; build-9+ image ONLY, trailer
+// magic 0xDBC0DE08 — the STREAM_EN word corrupts IMEM on older images).
+// One stream session per eligible request: write programs stream with
+// payload 0 (bare trailers), exec programs with their exact receive
+// size; receiveData pops from the same queue the persistent drain
+// fills, so recv sites are unchanged. Mode SETs happen BEFORE the
+// session opens (a mid-pipeline mode flip would change in-flight
+// programs' framing). accxbp requests keep the legacy cadence.
+static int  g_stream = -1;              // env PIM_STREAM, resolved once
+static bool g_stream_session = false;   // a session is open NOW
+static bool stream_on() {
+  if (g_stream < 0) {
+    const char* v = getenv("PIM_STREAM");
+    g_stream = (v && *v) ? atoi(v) : 0;
+    if (g_stream > 0 && getenv("PIM_BACKEND") &&
+        std::string(getenv("PIM_BACKEND")) == "sim") {
+      fprintf(stderr, "[server] PIM_STREAM forced OFF under "
+              "PIM_BACKEND=sim (the sim cannot stream)\n");
+      g_stream = 0;
+    }
+    if (g_stream > 0)
+      fprintf(stderr, "[server] PIM_STREAM=1: per-request stream "
+              "sessions (Rung-1 producer loop)\n");
+  }
+  return g_stream > 0;
+}
+// Send-or-execute: inside an open session, stream with the program's
+// exact expected payload; otherwise the pristine legacy execute.
+static inline void pexec(SoftMCPlatform& platform, Program& p,
+                         int payload_bytes) {
+  if (g_stream_session) platform.stream_send(p, payload_bytes);
+  else                  platform.execute(p);
+}
+struct StreamSession {
+  SoftMCPlatform& pf;
+  bool open = false;
+  StreamSession(SoftMCPlatform& p, bool want, bool segpop_mode) : pf(p) {
+    if (!want) return;
+    ensure_readback(pf, segpop_mode);   // set mode while pipeline empty
+    pf.stream_start(SoftMCPlatform::STREAM_SIZED);
+    g_stream_session = true;
+    open = true;
+  }
+  ~StreamSession() {
+    if (!open) return;
+    pf.stream_stop();
+    g_stream_session = false;
+  }
+};
 // mode-aware per-segment popcounts of one received row image (stride
 // row_read_bytes()): SEG_POP bytes ARE the counts; READ rows go through
 // segment_popcount (defined below).
@@ -304,7 +372,6 @@ static inline void row_pc(const uint8_t* row, int* out, int n) {
 // decode into instruction-load — never set PIM_ACCUM_XBP=1 on older
 // images (same class as the PIM_SEGPOP hazard above).
 static int g_accxbp = -1;               // env PIM_ACCUM_XBP (init_debug_flags)
-static bool g_mode_accxbp_now = false;  // host view: engine in ACCUM_XBP
 static void ensure_accxbp(SoftMCPlatform& platform, bool on) {
   if (g_accxbp <= 0) return;
   if (on == g_mode_accxbp_now) return;
@@ -1923,6 +1990,13 @@ static int process_request(SoftMCPlatform& platform,
   }
   const long axb_skips0 = platform.oversize_skips();
 
+  // Rung-1 producer loop: one stream session for this request (V2-family
+  // only in phase 1; accxbp keeps legacy cadence — its capture needs
+  // read-quiet windows). Mode is set inside the ctor BEFORE the pipeline
+  // opens; the in-loop ensure_readback calls become host-side no-ops.
+  StreamSession stream_sess(platform, stream_on() && !req_accxbp,
+                            /*segpop_mode=*/true);
+
   // Per-request silicon-side timing (server-internal profile).
   using clk = std::chrono::steady_clock;
   using ns_t = std::chrono::nanoseconds;
@@ -2098,7 +2172,7 @@ static int process_request(SoftMCPlatform& platform,
       }
       ensure_readback(platform, true);   // PIM_SEGPOP: matvec reads in SEG_POP
       auto t_exec0 = clk::now();
-      platform.execute(p);
+      pexec(platform, p, (int)(M * row_read_bytes()));
       t_exec_ns += std::chrono::duration_cast<ns_t>(clk::now() - t_exec0).count();
       n_maj3_execs++;
 
@@ -2197,10 +2271,15 @@ static int process_request(SoftMCPlatform& platform,
     if (platform.oversize_skips() != axb_skips0) {
       fprintf(stderr, "[server] ACCUM_XBP: oversize skips advanced "
               "mid-request — results incomplete, aborting\n");
-      ensure_accxbp(platform, false);
+      // Accumulator may hold a partial sum: force the next eligible
+      // request's mode entry to re-send the SET (128-cycle clear).
+      g_mode_accxbp_now = false;
       return -1;
     }
-    ensure_accxbp(platform, false);
+    // STAY in ACCUM_XBP across requests — the flush already zeroed the
+    // accumulator, and per-request exit/re-entry costs ~2 s (the Arm-B
+    // tax). Ineligible consumers leave the mode lazily via
+    // ensure_readback().
   }
 
   long long t_total_ns = std::chrono::duration_cast<ns_t>(
@@ -2944,7 +3023,7 @@ static int process_matmul_handle(SoftMCPlatform& platform,
       }
       ensure_readback(platform, true);   // PIM_SEGPOP: matvec reads in SEG_POP
       auto t_exec0 = clk::now();
-      platform.execute(p);
+      pexec(platform, p, (int)(M * row_read_bytes()));
       t_exec_ns += std::chrono::duration_cast<ns_t>(clk::now() - t_exec0).count();
       n_maj3_execs++;
 
@@ -3698,6 +3777,12 @@ int main(int argc, char** argv) {
       fprintf(stderr, "[server] platform init failed\n"); return 3;
     }
     platform_owner->reset_fpga();
+    if (stream_on()) {
+      // Rung-1: arm the frontend once (idempotent SET; reset above
+      // cleared it). Build-9+ image REQUIRED — trailer magic 0xDBC0DE08;
+      // on older images this word falls through into instruction-load.
+      platform_owner->set_stream_en(true);
+    }
   }
   SoftMCPlatform& platform = *platform_owner;
   // NOTE: platform.set_aref(true) breaks MAJ3 reliability — auto-refresh

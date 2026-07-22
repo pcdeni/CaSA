@@ -99,7 +99,341 @@ int main(int argc,char** argv){
   printf("[stream] B streaming: %d rows, %d bad, %.1f ms (%.3f ms/row)  speedup %.2fx\n",
          N,badB,wB,wB/N, wA>0? wA/wB : 0.0);
 
-  int fails = (badA?1:0)+(badB?1:0);
-  printf("[stream] %s (A_bad=%d B_bad=%d)\n", fails?"FAIL":"ALL_PASS", badA, badB);
+  // ---- C/D: SEG_POP framing (2048 B/row, one popcount byte per 32-bit
+  // segment) — the production readback mode; NEVER validated under
+  // streaming until 2026-07-22 (the full-model gate divergence). ----
+  // Oracle = stream-vs-legacy BYTE EQUALITY (the hardware's segment
+  // packing is its own layout; uniform-pattern suites can't see order,
+  // so a host-side popcount model is not a valid reference here).
+  pf.set_readback_mode_segpop(); pf.set_readback_mode_segpop();
+  vector<vector<uint8_t>> cref(N, vector<uint8_t>(2048));
+  int badC=0;
+  for(int i=0;i<N;i++){ Program p=read_prog(bank,base+i,5000+i);
+    pf.execute(p); int rc=pf.receiveData(cref[i].data(),2048);
+    if(rc!=2048) badC++; }
+  printf("[stream] C legacy segpop : %d rows, %d short-reads (reference set)\n",N,badC);
+
+  int badD=0; long badD_bytes=0;
+  pf.set_stream_en(true);
+  pf.stream_start(2048);
+  for(int i=0;i<N;i++){ Program p=read_prog(bank,base+i,6000+i); pf.stream_send(p); }
+  { vector<uint8_t> b(2048);
+    for(int i=0;i<N;i++){ int rc=pf.stream_recv(b.data(),2048);
+      int m=2048;
+      if(rc==2048){ m=0; for(int s=0;s<2048;s++) if(b[s]!=cref[i][s]) m++; }
+      if(m){ badD++; badD_bytes+=m; } } }
+  pf.stream_stop();
+  printf("[stream] D stream segpop : %d rows, %d differ from legacy (%ld bytes)\n",N,badD,badD_bytes);
+
+  // ---- E: MIXED sized-mode stream — the production V2 round shape:
+  // per row, 3 write-chunk programs (payload 0) then one segpop read
+  // (payload 2048), recv per round like the phase-1 server. Fresh
+  // patterns so E cannot pass on stale content. ----
+  int badE=0; long badE_bytes=0;
+  { vector<vector<uint32_t>> pat2(N, vector<uint32_t>(2048));
+    for(int i=0;i<N;i++) mkpat(base+i+7777u, pat2[i].data());
+    vector<vector<uint8_t>> ebuf(N, vector<uint8_t>(2048));
+    pf.stream_start(SoftMCPlatform::STREAM_SIZED);
+    vector<uint8_t> b(2048);
+    for(int i=0;i<N;i++){
+      int cs=0;
+      for(int c=0;c<3;c++){
+        int n=(c<2)?43:42;
+        Program p;
+        p.add_inst(SMC_LI(8,CASR)); p.add_inst(SMC_LI(bank,BAR));
+        p.add_inst(SMC_LI(base+i,RAR)); p.add_inst(SMC_LI(cs*8,CAR));
+        p.add_below(PRE(BAR,0,0)); p.add_below(ACT(BAR,0,RAR,0));
+        for(int k=0;k<n;k++){ const uint32_t* sl=pat2[i].data()+ (cs+k)*16;
+          for(int s=0;s<16;s++){ p.add_inst(SMC_LI(sl[s],PATTERN_REG)); p.add_inst(SMC_LDWD(PATTERN_REG,s)); }
+          p.add_below(WRITE(BAR,CAR,1)); p.add_inst(SMC_SLEEP(8)); }
+        p.add_inst(SMC_SLEEP(8)); p.add_below(PRE(BAR,0,0)); p.add_inst(SMC_SLEEP(4)); p.add_inst(SMC_END());
+        pf.stream_send(p, 0);
+        cs+=n;
+      }
+      Program r=read_prog(bank,base+i,7000+i);
+      pf.stream_send(r, 2048);
+      int rc=pf.stream_recv(ebuf[i].data(),2048);
+      if(rc!=2048) badE++;
+    }
+    pf.stream_stop();
+    pf.set_stream_en(false);
+    // Oracle: legacy segpop re-read of the SAME rows (content = pat2 as
+    // the mixed stream left it) must match the streamed bytes. Keep all
+    // references to build a shift map when rows mismatch.
+    vector<vector<uint8_t>> lref2(N, vector<uint8_t>(2048));
+    for(int i=0;i<N;i++){ Program p=read_prog(bank,base+i,8000+i);
+      pf.execute(p); int rc=pf.receiveData(lref2[i].data(),2048);
+      int m=2048;
+      if(rc==2048){ m=0; for(int s=0;s<2048;s++) if(lref2[i][s]!=ebuf[i][s]) m++; }
+      if(m){ badE++; badE_bytes+=m; } }
+    if(badE){
+      int clean_i=-1;
+      for(int i=0;i<N;i++){ int m=0;
+        for(int s=0;s<2048;s++) if(ebuf[i][s]!=lref2[i][s]) m++;
+        if(m==0){ clean_i=i; break; } }
+      printf("[stream] E clean row index: %d\n", clean_i);
+      printf("[stream] E shift map (streamed row i best-matches legacy row j):\n  ");
+      for(int i=0;i<N && i<12;i++){
+        int bestj=-1, bestm=1<<30;
+        for(int j=0;j<N;j++){ int m=0;
+          for(int s=0;s<2048;s++) if(ebuf[i][s]!=lref2[j][s]) m++;
+          if(m<bestm){ bestm=m; bestj=j; } }
+        printf("%d->%d(%d) ", i, bestj, bestm);
+      }
+      printf("\n");
+    }
+
+    // E2: SAME mixed content, but send-all-then-recv-all (no interleave).
+    { int bad2=0;
+      pf.set_stream_en(true); pf.stream_start(SoftMCPlatform::STREAM_SIZED);
+      for(int i=0;i<N;i++){
+        int cs=0;
+        for(int c=0;c<3;c++){
+          int n=(c<2)?43:42;
+          Program p;
+          p.add_inst(SMC_LI(8,CASR)); p.add_inst(SMC_LI(bank,BAR));
+          p.add_inst(SMC_LI(base+i,RAR)); p.add_inst(SMC_LI(cs*8,CAR));
+          p.add_below(PRE(BAR,0,0)); p.add_below(ACT(BAR,0,RAR,0));
+          for(int k=0;k<n;k++){ const uint32_t* sl=pat2[i].data()+(cs+k)*16;
+            for(int s=0;s<16;s++){ p.add_inst(SMC_LI(sl[s],PATTERN_REG)); p.add_inst(SMC_LDWD(PATTERN_REG,s)); }
+            p.add_below(WRITE(BAR,CAR,1)); p.add_inst(SMC_SLEEP(8)); }
+          p.add_inst(SMC_SLEEP(8)); p.add_below(PRE(BAR,0,0)); p.add_inst(SMC_SLEEP(4)); p.add_inst(SMC_END());
+          pf.stream_send(p,0); cs+=n;
+        }
+        Program r=read_prog(bank,base+i,7100+i); pf.stream_send(r,2048);
+      }
+      vector<uint8_t> rb(2048);
+      for(int i=0;i<N;i++){ int rc=pf.stream_recv(rb.data(),2048);
+        int m=2048;
+        if(rc==2048){ m=0; for(int s=0;s<2048;s++) if(rb[s]!=lref2[i][s]) m++; }
+        if(m) bad2++; }
+      pf.stream_stop(); pf.set_stream_en(false);
+      printf("[stream] E2 mixed no-interleave: %d/%d rows differ\n",bad2,N);
+    }
+    // E4: E's exact mixed+interleaved cadence, but rows spaced by 16
+    // (the production pool discipline). If clean, E/E2's failures were
+    // WRITE DISTURB from this test's consecutive-row layout — after a
+    // row's write+read, writing its neighbors degraded it before the
+    // late oracle re-read — and streaming is exonerated at the
+    // primitive level.
+    { int bad4=0;
+      pf.set_stream_en(true); pf.stream_start(SoftMCPlatform::STREAM_SIZED);
+      vector<uint8_t> rb(2048);
+      vector<vector<uint8_t>> e4buf(N, vector<uint8_t>(2048));
+      for(int i=0;i<N;i++){
+        uint32_t row4 = base + 64u + 16u*(uint32_t)i;
+        int cs=0;
+        for(int c=0;c<3;c++){
+          int n=(c<2)?43:42;
+          Program p;
+          p.add_inst(SMC_LI(8,CASR)); p.add_inst(SMC_LI(bank,BAR));
+          p.add_inst(SMC_LI(row4,RAR)); p.add_inst(SMC_LI(cs*8,CAR));
+          p.add_below(PRE(BAR,0,0)); p.add_below(ACT(BAR,0,RAR,0));
+          for(int k=0;k<n;k++){ const uint32_t* sl=pat2[i].data()+(cs+k)*16;
+            for(int s=0;s<16;s++){ p.add_inst(SMC_LI(sl[s],PATTERN_REG)); p.add_inst(SMC_LDWD(PATTERN_REG,s)); }
+            p.add_below(WRITE(BAR,CAR,1)); p.add_inst(SMC_SLEEP(8)); }
+          p.add_inst(SMC_SLEEP(8)); p.add_below(PRE(BAR,0,0)); p.add_inst(SMC_SLEEP(4)); p.add_inst(SMC_END());
+          pf.stream_send(p,0); cs+=n;
+        }
+        Program r=read_prog(bank,row4,7300+i); pf.stream_send(r,2048);
+        int rc=pf.stream_recv(e4buf[i].data(),2048);
+        if(rc!=2048) bad4++;
+      }
+      pf.stream_stop(); pf.set_stream_en(false);
+      for(int i=0;i<N;i++){
+        uint32_t row4 = base + 64u + 16u*(uint32_t)i;
+        Program p=read_prog(bank,row4,8300+i);
+        pf.execute(p); int rc=pf.receiveData(rb.data(),2048);
+        int m=2048;
+        if(rc==2048){ m=0; for(int s=0;s<2048;s++) if(rb[s]!=e4buf[i][s]) m++; }
+        if(m) bad4++;
+      }
+      printf("[stream] E4 mixed interleaved, stride-16 rows: %d/%d rows differ\n",bad4,N);
+    }
+    // E5: E4's shape but READ MODE (8192 B raw rows). Clean here + dirty
+    // E4 => the corruption is SEG_POP-engine-specific under streamed
+    // h2c backpressure (the accxbp read_seq_incoming class). Dirty here
+    // too => mode-independent readback interference.
+    { int bad5=0;
+      pf.set_readback_mode(false); pf.set_readback_mode(false);
+      pf.set_stream_en(true); pf.stream_start(SoftMCPlatform::STREAM_SIZED);
+      vector<uint8_t> rb8(8192);
+      vector<vector<uint8_t>> e5buf(N, vector<uint8_t>(8192));
+      for(int i=0;i<N;i++){
+        uint32_t row5 = base + 64u + 16u*(uint32_t)i;   // same rows as E4 (hold pat2)
+        int cs=0;
+        for(int c=0;c<3;c++){
+          int n=(c<2)?43:42;
+          Program p;
+          p.add_inst(SMC_LI(8,CASR)); p.add_inst(SMC_LI(bank,BAR));
+          p.add_inst(SMC_LI(row5,RAR)); p.add_inst(SMC_LI(cs*8,CAR));
+          p.add_below(PRE(BAR,0,0)); p.add_below(ACT(BAR,0,RAR,0));
+          for(int k=0;k<n;k++){ const uint32_t* sl=pat2[i].data()+(cs+k)*16;
+            for(int s=0;s<16;s++){ p.add_inst(SMC_LI(sl[s],PATTERN_REG)); p.add_inst(SMC_LDWD(PATTERN_REG,s)); }
+            p.add_below(WRITE(BAR,CAR,1)); p.add_inst(SMC_SLEEP(8)); }
+          p.add_inst(SMC_SLEEP(8)); p.add_below(PRE(BAR,0,0)); p.add_inst(SMC_SLEEP(4)); p.add_inst(SMC_END());
+          pf.stream_send(p,0); cs+=n;
+        }
+        Program r=read_prog(bank,row5,7400+i); pf.stream_send(r,8192);
+        int rc=pf.stream_recv(e5buf[i].data(),8192);
+        if(rc!=8192) bad5++;
+      }
+      pf.stream_stop(); pf.set_stream_en(false);
+      for(int i=0;i<N;i++){
+        if(memcmp(e5buf[i].data(), pat2[i].data(), 8192)!=0) bad5++;
+      }
+      printf("[stream] E5 mixed READ-mode, stride-16: %d/%d rows differ (raw-row oracle)\n",bad5,N);
+      pf.set_readback_mode_segpop(); pf.set_readback_mode_segpop();
+    }
+    // E6: E4's segpop shape but SMALL writes (1 chunk, ~43 cols) — does
+    // the damage scale with h2c load size?
+    { int bad6=0;
+      pf.set_stream_en(true); pf.stream_start(SoftMCPlatform::STREAM_SIZED);
+      vector<uint8_t> rb(2048);
+      vector<vector<uint8_t>> e6buf(N, vector<uint8_t>(2048));
+      for(int i=0;i<N;i++){
+        uint32_t row6 = base + 64u + 16u*(uint32_t)i;
+        Program p;
+        p.add_inst(SMC_LI(8,CASR)); p.add_inst(SMC_LI(bank,BAR));
+        p.add_inst(SMC_LI(row6,RAR)); p.add_inst(SMC_LI(0,CAR));
+        p.add_below(PRE(BAR,0,0)); p.add_below(ACT(BAR,0,RAR,0));
+        for(int k=0;k<43;k++){ const uint32_t* sl=pat2[i].data()+k*16;
+          for(int s=0;s<16;s++){ p.add_inst(SMC_LI(sl[s],PATTERN_REG)); p.add_inst(SMC_LDWD(PATTERN_REG,s)); }
+          p.add_below(WRITE(BAR,CAR,1)); p.add_inst(SMC_SLEEP(8)); }
+        p.add_inst(SMC_SLEEP(8)); p.add_below(PRE(BAR,0,0)); p.add_inst(SMC_SLEEP(4)); p.add_inst(SMC_END());
+        pf.stream_send(p,0);
+        Program r=read_prog(bank,row6,7500+i); pf.stream_send(r,2048);
+        int rc=pf.stream_recv(e6buf[i].data(),2048);
+        if(rc!=2048) bad6++;
+      }
+      pf.stream_stop(); pf.set_stream_en(false);
+      vector<uint8_t> lb(2048);
+      for(int i=0;i<N;i++){
+        uint32_t row6 = base + 64u + 16u*(uint32_t)i;
+        Program p=read_prog(bank,row6,8500+i);
+        pf.execute(p); int rc=pf.receiveData(lb.data(),2048);
+        int m=2048;
+        if(rc==2048){ m=0; for(int s=0;s<2048;s++) if(lb[s]!=e6buf[i][s]) m++; }
+        if(m) bad6++;
+      }
+      printf("[stream] E6 mixed segpop, SMALL writes: %d/%d rows differ\n",bad6,N);
+    }
+    // E3: interleaved recv, PURE reads (rows already hold pat2).
+    { int bad3=0;
+      pf.set_stream_en(true); pf.stream_start(SoftMCPlatform::STREAM_SIZED);
+      vector<uint8_t> rb(2048);
+      for(int i=0;i<N;i++){
+        Program r=read_prog(bank,base+i,7200+i); pf.stream_send(r,2048);
+        int rc=pf.stream_recv(rb.data(),2048);
+        int m=2048;
+        if(rc==2048){ m=0; for(int s=0;s<2048;s++) if(rb[s]!=lref2[i][s]) m++; }
+        if(m) bad3++;
+      }
+      pf.stream_stop(); pf.set_stream_en(false);
+      printf("[stream] E3 pure-read interleaved: %d/%d rows differ\n",bad3,N);
+    }
+  }
+  printf("[stream] E mixed stream  : %d rows, %d differ from legacy re-read (%ld bytes)\n",N,badE,badE_bytes);
+
+  // ---- F: discriminate write-corruption vs read-after-write artifact.
+  // F1: STREAMED writes only (pat3), then LEGACY read      -> f1
+  // F2: LEGACY   writes       (pat3), then LEGACY read      -> f2
+  //     f1 != f2  => streamed WRITES corrupt row content.
+  // F3: streamed writes + TWO back-to-back streamed reads (r1, r2),
+  //     then legacy read (r3): r1!=r3 but r2==r3 => transient
+  //     first-read-after-write read-path artifact.
+  { vector<uint32_t> pat3(2048); mkpat(base+31337u, pat3.data());
+    uint32_t row = base;   // reuse row 0
+    auto wchunks=[&](bool stream){
+      int cs=0;
+      for(int c=0;c<3;c++){
+        int n=(c<2)?43:42;
+        Program p;
+        p.add_inst(SMC_LI(8,CASR)); p.add_inst(SMC_LI(bank,BAR));
+        p.add_inst(SMC_LI(row,RAR)); p.add_inst(SMC_LI(cs*8,CAR));
+        p.add_below(PRE(BAR,0,0)); p.add_below(ACT(BAR,0,RAR,0));
+        for(int k=0;k<n;k++){ const uint32_t* sl=pat3.data()+(cs+k)*16;
+          for(int s=0;s<16;s++){ p.add_inst(SMC_LI(sl[s],PATTERN_REG)); p.add_inst(SMC_LDWD(PATTERN_REG,s)); }
+          p.add_below(WRITE(BAR,CAR,1)); p.add_inst(SMC_SLEEP(8)); }
+        p.add_inst(SMC_SLEEP(8)); p.add_below(PRE(BAR,0,0)); p.add_inst(SMC_SLEEP(4)); p.add_inst(SMC_END());
+        if(stream) pf.stream_send(p,0); else pf.execute(p);
+        cs+=n;
+      } };
+    auto lread=[&](uint8_t* dst){
+      Program p=read_prog(bank,row,9000+(rand()&255));
+      pf.execute(p); return pf.receiveData(dst,2048); };
+    vector<uint8_t> f1(2048), f2(2048), r1(2048), r2(2048), r3(2048);
+    // F1
+    pf.set_stream_en(true); pf.stream_start(SoftMCPlatform::STREAM_SIZED);
+    wchunks(true); pf.stream_stop(); pf.set_stream_en(false);
+    lread(f1.data());
+    // F2
+    wchunks(false); lread(f2.data());
+    int f12=0; for(int s=0;s<2048;s++) if(f1[s]!=f2[s]) f12++;
+    // F3
+    pf.set_stream_en(true); pf.stream_start(SoftMCPlatform::STREAM_SIZED);
+    wchunks(true);
+    { Program p=read_prog(bank,row,9500); pf.stream_send(p,2048); }
+    { Program p=read_prog(bank,row,9501); pf.stream_send(p,2048); }
+    pf.stream_recv(r1.data(),2048); pf.stream_recv(r2.data(),2048);
+    pf.stream_stop(); pf.set_stream_en(false);
+    lread(r3.data());
+    int r13=0, r23=0, r12=0;
+    for(int s=0;s<2048;s++){ if(r1[s]!=r3[s]) r13++; if(r2[s]!=r3[s]) r23++; if(r1[s]!=r2[s]) r12++; }
+    printf("[stream] F verdicts: f1_vs_f2=%d (streamed-writes integrity), "
+           "r1_vs_r3=%d r2_vs_r3=%d r1_vs_r2=%d (read-after-write)\n",
+           f12, r13, r23, r12);
+  }
+  pf.set_readback_mode(false); pf.set_readback_mode(false);
+
+  // ---- G: transient vs sticky segpop misalignment after a zero-beat
+  // (write-only) streamed program. [write X][read X][read X][read X] in
+  // one sized session; if only r1 is dirty -> per-read transient (host
+  // workaround = one discarded read after write batches); r1..r3 all
+  // dirty -> sticky until mode reset (RTL fix required).
+  { uint32_t rowX = base + 600u;   // untouched row, in-window
+    vector<uint32_t> patX(2048); mkpat(rowX^0xBEEF, patX.data());
+    // baseline content + legacy reference
+    { int cs=0; for(int c=0;c<3;c++){ int n=(c<2)?43:42;
+        Program p;
+        p.add_inst(SMC_LI(8,CASR)); p.add_inst(SMC_LI(bank,BAR));
+        p.add_inst(SMC_LI(rowX,RAR)); p.add_inst(SMC_LI(cs*8,CAR));
+        p.add_below(PRE(BAR,0,0)); p.add_below(ACT(BAR,0,RAR,0));
+        for(int k=0;k<n;k++){ const uint32_t* sl=patX.data()+(cs+k)*16;
+          for(int s=0;s<16;s++){ p.add_inst(SMC_LI(sl[s],PATTERN_REG)); p.add_inst(SMC_LDWD(PATTERN_REG,s)); }
+          p.add_below(WRITE(BAR,CAR,1)); p.add_inst(SMC_SLEEP(8)); }
+        p.add_inst(SMC_SLEEP(8)); p.add_below(PRE(BAR,0,0)); p.add_inst(SMC_SLEEP(4)); p.add_inst(SMC_END());
+        pf.execute(p); cs+=n; } }
+    vector<uint8_t> L(2048);
+    { Program p=read_prog(bank,rowX,9700); pf.execute(p); pf.receiveData(L.data(),2048); }
+    // streamed: small write (same content, 1 chunk) then 3 reads
+    vector<uint8_t> r1(2048),r2(2048),r3(2048);
+    pf.set_stream_en(true); pf.stream_start(SoftMCPlatform::STREAM_SIZED);
+    { Program p;
+      p.add_inst(SMC_LI(8,CASR)); p.add_inst(SMC_LI(bank,BAR));
+      p.add_inst(SMC_LI(rowX,RAR)); p.add_inst(SMC_LI(0,CAR));
+      p.add_below(PRE(BAR,0,0)); p.add_below(ACT(BAR,0,RAR,0));
+      for(int k=0;k<43;k++){ const uint32_t* sl=patX.data()+k*16;
+        for(int s=0;s<16;s++){ p.add_inst(SMC_LI(sl[s],PATTERN_REG)); p.add_inst(SMC_LDWD(PATTERN_REG,s)); }
+        p.add_below(WRITE(BAR,CAR,1)); p.add_inst(SMC_SLEEP(8)); }
+      p.add_inst(SMC_SLEEP(8)); p.add_below(PRE(BAR,0,0)); p.add_inst(SMC_SLEEP(4)); p.add_inst(SMC_END());
+      pf.stream_send(p,0); }
+    { Program p=read_prog(bank,rowX,9701); pf.stream_send(p,2048); }
+    { Program p=read_prog(bank,rowX,9702); pf.stream_send(p,2048); }
+    { Program p=read_prog(bank,rowX,9703); pf.stream_send(p,2048); }
+    pf.stream_recv(r1.data(),2048); pf.stream_recv(r2.data(),2048); pf.stream_recv(r3.data(),2048);
+    pf.stream_stop(); pf.set_stream_en(false);
+    int m1=0,m2=0,m3=0;
+    for(int s=0;s<2048;s++){ if(r1[s]!=L[s])m1++; if(r2[s]!=L[s])m2++; if(r3[s]!=L[s])m3++; }
+    printf("[stream] G write+3reads: r1=%d r2=%d r3=%d bytes differ vs legacy\n",m1,m2,m3);
+    printf("[stream] G sample L : %02x %02x %02x %02x %02x %02x %02x %02x\n",
+           L[0],L[1],L[2],L[3],L[4],L[5],L[6],L[7]);
+    printf("[stream] G sample r1: %02x %02x %02x %02x %02x %02x %02x %02x\n",
+           r1[0],r1[1],r1[2],r1[3],r1[4],r1[5],r1[6],r1[7]);
+  }
+
+  int fails = (badA?1:0)+(badB?1:0)+(badC?1:0)+(badD?1:0)+(badE?1:0);
+  printf("[stream] %s (A=%d B=%d C=%d D=%d E=%d)\n",
+         fails?"FAIL":"ALL_PASS", badA,badB,badC,badD,badE);
   return fails?1:0;
 }
