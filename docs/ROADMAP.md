@@ -79,12 +79,17 @@ design doc that motivates it — the roadmap is itself evidence-first.
    surfaced a silent-skip integrity hazard now fixed with
    `oversize_skips()` observability — read `docs/ROADB_2026_07.md` §6
    before building accum-total systems on this stack.
-6. **M3 coset-broadcast operand fan-out** — DESIGNED 2026-07-22
-   (`docs/M3_COSET_FANOUT_DESIGN.md`). The wcol killer: replace
-   per-column scratch writes with a resident-backup + coset `doubleACT`
-   (4.98× fewer instrs / 2.81× wall proven for the broadcast itself).
-   Also unlocks V2-path round-packing and partly sidesteps the residency
-   ceiling. Software-only; pool-layout allocator change is the work.
+6. **M3 coset-broadcast operand fan-out** — **FIRST GATE PASSED
+   2026-07-22, both dies** (`docs/M3_COSET_FANOUT_DESIGN.md` §First
+   gate; tool `app/test_m3_scratch_ab.cpp`, logs `docs/data/m3/`). One
+   coset `doubleACT` loads the scratch row(s) byte-exactly from a
+   pool-resident source: 20/20 (k=1) + 20/20 (k=2: 1 op → 3 rows) per
+   die, zero leak, all timings, **265.8× fewer instructions / ~4× wall**
+   vs the 3-chunk per-column write. Design finding: the legacy pool is
+   an independent set over the coupling graph — deposits must target
+   the pool's coupled *shadow* rows; allocator pairs resident↔shadow.
+   Next: server `PIM_BCAST_LOAD` + shadow allocator (after the Rung-1
+   producer loop — one invasive server change at a time).
 7. **PIM_PARALLEL_BANKS=1 probe** — DONE 2026-07-21: pack4 provably
    ENGAGED (program-dump signature) yet wall effect 3.3 % ≈ variance —
    the ceiling math for a compute-issue lever on a readout-bound wall.

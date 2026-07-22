@@ -193,3 +193,6 @@ gemv-encoded-exe: test_gemv_encoded.o $(SHARED_OBJS)
 
 resident-tile-exe: test_resident_tile.o $(SHARED_OBJS)
 	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+m3-scratch-ab-exe: test_m3_scratch_ab.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)

@@ -69,3 +69,44 @@ that replaces `per_column_write_row` with a resident-backup + coset
 the screened tuple (the `test_sublattice_bcast` machinery), then
 layer-0-exact, then full-model token-identity, then the wcol/handler
 delta. Design-next; the pool-layout allocator change is the real work.
+
+## First gate: PASSED (2026-07-22, both dies, zero exceptions)
+
+Tool `app/test_m3_scratch_ab.cpp` (`m3-scratch-ab-exe`); raw logs
+`docs/data/m3/`. Run on production geometry (bender 2 / bank 1 / s72
+pool, cross-checked bender 0 / bank 1 / s77 pool), build-8b image
+(the primitive is bitstream-independent), `BITSTREAM_IMEM=8192`.
+
+| phase | b2 | b0 |
+|---|---|---|
+| k=1 deposit, 20 trials, t=(10,2) | 20/20 byte-exact, src intact, 0 leak | 20/20, 0 leak |
+| k=2 fan-out (1 op → 3 targets), 20 trials | 20/20 all targets exact | 20/20 |
+| timing (10,1)(10,2)(30,1)(30,2) | all exact | all exact |
+| wcol 3-chunk (4519 insts, 3 programs) | 0.176 ms/load | 0.259 ms/load |
+| coset deposit (17 insts, 1 program) | 0.044 ms/load | 0.066 ms/load |
+| ratio | **265.8× insts, 4.02× wall** | **265.8× insts, 3.94× wall** |
+
+This is the first deposit validation entirely **outside calibrated
+tuples** — source and targets are production pool / shadow rows, the
+fired set predicted by the selection law held in every trial, and the
+content survived 100 back-to-back re-executions.
+
+**Design finding — the legacy pool is M3-hostile by construction.** The
+production pool is an *independent set over the coupling conflict
+graph*: it contains no two rows at spread offsets (that is what made
+independent per-column writes safe), i.e. it deliberately excludes
+exactly the rows M3 deposits into. The M3 shape is therefore SRC = a
+screened pool row (resident weight), DST(s) = rows in the pool's
+*coupled shadow* — in-window, non-pool, non-tuple rows at law-unit
+offsets. The coupling the legacy screen avoided is the load channel.
+The allocator pairs each resident row with its shadow coset; a one-time
+byte-verify of candidate shadow rows is the margin screen
+(`CALIBRATION_TRANSFER.md` pattern). Empirically the shadow rows used
+here were byte-perfect across all trials on both dies.
+
+The wall ratio ≈ the program-count ratio (3→1): per-execute round-trips
+bind, as everywhere else (`METHOD_MVDRAM_LENS.md`). Under Rung-1
+streaming the 265.8× instruction cut is what survives — wcol becomes
+DDR-bus time. Next gate: server `PIM_BCAST_LOAD` in the V2 emitter +
+the shadow-pair allocator, sequenced after the Rung-1 producer loop
+lands (one invasive server change at a time).
