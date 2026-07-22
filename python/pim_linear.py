@@ -779,8 +779,12 @@ class PimBitLinear(nn.Module):
                 if _force_calib is not None:
                     d_full_vote = False
                 else:
+                # PIM_VOTE_FULL default OFF (2026-07-22 user decision:
+                # only if necessary for accuracy). The 3-trip cross-calib
+                # vote tripled requests/wall (48 vs 16 req/position) and all
+                # validated prompts are token-identical without it. Opt-in.
                     d_full_vote = (slice_n_copies == 1
-                                   and os.environ.get('PIM_VOTE_FULL', '1') == '1')
+                                   and os.environ.get('PIM_VOTE_FULL', '0') == '1')
                 # ---------- Bonsai group mode (per-group scales) ----------
                 # Vote-then-scale: fetch int32 per-group partials (LOAD →
                 # one MM3D per sub-handle routed into its group's slot;
