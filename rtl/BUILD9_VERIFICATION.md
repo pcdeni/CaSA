@@ -192,3 +192,50 @@ Consequences:
 - Open loose end (recorded honestly): E3's clean-then-dirty flip across
   tool revisions — consistent with sticky state inherited from prior
   arms, not yet independently pinned.
+
+## BUILD-10 SILICON VALIDATED (2026-07-23 early): the producer loop is CORRECT
+
+Flash #3 (magic 0xDBC0DE09 in-band 16/16, ladder green, DIFF/popcount
+suite ALL_PASS — the wdata mask preserved DIFF semantics on silicon):
+
+- **stream-hw suite ALL_PASS**: every build-9-failing mixed arm now
+  0/32 clean — E (interleaved), E2 (no interleave), E4 (stride-16),
+  E6 (small writes) — alongside D/E5/E3/A/B/F. Arm G retired (probe
+  design artifact; its claim = arm E's comparison, clean 32/32; kept
+  behind STREAM_HW_G=1 with a note).
+- **Full-model gate: TOKEN_IDENTICAL** on the all-V2 stress config
+  (every slice streamed): both arms '1. The capital of France is ',
+  stream 1900.2 s vs legacy 1988.1 s (−4.4% — the phase-1 magnitude:
+  writes no longer join before execs; each exec still awaits its own
+  recv; deeper pipelining is phase 2).
+- Production-stack A/B (PIM_USE_LOAD_WEIGHTS=1 + fused + pack4) running
+  as of this note; numbers land in the PR #12 closing commit.
+
+The 2026-07-22 arc in one line: producer loop → silent full-model
+divergence → 7-arm silicon isolation → wiring-level root cause
+(persistent wide_reg vs streamed no-INIT_MEM swaps) → one-line semantic
+mask → Verilator repro+fix gate → build-10 → all clean, token-identical.
+
+## LOAD-mix × streaming: OPEN residual, quarantined (2026-07-23 ~03:00)
+
+Production-stack A/B (LOAD+fused): TOKEN_DIVERGED both with pack4
+(catastrophic '1.1.1.1.') and without (subtle: 'the' vs 'Paris' tail —
+a near-tie token flip). Isolation so far:
+- pack4 REFUTED as sole trigger (diverges with it off).
+- execute-in-session guard (new, platform-level): ZERO hits — no
+  unconverted call sites.
+- M1/M2 (ab_fused_server): LOAD+MM3D all_exact under BOTH arms —
+  stream ARMING is innocent; sessions are required for the damage.
+- mixed_probe.py (LOAD→MM3D→V2→MM3D): INVALID AS BUILT — its synthetic
+  V2 requests are inexact in the LEGACY control arm too (40-1349/2048)
+  and degrade subsequent MM3D even under legacy; the fused-V2 path
+  semantics need the real client's per-slice construction. The
+  isolation therefore needs a production-faithful single-op harness
+  (client-side y-dump compare, first diverging op) — NEXT SESSION.
+
+Quarantine state: PIM_STREAM stays default-OFF; VALIDATED scope =
+READ-mode streams + pure-SEGPOP streams + mixed write/segpop streams
+(stream-hw ALL_PASS) + the ALL-V2 full model (token-identical, −4.4%).
+NOT-validated scope = PIM_STREAM under PIM_USE_LOAD_WEIGHTS mixes.
+The all-V2 shape is not the production default, so production is
+unaffected either way until the residual is pinned.

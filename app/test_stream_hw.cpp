@@ -386,12 +386,20 @@ int main(int argc,char** argv){
   }
   pf.set_readback_mode(false); pf.set_readback_mode(false);
 
+  // ---- G: RETIRED 2026-07-22 night (STREAM_HW_G=1 to re-enable).
+  // Its claim (streamed segpop read == post-session legacy read after a
+  // write) is arm E's exact comparison, which is CLEAN 32/32 on
+  // build-10. G's own triangle (pre-session oracle vs r-reads vs
+  // post-read) is self-inconsistent in a fix- and row-invariant way —
+  // a probe-design artifact (served its purpose pre-fix by proving
+  // stickiness), not a silicon claim. Kept for archaeology.
+  if(getenv("STREAM_HW_G") && atoi(getenv("STREAM_HW_G"))!=0){
   // ---- G: transient vs sticky segpop misalignment after a zero-beat
   // (write-only) streamed program. [write X][read X][read X][read X] in
   // one sized session; if only r1 is dirty -> per-read transient (host
   // workaround = one discarded read after write batches); r1..r3 all
   // dirty -> sticky until mode reset (RTL fix required).
-  { uint32_t rowX = base + 600u;   // untouched row, in-window
+  { uint32_t rowX = 45950u;   // SCREENED pool row (the base+600 pick was unscreened and decays between reads — G v1 artifact)
     vector<uint32_t> patX(2048); mkpat(rowX^0xBEEF, patX.data());
     // baseline content + legacy reference
     { int cs=0; for(int c=0;c<3;c++){ int n=(c<2)?43:42;
@@ -426,12 +434,24 @@ int main(int argc,char** argv){
     int m1=0,m2=0,m3=0;
     for(int s=0;s<2048;s++){ if(r1[s]!=L[s])m1++; if(r2[s]!=L[s])m2++; if(r3[s]!=L[s])m3++; }
     printf("[stream] G write+3reads: r1=%d r2=%d r3=%d bytes differ vs legacy\n",m1,m2,m3);
+    // Discriminator: POST-session legacy re-read L2. If r-reads match L2
+    // (and L2 differs from the stale pre-session L), the streamed reads
+    // were FAITHFUL and G's partial 1-chunk write genuinely changed the
+    // row — a test-design artifact, not a silicon bug.
+    { vector<uint8_t> L2(2048);
+      Program p=read_prog(bank,rowX,9704);
+      pf.execute(p); pf.receiveData(L2.data(),2048);
+      int r1L2=0, LL2=0;
+      for(int s=0;s<2048;s++){ if(r1[s]!=L2[s])r1L2++; if(L[s]!=L2[s])LL2++; }
+      printf("[stream] G discriminator: r1_vs_L2=%d  L_vs_L2=%d\n", r1L2, LL2);
+    }
     printf("[stream] G sample L : %02x %02x %02x %02x %02x %02x %02x %02x\n",
            L[0],L[1],L[2],L[3],L[4],L[5],L[6],L[7]);
     printf("[stream] G sample r1: %02x %02x %02x %02x %02x %02x %02x %02x\n",
            r1[0],r1[1],r1[2],r1[3],r1[4],r1[5],r1[6],r1[7]);
   }
 
+  }
   int fails = (badA?1:0)+(badB?1:0)+(badC?1:0)+(badD?1:0)+(badE?1:0);
   printf("[stream] %s (A=%d B=%d C=%d D=%d E=%d)\n",
          fails?"FAIL":"ALL_PASS", badA,badB,badC,badD,badE);
