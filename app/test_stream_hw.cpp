@@ -318,6 +318,95 @@ int main(int argc,char** argv){
       }
       printf("[stream] E6 mixed segpop, SMALL writes: %d/%d rows differ\n",bad6,N);
     }
+
+    // E7: E4's shape with REPLICATED masks (512-segment period x4 — the
+    // client's partial-slice replication; the first-diverging-op class).
+    { int bad7=0;
+      vector<vector<uint32_t>> pat7(N, vector<uint32_t>(2048));
+      for(int i=0;i<N;i++){ mkpat(base+i+31000u, pat7[i].data());
+        for(int s=512;s<2048;s++) pat7[i][s]=pat7[i][s%512]; }
+      vector<vector<uint8_t>> e7buf(N, vector<uint8_t>(2048));
+      pf.stream_start(SoftMCPlatform::STREAM_SIZED);
+      for(int i=0;i<N;i++){
+        uint32_t row7 = base + 64u + 16u*(uint32_t)i;
+        int cs=0;
+        for(int c=0;c<3;c++){
+          int n=(c<2)?43:42;
+          Program p;
+          p.add_inst(SMC_LI(8,CASR)); p.add_inst(SMC_LI(bank,BAR));
+          p.add_inst(SMC_LI(row7,RAR)); p.add_inst(SMC_LI(cs*8,CAR));
+          p.add_below(PRE(BAR,0,0)); p.add_below(ACT(BAR,0,RAR,0));
+          for(int k=0;k<n;k++){ const uint32_t* sl=pat7[i].data()+(cs+k)*16;
+            for(int q=0;q<16;q++){ p.add_inst(SMC_LI(sl[q],PATTERN_REG)); p.add_inst(SMC_LDWD(PATTERN_REG,q)); }
+            p.add_below(WRITE(BAR,CAR,1)); p.add_inst(SMC_SLEEP(8)); }
+          p.add_inst(SMC_SLEEP(8)); p.add_below(PRE(BAR,0,0)); p.add_inst(SMC_SLEEP(4)); p.add_inst(SMC_END());
+          pf.stream_send(p,0); cs+=n;
+        }
+        Program r=read_prog(bank,row7,7700+i); pf.stream_send(r,2048);
+        int rc=pf.stream_recv(e7buf[i].data(),2048);
+        if(rc!=2048) bad7++;
+      }
+      pf.stream_stop();
+      vector<uint8_t> lb(2048);
+      long bad7b=0;
+      for(int i=0;i<N;i++){
+        uint32_t row7 = base + 64u + 16u*(uint32_t)i;
+        Program p=read_prog(bank,row7,8700+i);
+        pf.execute(p); int rc=pf.receiveData(lb.data(),2048);
+        int m=2048;
+        if(rc==2048){ m=0; for(int q=0;q<2048;q++) if(lb[q]!=e7buf[i][q]) m++; }
+        if(m){ bad7++; bad7b+=m; }
+      }
+      printf("[stream] E7 REPLICATED masks: %d/%d rows differ (%ld bytes)\n",N>32?32:N,N,bad7b);
+      printf("[stream] E7 verdict: %s\n", bad7? "REPRODUCED" : "clean");
+    }
+
+    // E8: the ALTERNATION primitive (2026-07-23) — mirror the LOAD-mix
+    // server shape: legacy exec/recv "MM3D-analog" requests interleaved
+    // with per-request streamed sessions ("V2-analog"), including the
+    // stream_start/stop churn. Checks BOTH sides stay exact.
+    { int badL=0, badS=0;
+      vector<uint32_t> patL(2048), patS(2048);
+      vector<uint8_t> refL(2048), gotL(2048), gotS(2048), lb2(2048);
+      for(int it=0; it<16; it++){
+        uint32_t rowL = base + 64u + 16u*(uint32_t)(it*2);
+        uint32_t rowS = base + 64u + 16u*(uint32_t)(it*2+1);
+        mkpat(rowL^0xAAAA5555u^it, patL.data());
+        mkpat(rowS^0x5555AAAAu^it, patS.data());
+        // legacy "MM3D-analog": write + segpop read (execute/receiveData)
+        write_row(pf,bank,rowL,patL.data());
+        { Program p=read_prog(bank,rowL,10000+it); pf.execute(p);
+          if(pf.receiveData(refL.data(),2048)!=2048) badL++; }
+        // streamed "V2-analog" session: write + read, then close
+        pf.stream_start(SoftMCPlatform::STREAM_SIZED);
+        { int cs=0;
+          for(int c=0;c<3;c++){ int n=(c<2)?43:42;
+            Program p;
+            p.add_inst(SMC_LI(8,CASR)); p.add_inst(SMC_LI(bank,BAR));
+            p.add_inst(SMC_LI(rowS,RAR)); p.add_inst(SMC_LI(cs*8,CAR));
+            p.add_below(PRE(BAR,0,0)); p.add_below(ACT(BAR,0,RAR,0));
+            for(int k=0;k<n;k++){ const uint32_t* sl=patS.data()+(cs+k)*16;
+              for(int q=0;q<16;q++){ p.add_inst(SMC_LI(sl[q],PATTERN_REG)); p.add_inst(SMC_LDWD(PATTERN_REG,q)); }
+              p.add_below(WRITE(BAR,CAR,1)); p.add_inst(SMC_SLEEP(8)); }
+            p.add_inst(SMC_SLEEP(8)); p.add_below(PRE(BAR,0,0)); p.add_inst(SMC_SLEEP(4)); p.add_inst(SMC_END());
+            pf.stream_send(p,0); cs+=n; }
+          Program r=read_prog(bank,rowS,10100+it); pf.stream_send(r,2048);
+          if(pf.stream_recv(gotS.data(),2048)!=2048) badS++;
+        }
+        pf.stream_stop();
+        // legacy re-reads AFTER the session: both rows must hold
+        { Program p=read_prog(bank,rowL,10200+it); pf.execute(p);
+          if(pf.receiveData(gotL.data(),2048)!=2048) badL++;
+          int m=0; for(int q=0;q<2048;q++) if(gotL[q]!=refL[q]) m++;
+          if(m) badL++; }
+        { Program p=read_prog(bank,rowS,10300+it); pf.execute(p);
+          if(pf.receiveData(lb2.data(),2048)!=2048) badS++;
+          int m=0; for(int q=0;q<2048;q++) if(lb2[q]!=gotS[q]) m++;
+          if(m) badS++; }
+      }
+      printf("[stream] E8 ALTERNATION x16: legacy-side bad=%d streamed-side bad=%d -> %s\n",
+             badL, badS, (badL||badS)? "REPRODUCED" : "clean");
+    }
     // E3: interleaved recv, PURE reads (rows already hold pat2).
     { int bad3=0;
       pf.set_stream_en(true); pf.stream_start(SoftMCPlatform::STREAM_SIZED);

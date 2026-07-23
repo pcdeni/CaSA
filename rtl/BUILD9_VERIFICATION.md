@@ -305,3 +305,16 @@ y-dump instrument (PIM_YDUMP in pim_linear.py, binary per-op records):
   handler too) or NEVER mid-mix — splitting alternation from
   coexistence. Also worth one look: op #0 slice-1 ODD-index-only
   pattern (copy-vote structure) against the V2 scratch row parity.
+
+## E8 (2026-07-23): alternation primitive CLEAN — residual is compute-in-the-loop
+
+E8 (16× interleave: legacy write+segpop-read "MM3D-analog" ↔ per-request
+streamed session "V2-analog", incl. stream_start/stop churn; both sides
+legacy-re-verified): **clean**. The read/write primitive space is now
+EXHAUSTED — framing, order, writes, replication, maintenance,
+alternation all clean on silicon. The divergence therefore requires the
+MAJ3 COMPUTE in the loop (fused V2 bodies on scratch, streamed cadence,
+LOAD-mix context) — invisible to read/write primitives by construction.
+Next bisect (server-level, ~65 min): y-dump A/B with PIM_FUSED_COSET=0
+under the LOAD mix — splits fused-body×mix from plain-V2×mix; then the
+op-#0 odd-index/copy-parity analysis on whichever arm still diverges.
