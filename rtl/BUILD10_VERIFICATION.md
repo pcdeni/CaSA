@@ -675,3 +675,23 @@ Methodology note for the ledger: the gate criterion had to be
 "gate ≈ control", not "gate exact" — designing controls FIRST would
 have caught both of today's false trails (the missing legacy-legacy
 floor arm, and the false exactness premise) before any long runs.
+
+### MM3D twin map (REPLAY_DUP_MM3D=1, control env) — the last cell
+
+- V2 twins 345/345 differ (replicates the control).
+- **MM3D (resident-path) twins: 617/720 BIT-EXACT** — the harness
+  sees exactness where it exists; V2's 100% twin-jitter rate is real.
+- The 103 differing MM3D twins are BIMODAL: bit-exact or ~everything
+  (2044/2048 els, deltas in the hundreds) — the signature of twins
+  straddling the server's periodic resident-subarray refresh under
+  aref-off decay (state step between executions), not column jitter.
+  → LEVERS #25 observation; check cadence math when characterizing.
+
+Determinism map FINAL:
+  screened-kernel rerun        bit-exact      (B2 iters=100)
+  resident MM3D rerun          bit-exact      (617/720; refresh steps)
+  raw unscreened V2 rerun      ~95% els jitter (small deltas, absorbed)
+  + cross-process              boot-shift (odd-segment structure)
+  + PIM_STREAM                 NO effect at ANY of these levels.
+
+Wall A/B (timing only) RUNNING = the task #31 closing number.
