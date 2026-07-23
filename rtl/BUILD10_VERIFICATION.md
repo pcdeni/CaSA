@@ -621,3 +621,57 @@ point? does the odd-half floor exist on DIMM 0? temperature?). This
 likely also explains historical "noise" attributions and why LOAD-mix
 is token-unstable across runs while all-V2 was token-stable (vote
 margins vs direct paths).
+
+### RUN B (true no-LOAD, correct config) + capture + gate setup (07-23 night)
+
+- RUN B nl_legacy vs nl_stream (two processes): ~2515/2560 per op,
+  BOTH parities (45484:45390) — matches ctl. So the cross-process
+  floor is CONFIG-DEPENDENT: LOAD-mix floor = odd-only + fixed 13;
+  all-V2 floor = ~everything. (All-V2 was nonetheless token-stable
+  yesterday — small deltas vs healthy logit margins; LOAD-mix token
+  instability = marginal steps. Fine structure → LEVERS #25.)
+- Production request stream CAPTURED (PIM_REQ_CAPTURE): 5043 requests
+  / 6.8 GB from a --max-tokens 1 run (35 LOAD, 720 MM3D, 4288 V2).
+  Note: the capture run was killed at 10 min by a wrongly-set timeout
+  (FPGA-rule violation, self-caught) — the partial capture is a valid
+  prefix-closed stream and MORE than sufficient.
+- DEFINITIVE GATE running: replay --dup --limit 600 —
+  (1) CONTROL: PIM_STREAM=0 twins (same-process rerun determinism);
+  (2) GATE: legacy-vs-streamed twins in ONE process.
+  Decision: control exact + gate exact ⇒ quarantine LIFTS ⇒
+  production wall A/B closes #31. Gate differs ⇒ first TRUE
+  same-process streaming defect — replay iterates sub-hour from here.
+  Control differs ⇒ same-process rerun nondeterminism is its own
+  finding (fused-B2 iters=100 precedent says it should be exact).
+
+## GATE RESULT (07-23 night): gate ≡ control — PIM_STREAM DEFINITIVELY
+## EXONERATED; the "exactness" premise itself was false
+
+600-prefix run was vacuous (0 V2 requests before record 755 — the
+LOAD-resident era of the stream). 1100-prefix (345 V2 twins):
+
+- CONTROL (both twins LEGACY, one process): **345/345 twins differ,
+  ~1938/2048 elements, both parities, deltas tens** — raw V2 request
+  rerun is ~95%-element NONDETERMINISTIC in-process.
+- GATE (legacy-vs-STREAMED twins, one process): 345/345, ~1942/2048,
+  659,055 vs the control's 659,054 total differing elements —
+  statistically IDENTICAL to the control.
+
+⇒ PIM_STREAM's twin distribution is indistinguishable from legacy
+rerun. Combined with the primitive suite (same-process, exact) and
+the cross-process floor equivalence (scope arms), the producer loop
+is CLEAN at every level that is physically meaningful. Task #31
+unblocked: remaining deliverable = the production WALL A/B (timing
+comparison — valid cross-process).
+
+⇒ Determinism map so far: screened-column MAJ3 kernel rerun bit-exact
+(B2 iters=100); raw unscreened V2 request rerun ~95% elements jitter
+(small deltas — the vote/screen/margin stack absorbs it; this is the
+real substance behind historical cross-run "noise"); cross-process
+adds the boot-operating-point shift (odd-segment structure under
+LOAD-mix). MM3D resident-path twin map RUNNING (REPLAY_DUP_MM3D=1).
+
+Methodology note for the ledger: the gate criterion had to be
+"gate ≈ control", not "gate exact" — designing controls FIRST would
+have caught both of today's false trails (the missing legacy-legacy
+floor arm, and the false exactness premise) before any long runs.
