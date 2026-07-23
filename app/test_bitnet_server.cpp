@@ -310,6 +310,25 @@ static inline size_t row_read_bytes() { return g_segpop > 0 ? 2048u : 8192u; }
 // programs' framing). accxbp requests keep the legacy cadence.
 static int  g_stream = -1;              // env PIM_STREAM, resolved once
 static bool g_stream_session = false;   // a session is open NOW
+// PIM_STREAM_ALTERNATE=1 (2026-07-23 DIAGNOSTIC): the SAME-PROCESS
+// per-request A/B. With PIM_STREAM=1, V2-family requests alternate
+// legacy/streamed by arrival index. Replaying every captured request
+// TWICE makes consecutive twins hit the two paths inside ONE process —
+// the only comparison that sits below the cross-process odd-segment
+// floor (two separate processes differ on ~all odd elements even
+// legacy-vs-legacy; see BUILD10_VERIFICATION 07-23).
+static int  g_stream_alternate = -1;
+static long g_v2_req_counter = 0;
+static bool stream_alternate() {
+  if (g_stream_alternate < 0) {
+    const char* v = getenv("PIM_STREAM_ALTERNATE");
+    g_stream_alternate = (v && *v) ? atoi(v) : 0;
+    if (g_stream_alternate > 0)
+      fprintf(stderr, "[server] PIM_STREAM_ALTERNATE=1: V2 requests "
+              "alternate legacy/streamed (same-process A/B)\n");
+  }
+  return g_stream_alternate > 0;
+}
 static bool stream_on() {
   if (g_stream < 0) {
     const char* v = getenv("PIM_STREAM");
@@ -2047,7 +2066,10 @@ static int process_request(SoftMCPlatform& platform,
   // only in phase 1; accxbp keeps legacy cadence — its capture needs
   // read-quiet windows). Mode is set inside the ctor BEFORE the pipeline
   // opens; the in-loop ensure_readback calls become host-side no-ops.
-  StreamSession stream_sess(platform, stream_on() && !req_accxbp,
+  const bool alt_stream_this =
+      !stream_alternate() || ((g_v2_req_counter++ & 1) == 1);
+  StreamSession stream_sess(platform,
+                            stream_on() && !req_accxbp && alt_stream_this,
                             /*segpop_mode=*/true);
 
   // Per-request silicon-side timing (server-internal profile).
@@ -2240,6 +2262,24 @@ static int process_request(SoftMCPlatform& platform,
                 "(round=%zu bp=[%u..%u))\n", rc, total_bytes,
                 round, bp_start, bp_start + K);
         return -1;
+      }
+      // PIM_DUMP_ROWS=<dir> (2026-07-23 forensics): dump the raw
+      // received row images of the first PIM_DUMP_ROWS_MAX programs
+      // (default 64) so the corrupted odd bytes can be decoded offline
+      // (stale? neighbor's counts? shifted?). Use with replay_ab.py.
+      if (const char* dd = getenv("PIM_DUMP_ROWS")) {
+        static int dump_n = 0;
+        static int dump_max = getenv("PIM_DUMP_ROWS_MAX")
+                              ? atoi(getenv("PIM_DUMP_ROWS_MAX")) : 64;
+        if (dump_n < dump_max) {
+          char path[512];
+          snprintf(path, sizeof path, "%s/rows_%05d_r%zu_bp%u_M%zu.bin",
+                   dd, dump_n++, round, bp_start, M);
+          if (FILE* fp = fopen(path, "wb")) {
+            fwrite(rows_buf.data(), 1, total_bytes, fp);
+            fclose(fp);
+          }
+        }
       }
       auto t_pop0 = clk::now();
       for (uint32_t kp = 0; kp < K; kp++) {

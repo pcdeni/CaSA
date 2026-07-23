@@ -566,3 +566,58 @@ scope y-dumps as needed. Decision tree:
   mismatched on 72/72 clean ops at few-elements scale) — the floor arm
   QUANTIFIES it; the streaming signature (hundreds of elements,
   parity-structured) sits far above it.
+
+## 2026-07-23 THE INVERSION: the odd-byte pattern is the CROSS-PROCESS
+## FLOOR, not a streaming effect — PIM_STREAM per-op EXONERATED
+
+The scope chain's floor arm broke the case open, and the on-disk
+cross-comparison of ALL arms confirms it:
+
+- **fresh legacy vs yesterday's legacy** (PIM_STREAM=0 both): op0=255,
+  op1+≈1272, parity 44763-odd/13-even — the EXACT "streaming"
+  signature.
+- **Yesterday's legacy arms among THEMSELVES** (same day, 30-90 min
+  apart, same binary): fusL-vs-nfL 44029:13 odd:even; fusL-vs-v2L
+  44886:13; nfL-vs-v2L 44892:0 — all the same structure and magnitude
+  as fusL-vs-fusS (43889:13), the comparison the whole hunt was built
+  on.
+- Today's scope arms sit AT the floor (floor-vs-wcol 44821 odd,
+  floor-vs-exec 43068 odd) — wcol/exec/full streaming
+  indistinguishable from legacy.
+- The 13 even elements are the SAME 13 in every pair — a tiny fixed
+  set of genuinely marginal even-segment columns.
+- Token-level: today's floor legacy run produced a 6300-op trajectory
+  vs yesterday's 6510 — LOAD-mix token divergence happens
+  LEGACY-vs-LEGACY across processes. The original quarantine trigger
+  (streamed LOAD-mix "token-diverged") is thereby explained without
+  any streaming defect.
+
+CORRECTED PICTURE:
+1. Any two separate server PROCESSES differ on ~ALL odd-indexed
+   y-elements (odd 32-bit segments = upper half of each 64-bit DQ
+   transfer = chips 4-7 of the module), deterministically WITHIN a
+   process, config-independent (fused/nf/wcol/exec/legacy identical
+   floors). Same-process comparisons were ALWAYS clean (14 primitive
+   arms; ab_fused all_exact — the clue misread at 02:00).
+2. Physical hypothesis: per-process-boot init state (MRS/ZQ/VREF
+   training class) sets a slightly different operating point for the
+   upper DQ half; marginal MAJ3 columns there resolve differently per
+   boot. Chips 0-3 solid except the fixed 13.
+3. ALL cross-process per-op/token comparisons are INVALID as
+   exactness gates for this config. The 07-22 "producer loop
+   full-model divergence" and today's entire odd-byte arc measured
+   the floor, not streaming.
+4. Build-10's fix and the primitive suite remain valid (same-process,
+   Verilator-anchored). PIM_STREAM per-op cleanliness is now
+   evidenced by: every primitive arm + ab_fused + scope arms at
+   floor. DEFINITIVE GATE built and pending: PIM_STREAM_ALTERNATE=1
+   (server) + replay --dup — every captured production request
+   executed legacy AND streamed back-to-back in ONE process, compared
+   pairwise. If exact → quarantine LIFTS.
+
+New science item (LEVERS): cross-process odd-segment MAJ3 instability
+— characterize (does reset_fpga mid-process shift the operating
+point? does the odd-half floor exist on DIMM 0? temperature?). This
+likely also explains historical "noise" attributions and why LOAD-mix
+is token-unstable across runs while all-V2 was token-stable (vote
+margins vs direct paths).
