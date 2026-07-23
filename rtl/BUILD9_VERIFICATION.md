@@ -318,3 +318,26 @@ LOAD-mix context) — invisible to read/write primitives by construction.
 Next bisect (server-level, ~65 min): y-dump A/B with PIM_FUSED_COSET=0
 under the LOAD mix — splits fused-body×mix from plain-V2×mix; then the
 op-#0 odd-index/copy-parity analysis on whichever arm still diverges.
+
+## Fused-off bisect (2026-07-23): fused REFUTED; E9 is the next primitive
+
+- PIM_FUSED_COSET=0 LOAD-mix y-dump A/B: STILL diverges — op #0,
+  254/2560 elements, slices [0,1] (one slice-0 element @487 + the same
+  slice-1 ODD-index cluster 2049,2051,2053…), all 6510 ops.
+- Elimination matrix now: pack4 ✗, call sites ✗ (guard), arming ✗,
+  maintenance ✗ (counters), replication ✗ (E7), alternation ✗ (E8),
+  fused ✗ (this bisect). Streamed V2 in the LOAD mix still diverges;
+  streamed V2 in the all-V2 run was token-identical.
+- **The last untested primitive shape: write→ACT→read WITHIN ONE
+  program, streamed back-to-back** — the production V2 exec program's
+  internal structure (x-writes + doubleACTs + rdRow in one program);
+  every E-arm used separate write-programs and read-programs. E9 =
+  single program [per-column writes + PRE + segpop rdRow], streamed
+  vs legacy, odd-lane-sensitive verification. If E9 reproduces: chase
+  digitally in the Verilator e2e (within-program wdata/lane paths);
+  if clean: the remaining delta vs the clean all-V2 run is the
+  RESIDENT-ROWS-PHYSICALLY-PRESENT context (charge environment), i.e.
+  physics-class — silicon-only territory.
+- Also decode pending: the ODD-index signature (odd segments ↔ segpop
+  lane pairing / 256b half-swap structure) — check against the E9
+  read's lane map.
