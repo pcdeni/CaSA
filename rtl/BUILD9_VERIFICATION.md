@@ -389,3 +389,31 @@ client one-liner: uploads happen, MM3D never used, all slices V2):
   MAJ3-on-resident programs between sessions (compute×compute) — next
   = E11 with genuine MAJ3 bodies as interludes / server forced-session
   bisects.
+
+## CONTROL RESULT (2026-07-23): residents-PRESENT-but-UNUSED DIVERGES — class = resident-charge-environment
+
+PIM_LOAD_NO_USE=1 (residents uploaded, MM3D never used, ALL slices V2):
+**DIVERGES 2536/2560 at op #0, both slices, all indices.** Contrast:
+- all-V2, NO LOAD uploads (the full-model gate): TOKEN-IDENTICAL.
+- all-V2 + LOAD uploads present-but-unused (this control): near-total
+  divergence.
+The ONLY delta between them is that the LOAD upload programs RAN
+(resident rows physically written into the pool). MM3D use is NOT
+required. VERDICT: the divergence is triggered by the PHYSICAL PRESENCE
+of freshly-written resident rows, acting on streamed V2 compute — a
+charge/analog-margin class effect, NOT a digital datapath bug (10
+primitive arms + every program class are silicon-clean under
+streaming). Consistent with the whole theme: streaming removes the
+inter-program idle that let charge settle; residents raise the stakes.
+(Slice-0 now diverges too because PIM_LOAD_NO_USE forces it to V2; the
+earlier odd-only slice-1 pattern was the subset where slice-0 still ran
+resident MM3D.)
+
+NEXT: E11 — reproduce as a self-contained primitive (pre-charge a big
+block of pool rows like LOAD does, THEN the E4-style mixed streamed
+V2-analog on other rows vs legacy). E4/E6 were clean WITHOUT the
+pre-charge, so pre-charge is the single added variable. If E11
+reproduces → seconds-scale silicon repro of the production effect,
+class nailed; the fix menu (settle interlude when residents present /
+keep streaming only for no-resident configs / M3 where residents
+become the operands) is then an engineering choice, not more hunting.

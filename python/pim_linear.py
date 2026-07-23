@@ -634,6 +634,18 @@ class PimBitLinear(nn.Module):
             _ts = _time.perf_counter()
             y_int = self._pim_matmul_one_token(x_int8_t)
             _t_matmul_total += _time.perf_counter() - _ts
+            # PIM_YDUMP=<path>: append one binary record per PIM matmul
+            # (<u32 op_idx><u32 n><i32 y[n]>) — the first-diverging-op
+            # instrument (2026-07-23 streaming isolation). Default off.
+            if os.environ.get('PIM_YDUMP'):
+                global _YDUMP_F, _YDUMP_N
+                try: _YDUMP_F
+                except NameError:
+                    _YDUMP_F = open(os.environ['PIM_YDUMP'], 'wb'); _YDUMP_N = [0]
+                _ya = np.asarray(y_int, dtype=np.int32).ravel()
+                _YDUMP_F.write(struct.pack('<II', _YDUMP_N[0], _ya.size))
+                _YDUMP_F.write(_ya.tobytes()); _YDUMP_F.flush()
+                _YDUMP_N[0] += 1
             if self._group_scales is not None:
                 # Group mode: s[r,g] (and the sparse residual correction)
                 # were already applied inside the matmul → only the
@@ -767,7 +779,12 @@ class PimBitLinear(nn.Module):
                             print(f"[pim] LOAD→V2 fallback slices so far: "
                                   f"{n_fb}", flush=True)
 
-                use_load_mode = (not _force_v2 and slc.get('load_mode_ok', False))
+                # PIM_LOAD_NO_USE=1 (2026-07-23 isolation control):
+                # residents UPLOADED (pre-load block above runs) but MM3D
+                # never used — every slice computes V2. Separates
+                # "residents physically present" from "MM3D interleaved".
+                use_load_mode = (not _force_v2 and slc.get('load_mode_ok', False)
+                                 and os.environ.get('PIM_LOAD_NO_USE', '0') != '1')
                 self._t_body_build_ms += (_time.perf_counter() - _ts) * 1000
                 # D: 3-way cross-calib voting on full-row slices.
                 # n_copies > 1 already covers partial-row in-row voting → 1 trip.
