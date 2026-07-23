@@ -460,6 +460,74 @@ int main(int argc,char** argv){
       printf("\n[stream] E9 within-program write->read: %d/%d programs differ (odd-idx %ld, even-idx %ld) -> %s\n",
              bad9, NE, oddd, evend, bad9? "REPRODUCED" : "clean");
     }
+
+    // E10 (2026-07-23): E8's alternation with the PRODUCTION MM3D-entry
+    // REFRESH ACT-TRAIN as the legacy interlude — a hardware-looped
+    // (label/branch) program class present between streamed sessions
+    // ONLY in the LOAD mix, never in any prior primitive. Faithful
+    // copy of build_refresh_subarray_loop_program (single bank, full
+    // window [win_lo_e10, win_hi_e10)).
+    { const int NE=12;
+      uint32_t win_lo_e10 = 45312u, win_hi_e10 = 45952u;
+      int badS=0;
+      vector<vector<uint32_t>> pw10(NE, vector<uint32_t>(2048));
+      vector<vector<uint8_t>> s10(NE, vector<uint8_t>(2048));
+      for(int i=0;i<NE;i++) mkpat(0xE1000000u+i, pw10[i].data());
+      for(int it=0; it<NE; it++){
+        uint32_t rowS = base + 64u + 16u*(uint32_t)it;
+        // streamed "V2-analog" session: write + segpop read
+        pf.stream_start(SoftMCPlatform::STREAM_SIZED);
+        { int cs=0;
+          for(int c=0;c<3;c++){ int n=(c<2)?43:42;
+            Program p;
+            p.add_inst(SMC_LI(8,CASR)); p.add_inst(SMC_LI(bank,BAR));
+            p.add_inst(SMC_LI(rowS,RAR)); p.add_inst(SMC_LI(cs*8,CAR));
+            p.add_below(PRE(BAR,0,0)); p.add_below(ACT(BAR,0,RAR,0));
+            for(int k=0;k<n;k++){ const uint32_t* sl=pw10[it].data()+(cs+k)*16;
+              for(int q=0;q<16;q++){ p.add_inst(SMC_LI(sl[q],PATTERN_REG)); p.add_inst(SMC_LDWD(PATTERN_REG,q)); }
+              p.add_below(WRITE(BAR,CAR,1)); p.add_inst(SMC_SLEEP(8)); }
+            p.add_inst(SMC_SLEEP(8)); p.add_below(PRE(BAR,0,0)); p.add_inst(SMC_SLEEP(4)); p.add_inst(SMC_END());
+            pf.stream_send(p,0); cs+=n; }
+          Program r=read_prog(bank,rowS,12000+it); pf.stream_send(r,2048);
+          if(pf.stream_recv(s10[it].data(),2048)!=2048) badS++;
+        }
+        pf.stream_stop();
+        // legacy interlude: the PRODUCTION refresh ACT-train (looped)
+        { Program p;
+          p.add_inst(SMC_LI(8,CASR));
+          p.add_inst(SMC_LI(bank,BAR));
+          p.add_inst(SMC_LI(win_lo_e10, LOOP_ROWS));
+          p.add_inst(SMC_LI(win_hi_e10, NUM_ROWS_REG));
+          std::string lab = "E10_REFRESH_" + std::to_string(it);
+          p.add_label(lab);
+            p.add_inst(SMC_ADDI(LOOP_ROWS, 0, RAR));
+            p.add_below(PRE(BAR,0,0));
+            p.add_below(ACT(BAR,0,RAR,0));
+            p.add_inst(SMC_SLEEP(4));
+            p.add_below(PRE(BAR,0,0));
+            p.add_inst(SMC_SLEEP(4));
+            p.add_inst(SMC_ADDI(LOOP_ROWS, 1, LOOP_ROWS));
+          p.add_branch(p.BR_TYPE::BL, LOOP_ROWS, NUM_ROWS_REG, lab);
+          p.add_inst(all_nops());
+          p.add_inst(SMC_END());
+          pf.execute(p);
+        }
+      }
+      // post: legacy re-read all streamed rows — refresh preserved them?
+      { vector<uint8_t> lb(2048);
+        long bytes=0; int rows=0;
+        for(int it=0; it<NE; it++){
+          uint32_t rowS = base + 64u + 16u*(uint32_t)it;
+          Program p=read_prog(bank,rowS,12100+it);
+          pf.execute(p); int rc=pf.receiveData(lb.data(),2048);
+          int m=2048;
+          if(rc==2048){ m=0; for(int q=0;q<2048;q++) if(lb[q]!=s10[it][q]) m++; }
+          if(m){ rows++; bytes+=m; }
+        }
+        printf("[stream] E10 refresh-train alternation x%d: streamed-vs-postlegacy %d rows differ (%ld bytes), recv_bad=%d -> %s\n",
+               NE, rows, bytes, badS, (rows||badS)? "REPRODUCED" : "clean");
+      }
+    }
     // E3: interleaved recv, PURE reads (rows already hold pat2).
     { int bad3=0;
       pf.set_stream_en(true); pf.stream_start(SoftMCPlatform::STREAM_SIZED);

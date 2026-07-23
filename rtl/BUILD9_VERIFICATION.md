@@ -370,3 +370,22 @@ Remaining candidates, in test order:
    (LOAD handles uploaded, client forced all-V2: PIM_USE_LOAD_WEIGHTS=1
    with MM3D disabled client-side if a flag exists — separates
    "residents present" from "MM3D requests interleaved").
+
+## E10 (2026-07-23): refresh-train alternation CLEAN — digital space closed
+
+E10 (E8's alternation with the PRODUCTION MM3D-entry refresh ACT-train
+— a hardware-looped label/branch program over the full 640-row window —
+as the legacy interlude, ×12): **clean** (0 rows, 0 bytes, recv clean).
+Every production program class is now silicon-proven exact under and
+alongside streaming: straight-line writes/reads, mixed sized sessions,
+within-program write→read, and looped refresh trains.
+
+RUNNING: the residents-present-but-unused control (PIM_LOAD_NO_USE=1 —
+client one-liner: uploads happen, MM3D never used, all slices V2):
+- control DIVERGES ⇒ "residents physically present" is the ingredient
+  (charge-environment class; next = odd-index lane decode + charge
+  probes; also re-examine the LOAD phase under armed streaming).
+- control CLEAN ⇒ divergence requires MM3D actually USED — real
+  MAJ3-on-resident programs between sessions (compute×compute) — next
+  = E11 with genuine MAJ3 bodies as interludes / server forced-session
+  bisects.
