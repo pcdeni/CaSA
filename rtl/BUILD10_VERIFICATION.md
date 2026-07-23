@@ -695,3 +695,22 @@ Determinism map FINAL:
   + PIM_STREAM                 NO effect at ANY of these levels.
 
 Wall A/B (timing only) RUNNING = the task #31 closing number.
+
+## WALL A/B — task #31 CLOSED (2026-07-23 night)
+
+Production LOAD-mix config (dimm2 trio, fused, segpop), full model,
+identical call counts (15,155) both arms:
+
+  legacy  forward = 1,924.9 s   server-request = 1,905.1 s
+  stream  forward = 1,847.6 s   server-request = 1,828.5 s
+  delta   **−4.0% wall** (matches the −4.4% all-V2 phase-1 measurement)
+
+Verdict: Rung-1 producer loop (phase 1, per-request sessions) is
+CORRECT (gate ≡ control at same-process level; every primitive exact;
+cross-process floors identical) and worth −4% on the production wall.
+The modest magnitude confirms the corrected wall model (~half the
+token wall is request-path, not program round-trips) — the remaining
+throughput plays are phase-2 streaming (pipeline exec sends past
+recvs, stream MM3D) and the request-path attack (LEVERS 3b).
+RECOMMENDATION for the PR: flip PIM_STREAM default ON (magic ≥ 09
+images) — strictly faster, distribution-identical to legacy.
