@@ -341,3 +341,32 @@ op-#0 odd-index/copy-parity analysis on whichever arm still diverges.
 - Also decode pending: the ODD-index signature (odd segments ↔ segpop
   lane pairing / 256b half-swap structure) — check against the E9
   read's lane map.
+
+## E9 (2026-07-23): CLEAN — digital primitive space exhausted
+
+E9 (write→PRE→segpop-read WITHIN one program — the production exec
+shape — streamed back-to-back from identical DRAM state vs legacy):
+**0/16 programs differ, zero bytes, both parities.** Swap-path program
+starts (1..15) identical to the IDLE-path start (0).
+
+Full primitive/bisect matrix, all silicon: framing ✓ order ✓ writes ✓
+pure-segpop ✓ mixed ✓ replication ✓ alternation+churn ✓
+within-program write→read ✓ — all EXACT under streaming; pack4/fused/
+arming/maintenance/call-sites refuted as triggers. Yet the LOAD-mix
+full model diverges from op #0 (slice-1 odd-index cluster) while the
+all-V2 full model is token-identical.
+
+Remaining candidates, in test order:
+1. **E10 (designed, last digital-ish shape):** E8's alternation but
+   with the MM3D-entry REFRESH ACT-train (~640-row charge-restore
+   program) as the legacy interlude — the one production program class
+   never present in any primitive; it runs between streamed sessions
+   only in the LOAD mix (MM3D requests exist only there).
+2. **Resident-charge environment (physics-class):** the mere physical
+   presence of LOAD-resident rows changing the margin context of
+   streamed V2 MAJ3 compute — silicon-only territory; would be probed
+   via the odd-index signature decode (odd segments vs segpop lane /
+   half-swap structure) + a residents-present-but-unused control run
+   (LOAD handles uploaded, client forced all-V2: PIM_USE_LOAD_WEIGHTS=1
+   with MM3D disabled client-side if a flag exists — separates
+   "residents present" from "MM3D requests interleaved").

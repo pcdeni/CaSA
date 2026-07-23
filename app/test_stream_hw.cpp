@@ -407,6 +407,59 @@ int main(int argc,char** argv){
       printf("[stream] E8 ALTERNATION x16: legacy-side bad=%d streamed-side bad=%d -> %s\n",
              badL, badS, (badL||badS)? "REPRODUCED" : "clean");
     }
+
+    // E9 (2026-07-23): write -> PRE -> segpop-read WITHIN ONE PROGRAM —
+    // the production V2 exec program's internal shape, the last
+    // untested primitive. Both arms start from IDENTICAL DRAM state;
+    // oracle = streamed-vs-legacy byte equality; per-program verdicts
+    // (program 0 = IDLE-path load, 1.. = swap-path) + parity histogram
+    // of differing byte indices (the odd-index signature decode).
+    { const int NE=16;
+      vector<vector<uint32_t>> pw(NE, vector<uint32_t>(2048));
+      vector<vector<uint32_t>> prr(NE, vector<uint32_t>(2048));
+      for(int i=0;i<NE;i++){ mkpat(0xE9000000u+i, pw[i].data());
+                             mkpat(0xE9100000u+i, prr[i].data()); }
+      auto prep=[&](){
+        for(int i=0;i<NE;i++){
+          uint32_t rowW=base+64u+16u*(uint32_t)i, rowR=rowW+8u;
+          // zero rowW, write known pattern to rowR (legacy, outside test)
+          Program z; z.add_inst(SMC_LI(8,CASR)); z.add_inst(SMC_LI(bank,BAR));
+          z.add_inst(SMC_LI(128,NUM_COLS_REG)); z.add_below(PRE(BAR,0,0));
+          z.add_below(wrRow_immediate_label(BAR,rowW,0u,11000+i));
+          z.add_inst(SMC_END()); pf.execute(z);
+          write_row(pf,bank,rowR,prr[i].data());
+        } };
+      auto mkprog=[&](int i,int label)->Program{
+        uint32_t rowW=base+64u+16u*(uint32_t)i, rowR=rowW+8u;
+        Program p;
+        p.add_inst(SMC_LI(8,CASR)); p.add_inst(SMC_LI(bank,BAR));
+        p.add_inst(SMC_LI(rowW,RAR)); p.add_inst(SMC_LI(0,CAR));
+        p.add_below(PRE(BAR,0,0)); p.add_below(ACT(BAR,0,RAR,0));
+        for(int k=0;k<43;k++){ const uint32_t* sl=pw[i].data()+k*16;
+          for(int q=0;q<16;q++){ p.add_inst(SMC_LI(sl[q],PATTERN_REG)); p.add_inst(SMC_LDWD(PATTERN_REG,q)); }
+          p.add_below(WRITE(BAR,CAR,1)); p.add_inst(SMC_SLEEP(8)); }
+        p.add_inst(SMC_SLEEP(8)); p.add_below(PRE(BAR,0,0)); p.add_inst(SMC_SLEEP(6));
+        p.add_inst(SMC_LI(128,NUM_COLS_REG));
+        p.add_below(rdRow_immediate_label(BAR,rowR,label));
+        p.add_inst(SMC_END());
+        return p; };
+      vector<vector<uint8_t>> l9(NE, vector<uint8_t>(2048)), s9(NE, vector<uint8_t>(2048));
+      prep();
+      for(int i=0;i<NE;i++){ Program p=mkprog(i,11100+i);
+        pf.execute(p); pf.receiveData(l9[i].data(),2048); }
+      prep();   // identical state again
+      pf.stream_start(SoftMCPlatform::STREAM_SIZED);
+      for(int i=0;i<NE;i++){ Program p=mkprog(i,11200+i); pf.stream_send(p,2048); }
+      for(int i=0;i<NE;i++) pf.stream_recv(s9[i].data(),2048);
+      pf.stream_stop();
+      int bad9=0; long oddd=0, evend=0;
+      printf("[stream] E9 per-program diffs:");
+      for(int i=0;i<NE;i++){ int m=0;
+        for(int q=0;q<2048;q++) if(l9[i][q]!=s9[i][q]){ m++; if(q&1) oddd++; else evend++; }
+        printf(" %d", m); if(m) bad9++; }
+      printf("\n[stream] E9 within-program write->read: %d/%d programs differ (odd-idx %ld, even-idx %ld) -> %s\n",
+             bad9, NE, oddd, evend, bad9? "REPRODUCED" : "clean");
+    }
     // E3: interleaved recv, PURE reads (rows already hold pat2).
     { int bad3=0;
       pf.set_stream_en(true); pf.stream_start(SoftMCPlatform::STREAM_SIZED);
