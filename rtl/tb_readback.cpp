@@ -53,7 +53,11 @@ struct Beat {
 static std::vector<std::vector<Beat> > msgs; // tlast-delimited messages
 static std::vector<Beat> open_msg;
 
-#if defined(TB_BUILD8)
+#if defined(TB_BUILD10)
+static const uint32_t MAGIC = 0xDBC0DE09u;  // build10: raw-count wdata mask
+#elif defined(TB_BUILD9)
+static const uint32_t MAGIC = 0xDBC0DE08u;  // build9: streaming fetch (engine = 8b + magic)
+#elif defined(TB_BUILD8)
 static const uint32_t MAGIC = 0xDBC0DE07u;  // build8b: widx edge+quiet realign
 #elif defined(TB_BUILD7)
 static const uint32_t MAGIC = 0xDBC0DE05u;
@@ -103,7 +107,7 @@ static void clear_inputs() {
     top->set_mode_diff = 0;
     top->set_mode_segpop = 0;
 #endif
-#ifdef TB_BUILD8
+#if defined(TB_BUILD8) || defined(TB_BUILD9) || defined(TB_BUILD10)
     top->set_mode_read = 0;
     top->set_mode_diff = 0;
     top->set_mode_segpop = 0;
@@ -627,7 +631,7 @@ static void scenario_j() {
     check(buf, top->buffer_space == bs_read0);
 }
 
-#if defined(TB_BUILD7) || defined(TB_BUILD8)
+#if defined(TB_BUILD7) || defined(TB_BUILD8) || defined(TB_BUILD9) || defined(TB_BUILD10)
 // ---- build7: SEG_POP per-segment popcount readout ------------------------
 static void to_segpop_mode() {
     top->set_mode_segpop = 1; tick(); top->set_mode_segpop = 0; idle(2);
@@ -722,7 +726,7 @@ static void scenario_segpop() {
 }
 #endif
 
-#ifdef TB_BUILD8
+#if defined(TB_BUILD8) || defined(TB_BUILD9) || defined(TB_BUILD10)
 // ---- build8: ACCUM_XBP cross-bit-plane accumulator -----------------------
 static void to_accxbp_mode() {
     // entering ACCUM_XBP zeroes the 128-word accumulator over 128 cycles;
@@ -883,6 +887,63 @@ static void scenario_accxbp_overlap() {
 }
 #endif
 
+
+// build10 repro/fix: STALE ddr_wdata during SEG_POP reads. ddr_wdata
+// mirrors the core's wide_reg (ddr_pipeline), which PERSISTS across
+// programs; only legacy INIT_MEM passes refreshed it. Under build-9
+// streaming (EXECUTE->EXECUTE swaps) a write program's last LDWD
+// pattern stays on the bus and pre-build10 engines XOR it into every
+// count — sticky, silent, ~3/4 of packed bytes wrong (silicon
+// 2026-07-22, stream-hw arms C-G). build10 masks the XOR reference to
+// zero outside DIFF mode: counts must equal popcount(RAW segment)
+// REGARDLESS of ddr_wdata. DIFF keeps its compare-vs-pattern XOR
+// (scenarios a-j cover it unchanged).
+static void scenario_segpop_stale_wdata() {
+    printf(" (m) SEG_POP with STALE ddr_wdata (build10 repro/fix)\n");
+    hard_reset();
+    to_segpop_mode();
+    for (int s = 0; s < 16; s++)
+        top->ddr_wdata[s] = 0xDEAD0000u | (uint32_t)(s * 0x0101);
+    uint32_t bs0 = top->buffer_space;
+    const int NB = 8;
+    announce_reads(NB);
+    seg_user_reads(NB, seg_pattern);
+    idle(4);
+    flush_pulse(1);
+    idle(20);
+    for (int s = 0; s < 16; s++) top->ddr_wdata[s] = 0;
+    check("stale-wdata segpop produced one tlast message", msgs.size() == 1);
+    if (msgs.empty()) return;
+    const std::vector<Beat>& m = msgs.back();
+    check("stale-wdata trailer magic", m.back().w[0] == MAGIC);
+    int ndata = (int)m.size() - 1;
+    std::vector<uint8_t> bytes;
+    for (int w = 0; w * 2 + 1 < ndata; w++) {
+        const Beat& lo = m[w*2 + 1];
+        const Beat& hi = m[w*2 + 0];
+        for (int i = 0; i < 8; i++) for (int k = 0; k < 4; k++)
+            bytes.push_back((lo.w[i] >> (k*8)) & 0xFF);
+        for (int i = 0; i < 8; i++) for (int k = 0; k < 4; k++)
+            bytes.push_back((hi.w[i] >> (k*8)) & 0xFF);
+    }
+    int bad = 0, checked = 0;
+    for (int g = 0; g < NB * 16 && g < (int)bytes.size(); g++) {
+        int expect = pc32(seg_pattern(g / 16, g % 16));   // RAW counts
+        if ((int)bytes[g] != expect) bad++;
+        checked++;
+    }
+    char buf[120];
+    snprintf(buf, sizeof buf,
+             "stale-wdata segpop byte[g]==popcount(RAW seg): %d/%d exact",
+             checked - bad, checked);
+    check(buf, bad == 0 && checked == NB * 16);
+    char buf2[120];
+    snprintf(buf2, sizeof buf2,
+             "stale-wdata buffer_space conserved (%u -> %u)", bs0, top->buffer_space);
+    check(buf2, top->buffer_space == bs0);
+    msgs.clear(); open_msg.clear();
+}
+
 int main(int argc, char** argv) {
     Verilated::commandArgs(argc, argv);
     if (argc > 1) variant = argv[1];
@@ -897,6 +958,9 @@ int main(int argc, char** argv) {
 #endif
 #ifdef TB_BUILD8
     is_b6_rtl = true;   // build8 keeps build6/7 conservation for READ/DIFF/SEG_POP
+#endif
+#if defined(TB_BUILD9) || defined(TB_BUILD10)
+    is_b6_rtl = true;   // build9/10 keep the same conservation semantics
 #endif
     top = new Vreadback_engine;
     printf("=== readback_engine drain-capture TB : %s (%s RTL, magic %08X) ===\n",
@@ -925,6 +989,15 @@ int main(int argc, char** argv) {
     scenario_segpop();
     scenario_accxbp();
     scenario_accxbp_overlap();
+#endif
+#if defined(TB_BUILD9) || defined(TB_BUILD10)
+    // build9/10 gate: full build8 suite + the stale-wdata repro. On the
+    // build9 engine the stale-wdata scenario MUST FAIL (failure
+    // reproduction of the 2026-07-22 silicon); on build10 it must pass.
+    scenario_segpop();
+    scenario_accxbp();
+    scenario_accxbp_overlap();
+    scenario_segpop_stale_wdata();
 #endif
     printf("=== %s: %s (%d failing checks) ===\n",
            variant, failures ? "FAIL" : "ALL PASS", failures);

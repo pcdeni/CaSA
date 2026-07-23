@@ -1,0 +1,213 @@
+--- a/DRAM-Bender/sources/api/board.h
++++ b/DRAM-Bender/sources/api/board.h
+@@ -2,26 +2,41 @@
+ 
+ #ifndef BOARD_H
+ #define BOARD_H
++
++class SimDramModel;  // forward decl — defined in pim_sim.h, allocated when iface_type==SIM
++
+ /** This class defines how the host
+  * interfaces with the board.
+  */
+ class BoardInterface{
+-  const uint SEND_BUF_SIZE = 32*2048;
+-              // send each instruction as a 256-bit packet
+-  const uint RECV_BUF_SIZE = 1024*32;
+-  const std::string TO_FPGA_DEFAULT = "/dev/xdma0_h2c_0";
+-  const std::string FROM_FPGA_DEFAULT = "/dev/xdma0_c2h_0";
++  // 32 bytes per instruction (256-bit AXI packet) × IMEM depth (8192 after the 11→13 IMEM_ADDR_WIDTH bump).
++  const uint SEND_BUF_SIZE = 32*8192;
++  // Kernel xdma can occasionally return slightly more than the requested
++  // size in a single read (observed up to ~33 KB on a 32-KB request when
++  // FPGA-side residual data accumulates ahead of the read). Pad the
++  // host-side buffer accordingly so we always have somewhere to put it.
++  const uint RECV_BUF_SIZE = 1024*64;
+ public:
+   enum class IFACE {
+-      XDMA = 0
++      XDMA = 0,
++      // In-process behavioral DDR + SiMRA model. Selected by
++      // PIM_BACKEND=sim env var (handled in SoftMCPlatform::init()).
++      // Calib path comes from PIM_SIM_CALIB env (or first arg of the
++      // platform's existing calib path).
++      SIM  = 1
+   };
+-  BoardInterface(IFACE);
++  // dimm_select picks the XDMA channel pair on multi-bender bitstreams
++  // (e.g. BCU1525_QUAD): N → /dev/xdma0_h2c_N + /dev/xdma0_c2h_N.
++  // Default 0 = single-bender behaviour.
++  BoardInterface(IFACE, int dimm_select = 0);
+   ~BoardInterface();
+   int init();
+   int sendData(void* data, const uint size);
+   int recvData(void* buf , const uint size);
+ private:
+   IFACE iface_type;
++  int dimm_select;
++  SimDramModel* sim_model = nullptr;  // owned, lazily allocated when iface_type==SIM
+   // XDMA related constructs
+   int to_card;
+   int from_card;
+--- a/DRAM-Bender/sources/api/board.cpp
++++ b/DRAM-Bender/sources/api/board.cpp
+@@ -1,17 +1,26 @@
+ #include "board.h"
++#include "pim_sim.h"
+ #include <unistd.h>
+ #include <fstream>
+ #include <iostream>
+ #include <cassert>
++#include <cstdint>
++#include <cstdio>
++#include <cstdlib>
+ #include <fcntl.h>
+ #include <string.h>
+ 
+-BoardInterface::BoardInterface(IFACE iface_type)
++BoardInterface::BoardInterface(IFACE iface_type, int dimm_select)
+ {
+   this -> iface_type = iface_type;
++  this -> dimm_select = dimm_select;
+ }
+ BoardInterface::~BoardInterface()
+ {
++  if (iface_type == IFACE::SIM) {
++    delete sim_model;
++    return;
++  }
+   free(send_buf);
+   free(recv_buf);
+   close(to_card);
+@@ -22,25 +31,40 @@
+ {
+   switch(iface_type)
+   {
++    case IFACE::SIM:
++    {
++      sim_model = new SimDramModel();
++      const char* calib = getenv("PIM_SIM_CALIB");
++      if (calib && *calib) sim_model->load_calib(calib);
++      const char* v = getenv("PIM_SIM_VERBOSE");
++      if (v) sim_model->verbose = atoi(v);
++      std::cerr << "[pim_sim] BoardInterface initialised in SIM mode "
++                << "(calib=" << (calib ? calib : "<none>") << ")" << std::endl;
++      return 0;
++    }
+     case IFACE::XDMA:
+     {
+-      int fpga_fd = open(TO_FPGA_DEFAULT.c_str(), O_RDWR);
++      char to_path[64], from_path[64];
++      std::snprintf(to_path,   sizeof(to_path), "/dev/xdma0_h2c_%d", dimm_select);
++      std::snprintf(from_path, sizeof(from_path), "/dev/xdma0_c2h_%d", dimm_select);
++
++      int fpga_fd = open(to_path, O_RDWR);
+       if(fpga_fd<0)
+       {
+-        std::cerr << "Open to card failed!" << std::endl;
++        std::cerr << "Open " << to_path << " (to card) failed!" << std::endl;
+         return 1;
+       }
+       else
+-        std::cout << "Opened " << TO_FPGA_DEFAULT <<  " -> " << fpga_fd << std::endl;
++        std::cout << "Opened " << to_path <<  " -> " << fpga_fd << std::endl;
+       to_card = fpga_fd;
+-      fpga_fd = open(FROM_FPGA_DEFAULT.c_str(), O_RDWR);
++      fpga_fd = open(from_path, O_RDWR);
+       if(fpga_fd<0)
+       {
+-        std::cerr << "Open to host failed!" << std::endl;
++        std::cerr << "Open " << from_path << " (to host) failed!" << std::endl;
+         return 1;
+       }
+       else
+-        std::cout << "Opened " << FROM_FPGA_DEFAULT <<  " -> " << fpga_fd << std::endl;
++        std::cout << "Opened " << from_path <<  " -> " << fpga_fd << std::endl;
+       from_card = fpga_fd;
+       // allocate page size aligned X page size regions to our buffers
+       if (posix_memalign((void **)&send_buf, 4096 /*alignment */ , SEND_BUF_SIZE + (4096-(SEND_BUF_SIZE % 4096))) != 0)
+@@ -70,6 +94,8 @@
+ {
+   switch(iface_type)
+   {
++    case IFACE::SIM:
++      return sim_model->send_program((const uint8_t*)data, size);
+     case IFACE::XDMA:
+       return xdma_send(data,size);
+       break;
+@@ -83,6 +109,8 @@
+ {
+   switch(iface_type)
+   {
++    case IFACE::SIM:
++      return sim_model->recv_response((uint8_t*)buf, size);
+     case IFACE::XDMA:
+       return xdma_recv(buf,size);
+       break;
+@@ -96,22 +124,30 @@
+ {
+   memcpy((char*)send_buf, (char*)data, size);
+ 
+-  int fd = to_card;
+-  ssize_t rc;
+-  uint64_t count = 0;
++  // Loop on the remainder so partial writes (which kernel xdma can
++  // legitimately do for large h2c transfers) are handled correctly.
++  // Original code passed `size` to every write() and trusted an assert
++  // that rc == size || rc == 0; that asserts out for any partial write,
++  // and even in the lucky equal-size case it would silently re-send the
++  // same bytes. Surface real errors as non-zero return so the caller
++  // can reset_fpga and skip.
+   char *buf = (char*) send_buf;
+- 
++  uint count = 0;
+   while (count < size) {
+-    /* write data to file from memory buffer */
+-    rc = write(fd, buf, size);
+-    assert(rc == size || rc == 0);
+-    count += rc;
++    ssize_t rc = write(to_card, buf + count, size - count);
++    if (rc < 0) {
++      std::cerr << "xdma_send write failed: " << strerror(errno)
++                << " (rc=" << rc << ", count=" << count << "/" << size << ")"
++                << std::endl;
++      return 1;
++    }
++    if (rc == 0) {
++      std::cerr << "xdma_send wrote 0 bytes — engine likely in shutdown"
++                << std::endl;
++      return 1;
++    }
++    count += (uint)rc;
+   }
+-
+-  // We wrote more than we supposed to
+-  if (count != size)
+-    return 1;
+-
+   return 0;
+ }
+ 
+@@ -119,14 +155,12 @@
+ {
+   assert(size <= RECV_BUF_SIZE && "given read size is too large");
+ 
+-  int fd = from_card;
+-  uint64_t count = 0;
+-  // Try to read from the card.
+-  count = read(fd, (char*) recv_buf, size);
+-
+-  // We read more than we were supposed to
+-  assert(count <= size);// || rc == 0);
+-
+-  memcpy(buf, (char*) recv_buf, count);
+-  return count;
++  ssize_t rc = read(from_card, (char*) recv_buf, size);
++  if (rc < 0) {
++    std::cerr << "xdma_recv read() failed: " << strerror(errno)
++              << " (rc=" << rc << ")" << std::endl;
++    return -1;
++  }
++  if (rc > 0) memcpy(buf, recv_buf, rc);
++  return (int)rc;
+ }
