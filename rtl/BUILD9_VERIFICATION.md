@@ -262,3 +262,26 @@ resident rows / fused paths. Next instrument: first-diverging-op y-dump
 via the REAL client (per-op output compare, legacy vs stream, LOAD mix;
 classify op #1 by path class). Quarantine unchanged (PIM_STREAM
 default-OFF; validated scope explicit).
+
+## FIRST-DIVERGING-OP RESULT (2026-07-23): streamed V2 on REPLICATED slices
+
+y-dump instrument (PIM_YDUMP in pim_linear.py, binary per-op records):
+- FIRST diverging op = **#0** (immediate, not cumulative), and ALL 6510
+  ops diverge — but op #0 differs ONLY in slice 1 (251/512 partial-slice
+  elements, ODD indices in the sample), slice 0 EXACT.
+- Decode: slice 1 = the REPLICATED partial slice (512 real outputs ×4
+  copies, client vote-aggregates); with ENOSPC at ~20 sub-handles such
+  slices run V2 (= streamed sessions), while clean slice 0 is
+  LOAD-resident MM3D (legacy path). Values differ by
+  plausible-magnitude amounts (e.g. 248→146, −382→−376) — copy-vote
+  flips, not garbage.
+- CLASSIFICATION: resident/MM3D = clean; **streamed V2 on
+  replicated-mask shapes = the diverging class.** Explains why the
+  synthetic probe failed its legacy control (production V2 =
+  replicated+voted shapes) and why stream-hw arm E (random masks) is
+  clean.
+- NEXT PROBE (primitive-level repro attempt): stream-hw E-arm variant
+  with REPLICATED masks (512-wide pattern ×4 across the row — the
+  client's exact replication) streamed vs legacy. If it reproduces,
+  the mechanism hunt continues from a seconds-scale silicon repro;
+  suspects: pattern-regularity × back-to-back write/exec timing.
