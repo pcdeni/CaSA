@@ -711,6 +711,131 @@ int main(int argc,char** argv){
   }
 
   }
+
+  // ---- E13 (2026-07-23): MULTI-BANK M-row segpop readout under
+  // streaming — the production exec-class readout shape (ex_bank_ids:
+  // one program reads rows from SEVERAL banks, BAR reloaded mid-
+  // program). D-arm was single-bank; this is the one readout variable
+  // never streamed at primitive level. Oracle = legacy execution of
+  // the IDENTICAL program. 8 sessions × 4 sends probe engagement
+  // beyond the first program (production corrupts from request 2 on).
+  { const int NB=4, NR=4, MB=NB*NR;              // 4 banks × 4 rows
+    vector<vector<uint32_t>> mp(MB, vector<uint32_t>(2048));
+    for(int b=0;b<NB;b++) for(int r=0;r<NR;r++){
+      int i=b*NR+r;
+      mkpat(0xE1300000u + (uint32_t)(b*4096+r), mp[i].data());
+      write_row(pf,b,base+200u+(uint32_t)r,mp[i].data());
+    }
+    auto mb_prog=[&](int tag)->Program{
+      Program p;
+      p.add_inst(SMC_LI(8,CASR)); p.add_inst(SMC_LI(128,NUM_COLS_REG));
+      int lb=14000+tag*MB;
+      for(int r=0;r<NR;r++) for(int b=0;b<NB;b++){   // bank-interleaved
+        p.add_inst(SMC_LI(b,BAR));
+        p.add_below(rdRow_immediate_label(BAR,base+200u+(uint32_t)r,lb++));
+      }
+      p.add_inst(SMC_END());
+      return p; };
+    pf.set_readback_mode_segpop(); pf.set_readback_mode_segpop();
+    vector<uint8_t> lref(MB*2048);
+    { Program p=mb_prog(0); pf.execute(p);
+      int rc=pf.receiveData(lref.data(),MB*2048);
+      if(rc!=(int)(MB*2048)) printf("[stream] E13 legacy short read rc=%d\n",rc); }
+    int badRows=0; long badBytes=0, oddBytes=0; int sends=0;
+    pf.set_stream_en(true);
+    vector<uint8_t> sb(MB*2048);
+    for(int sess=0; sess<8; sess++){
+      pf.stream_start(SoftMCPlatform::STREAM_SIZED);
+      for(int k=0;k<4;k++){
+        Program p=mb_prog(1+sess*4+k);
+        pf.stream_send(p,(int)(MB*2048));
+        int rc=pf.stream_recv(sb.data(),(int)(MB*2048));
+        sends++;
+        if(rc!=(int)(MB*2048)){ badRows+=MB; continue; }
+        for(int i=0;i<MB;i++){ int m=0;
+          for(int q=0;q<2048;q++)
+            if(sb[i*2048+q]!=lref[i*2048+q]){ m++; if(q&1) oddBytes++; }
+          if(m){ badRows++; badBytes+=m; } }
+      }
+      pf.stream_stop();
+    }
+    pf.set_stream_en(false);
+    printf("[stream] E13 multi-bank segpop: %d row-images differ over %d sends "
+           "(%ld bytes, %ld odd) -> %s\n",
+           badRows, sends, badBytes, oddBytes, badRows? "REPRODUCED":"clean");
+  }
+
+  // ---- E14 (2026-07-23): BRANCH-LOOPED write body under streaming —
+  // the production wrRow idiom (LDWD prologue + 128-iteration WRITE
+  // loop via add_label/add_branch; per-iteration LDWD slot-0 rotation
+  // makes column content distinct so any fetch/loop corruption is
+  // visible). All prior E-arm writes were fully unrolled; production
+  // compute bodies are looped. Verify = RAW legacy read (content
+  // truth, independent of the segpop count path).
+  { pf.set_readback_mode(false); pf.set_readback_mode(false);   // READ mode
+    const int NE=8;
+    uint32_t prol[16];
+    for(int q=0;q<16;q++) prol[q]=0xE1400000u + 0x01010101u*(uint32_t)q + 0xB1u;
+    auto loop_prog=[&](uint32_t row, int it)->Program{
+      Program p;
+      p.add_inst(SMC_LI(8,CASR)); p.add_inst(SMC_LI(bank,BAR));
+      p.add_inst(SMC_LI(row,RAR)); p.add_inst(SMC_LI(0,CAR));
+      p.add_below(PRE(BAR,0,0)); p.add_below(ACT(BAR,0,RAR,0));
+      for(int q=0;q<16;q++){ p.add_inst(SMC_LI(prol[q],PATTERN_REG));
+        p.add_inst(SMC_LDWD(PATTERN_REG,q)); }
+      p.add_inst(SMC_LI(0,LOOP_ROWS)); p.add_inst(SMC_LI(128,NUM_ROWS_REG));
+      std::string lab="E14_WLOOP_"+std::to_string(it);
+      p.add_label(lab);
+        p.add_inst(SMC_ADDI(LOOP_ROWS,0,PATTERN_REG));
+        p.add_inst(SMC_LDWD(PATTERN_REG,0));           // slot0 = column idx
+        p.add_below(WRITE(BAR,CAR,1));
+        p.add_inst(SMC_SLEEP(8));
+        p.add_inst(SMC_ADDI(LOOP_ROWS,1,LOOP_ROWS));
+      p.add_branch(p.BR_TYPE::BL, LOOP_ROWS, NUM_ROWS_REG, lab);
+      p.add_inst(SMC_SLEEP(8)); p.add_below(PRE(BAR,0,0));
+      p.add_inst(SMC_SLEEP(4)); p.add_inst(SMC_END());
+      return p; };
+    vector<uint32_t> want(2048);
+    for(int c=0;c<128;c++){ want[c*16]=(uint32_t)c;
+      for(int q=1;q<16;q++) want[c*16+q]=prol[q]; }
+    auto lread_raw=[&](uint32_t row, uint8_t* dst, int tag)->int{
+      Program p=read_prog(bank,row,15000+tag);
+      pf.execute(p); return pf.receiveData(dst,8192); };
+    // legacy arm: loop_prog legacy → read → vs want (sanity of the model)
+    vector<uint8_t> fl(8192), fs(8192);
+    { Program p=loop_prog(base+300u,0); pf.execute(p); }
+    lread_raw(base+300u, fl.data(), 0);
+    int legacy_vs_want=0;
+    for(int q2=0;q2<8192;q2++)
+      if(fl[q2]!=((const uint8_t*)want.data())[q2]) legacy_vs_want++;
+    // streamed arm: NE looped writes in one sized session (payload 0),
+    // then legacy raw verify of every row vs the LEGACY-armed row.
+    pf.set_stream_en(true);
+    pf.stream_start(SoftMCPlatform::STREAM_SIZED);
+    for(int i=0;i<NE;i++){ Program p=loop_prog(base+301u+(uint32_t)i,1+i);
+      pf.stream_send(p,0); }
+    pf.stream_stop();
+    pf.set_stream_en(false);
+    int badRows=0; long badBytes=0, oddSeg=0;
+    for(int i=0;i<NE;i++){
+      lread_raw(base+301u+(uint32_t)i, fs.data(), 100+i);
+      int m=0;
+      for(int q2=0;q2<8192;q2++)
+        if(fs[q2]!=fl[q2]){ m++; if((q2/4)&1) oddSeg++; }
+      if(m){ badRows++; badBytes+=m;
+        if(badRows==1){
+          printf("[stream] E14 first bad row %d sample (str vs leg u32):\n  ", i);
+          const uint32_t* a=(const uint32_t*)fs.data();
+          const uint32_t* b=(const uint32_t*)fl.data();
+          int shown=0;
+          for(int w=0;w<2048 && shown<6;w++)
+            if(a[w]!=b[w]){ printf("[w%d]=%08x/%08x ",w,a[w],b[w]); shown++; }
+          printf("\n"); } } }
+    printf("[stream] E14 branch-loop writes: legacy_vs_model=%d bytes; "
+           "streamed %d/%d rows differ vs legacy (%ld bytes, odd-seg %ld) -> %s\n",
+           legacy_vs_want, badRows, NE, badBytes, oddSeg,
+           badRows? "REPRODUCED":"clean");
+  }
   int fails = (badA?1:0)+(badB?1:0)+(badC?1:0)+(badD?1:0)+(badE?1:0);
   printf("[stream] %s (A=%d B=%d C=%d D=%d E=%d)\n",
          fails?"FAIL":"ALL_PASS", badA,badB,badC,badD,badE);

@@ -533,3 +533,36 @@ scope y-dumps as needed. Decision tree:
 - RUN A diverges (odd-32b-segment in raw y) → data-level corruption;
   raw row images localize which rows/segments; E14 verdict then
   separates write-content vs compute.
+
+### RUN A/B v1 INVALID + E13/E14 CLEAN (2026-07-23 evening)
+
+- RUN A/B first execution INVALID: my reconstructed runner used
+  `--bender 2` alone → client setdefaults resolved calib_dimm0 + dimm0
+  pools + NO sub window on bender-2 silicon (the PimServer echo caught
+  it: calib_dimm0, extra_env missing the trio). The "catastrophic
+  divergence" and "parity mirror" in those dumps are artifacts of
+  miscalibrated tuples — quarantined *.INVALID_dimm0calib. Runner v2
+  pins the trio (env PIM_SUB_START/END + PIM_POOL_LIST_FILE +
+  --calib calib_dimm2) and ABORTS unless the config echo shows it.
+  Lesson (2nd mislabeled cell today): every full-model runner must
+  assert its config echo, not assume defaults.
+- E13 multi-bank segpop readout streamed (4 banks × 4 rows, one
+  program, BAR reloads mid-program; 32 sends across 8 sessions):
+  **clean 0/32**.
+- E14 branch-looped write body streamed (LDWD prologue + 128-iter
+  WRITE loop, per-iteration slot-0 rotation; legacy_vs_model=0 proves
+  the arm's own model exact): **clean 0/8**.
+- (E3 now reads 16/32 in the full suite — benign arm-ordering drift:
+  E11's pre-charge rewrites odd rows 45313..45825 which overlap E3's
+  reference rows; exactly the 16 odd rows differ. Not silicon.)
+- Exec-class primitives (a) multi-bank readout and (b) branch loops
+  are OUT. Remaining: (c) coset doubleACTs / MAJ3 bodies streamed, or
+  a composition effect no primitive captures. DECISIVE INSTRUMENT NOW
+  RUNNING (scope_runner.sh): PIM_STREAM_SCOPE=wcol → =exec → fresh
+  legacy floor arm → true no-LOAD A/B, all on the valid dimm2 config;
+  scoped arms compare against yesterday's valid fus legacy dump.
+  Note the comparison methodology: cross-process legacy-vs-legacy has
+  a small deterministic-drift floor (yesterday's fus vs v2 legacy arms
+  mismatched on 72/72 clean ops at few-elements scale) — the floor arm
+  QUANTIFIES it; the streaming signature (hundreds of elements,
+  parity-structured) sits far above it.

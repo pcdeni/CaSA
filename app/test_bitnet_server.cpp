@@ -326,24 +326,77 @@ static bool stream_on() {
   }
   return g_stream > 0;
 }
+// PIM_STREAM_SCOPE (2026-07-23 DIAGNOSTIC): stream only ONE program
+// class to isolate which class's streaming triggers the odd-byte
+// corruption. "wcol" = only the payload-0 scratch writes stream (exec/
+// readout legacy); "exec" = only the exec/readout programs stream
+// (writes legacy). Sessions become per-burst (churn is E8-clean); a
+// legacy execute NEVER runs inside an open session (the platform guard
+// stays honest). Default/unset = "all" (the production request-scoped
+// session, unchanged).
+static int  g_stream_scope = -1;        // 0 all, 1 wcol, 2 exec
+static bool g_stream_requested = false; // this request is stream-eligible
+static int stream_scope() {
+  if (g_stream_scope < 0) {
+    const char* v = getenv("PIM_STREAM_SCOPE");
+    g_stream_scope = 0;
+    if (v && strcmp(v, "wcol") == 0) g_stream_scope = 1;
+    else if (v && strcmp(v, "exec") == 0) g_stream_scope = 2;
+    if (g_stream_scope)
+      fprintf(stderr, "[server] PIM_STREAM_SCOPE=%s: DIAGNOSTIC per-burst "
+              "sessions — only that class streams\n", v);
+  }
+  return g_stream_scope;
+}
+static void scoped_stream_transition(SoftMCPlatform& pf, bool want_open) {
+  if (want_open == g_stream_session) return;
+  if (want_open) {
+    ensure_readback(pf, true);          // pipeline empty between bursts
+    pf.stream_start(SoftMCPlatform::STREAM_SIZED);
+    g_stream_session = true;
+  } else {
+    pf.stream_stop();
+    g_stream_session = false;
+  }
+}
 // Send-or-execute: inside an open session, stream with the program's
 // exact expected payload; otherwise the pristine legacy execute.
+// Under a scoped diagnostic, payload==0 identifies the wcol class.
 static inline void pexec(SoftMCPlatform& platform, Program& p,
                          int payload_bytes) {
+  if (g_stream_requested && stream_scope()) {
+    bool is_wcol = (payload_bytes == 0);
+    bool stream_this = (stream_scope() == 1) ? is_wcol : !is_wcol;
+    scoped_stream_transition(platform, stream_this);
+    if (stream_this) platform.stream_send(p, payload_bytes);
+    else             platform.execute(p);
+    return;
+  }
   if (g_stream_session) platform.stream_send(p, payload_bytes);
   else                  platform.execute(p);
 }
 struct StreamSession {
   SoftMCPlatform& pf;
   bool open = false;
+  bool scoped = false;
   StreamSession(SoftMCPlatform& p, bool want, bool segpop_mode) : pf(p) {
     if (!want) return;
+    if (stream_scope()) {               // diagnostic: no request session;
+      g_stream_requested = true;        // pexec brackets per-burst sessions
+      scoped = true;
+      return;
+    }
     ensure_readback(pf, segpop_mode);   // set mode while pipeline empty
     pf.stream_start(SoftMCPlatform::STREAM_SIZED);
     g_stream_session = true;
     open = true;
   }
   ~StreamSession() {
+    if (scoped) {
+      scoped_stream_transition(pf, false);  // close any dangling burst
+      g_stream_requested = false;
+      return;
+    }
     if (!open) return;
     pf.stream_stop();
     g_stream_session = false;
