@@ -285,3 +285,23 @@ y-dump instrument (PIM_YDUMP in pim_linear.py, binary per-op records):
   client's exact replication) streamed vs legacy. If it reproduces,
   the mechanism hunt continues from a seconds-scale silicon repro;
   suspects: pattern-regularity × back-to-back write/exec timing.
+
+## E7 + suspect ranking (2026-07-23, continued)
+
+- E7 (replicated 512-period masks, E-cadence): **CLEAN 0 bytes** —
+  replication alone does not reproduce at the primitive level.
+- Constraint inventory: fused-V2-streamed = clean at full-model scale
+  (the all-V2 gate ran PIM_FUSED_COSET=1, token-identical); replicated
+  masks clean (E7); resident MM3D clean (slice-0 exact + ab_fused);
+  maintenance refuted; framing/writes/order all proven.
+- **Top suspect by elimination: the ALTERNATION** — legacy-MM3D
+  requests interleaving with streamed-V2 sessions (per-request
+  stream_start/stop + per-program receivers alternating; swap-path vs
+  IDLE-path execution alternating) — the one element present ONLY in
+  the LOAD-mix and never isolated. Two next probes, either decisive:
+  (1) E8 primitive: rapidly alternate legacy exec/recv reads with
+  streamed write+read sessions, exactness both sides; (2) y-dump A/B
+  with PIM_USE_LOAD_WEIGHTS=1 but sessions forced ALWAYS (stream LOAD
+  handler too) or NEVER mid-mix — splitting alternation from
+  coexistence. Also worth one look: op #0 slice-1 ODD-index-only
+  pattern (copy-vote structure) against the V2 scratch row parity.
