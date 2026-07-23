@@ -487,3 +487,49 @@ RUNNING (chained, ydump_ab_runner.sh):
   dumps then localizes it).
 - RUN B: PIM_SEGPOP=1, PIM_USE_LOAD_WEIGHTS=0 explicit — the REAL
   no-LOAD cell, for the record and for the residents-amplifier decode.
+
+### Interim corrections + prepared instruments (2026-07-23, card busy on RUN A/B)
+
+Two corrections to the addendum above, from code reading:
+1. "First streamed request exact / phase-locked onset" — WITHDRAWN as an
+   inference. Op-0 slice-0 was clean because it ran resident-MM3D
+   (LEGACY path — MM3D never streams in phase 1), not because early
+   session state is clean. The remaining op-0 anomaly (later q ops
+   diverge in slice 0 too, op 0 does not) is plausibly position-0
+   x-sparsity (zero-plane skips suppress the V2 sub-handle programs) —
+   RUN B (all-V2 everywhere) will show op 0 directly.
+2. The LI→LDWD read-after-write hazard theory (streamed paired fetch)
+   is REFUTED by inspection of arm E: it already IS the production
+   per-column write shape (LI+LDWD per slot per column, 43/43/42,
+   distinct data, sized session, per-round recv) and it is CLEAN on
+   build-10. The write class is exonerated at primitive level.
+
+What has NEVER streamed at primitive level = the EXEC class:
+(a) multi-bank M-row readout (one program, BAR reloads mid-program —
+    D-arm was single-bank), (b) branch-looped wrRow bodies (all E-arm
+    writes were unrolled; production compute bodies loop), (c) the
+    coset doubleACTs themselves.
+
+Prepared while the card is busy (all compile-clean, none yet run):
+- Server PIM_STREAM_SCOPE=wcol|exec (DIAGNOSTIC): per-burst sessions
+  stream only one program class on the REAL flow; payload-0 identifies
+  the wcol class; legacy execute never runs inside an open session
+  (guard preserved); MM3D/LOAD handlers untouched (no session object).
+  Scope y-dumps split the guilty class wholesale.
+- stream-hw E13: multi-bank interleaved segpop readout streamed ×32
+  sends across 8 sessions vs identical-program legacy oracle; odd-byte
+  tally built in.
+- stream-hw E14: branch-looped write body (LDWD prologue + 128-iter
+  WRITE loop, per-iteration slot-0 rotation makes columns distinct) —
+  streamed, RAW legacy verify; catches loop/fetch corruption and
+  in-loop LDWD staleness.
+
+Run order when the card frees: RUN A/B verdicts → E13/E14 (fast) →
+scope y-dumps as needed. Decision tree:
+- RUN A clean + E13 or E14 reproduces → mechanism found at primitive
+  level; fix follows the arm.
+- RUN A clean + E13/E14 clean → scope runs isolate the class on the
+  real flow (suspect (c) coset doubleACTs or a composition effect).
+- RUN A diverges (odd-32b-segment in raw y) → data-level corruption;
+  raw row images localize which rows/segments; E14 verdict then
+  separates write-content vs compute.
