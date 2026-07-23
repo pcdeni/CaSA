@@ -239,3 +239,26 @@ READ-mode streams + pure-SEGPOP streams + mixed write/segpop streams
 NOT-validated scope = PIM_STREAM under PIM_USE_LOAD_WEIGHTS mixes.
 The all-V2 shape is not the production default, so production is
 unaffected either way until the residual is pinned.
+
+## Isolation ledger addendum (2026-07-23): maintenance hypothesis REFUTED
+
+User lead: DRAM Bender issues maintenance ops between user programs
+(manually triggerable via SMC_REF/SMC_ZQ — both exist in instruction.h).
+Investigated:
+- Mechanism EXISTS in principle: maintenance timers reload while
+  program_process is active; ops fire only in quiet gaps.
+- Periodic REF: aref-gated (maintenance_controller pr_ref_request needs
+  aref_switch_r) — production runs aref OFF ⇒ REF dead in BOTH arms;
+  confirmed by cnt_ref_init == 0 in every trailer.
+- Periodic reads (tPRDI) + ZQ: MEASURED in-process via trailer counters
+  (server's own program trailers, PIM_RECV_DEBUG): legacy arm cnt_rd
+  delta 279,121 vs streamed arm 289,115 over comparable probe runs —
+  **same rate; NOT starved under streamed sessions**.
+- Note for future counter work: reset_fpga() zeroes the counters, so
+  cross-process sampling is invalid; measure within one server run.
+
+Suspect list now: production-shaped V2-session traffic interacting with
+resident rows / fused paths. Next instrument: first-diverging-op y-dump
+via the REAL client (per-op output compare, legacy vs stream, LOAD mix;
+classify op #1 by path class). Quarantine unchanged (PIM_STREAM
+default-OFF; validated scope explicit).
