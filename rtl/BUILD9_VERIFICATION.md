@@ -417,3 +417,22 @@ reproduces → seconds-scale silicon repro of the production effect,
 class nailed; the fix menu (settle interlude when residents present /
 keep streaming only for no-resident configs / M3 where residents
 become the operands) is then an engineering choice, not more hunting.
+
+## E11 CLEAN — reframe: the untested cell is streamed MAJ3 COMPUTE per-op
+
+E11 (pre-charge 256 pool rows LOAD-style, THEN E4-style mixed streamed
+write+read on base rows vs legacy): **clean 0/16**. Simple spatial
+charge-coupling from charged neighbors is REFUTED. This exposes the real
+gap: EVERY E-arm (and E9/E10) tests write→read FRAMING; NONE runs the
+actual MAJ3 doubleACT/frac COMPUTE under streaming. So the reachable
+suspects narrow to a genuine untested cell:
+- streamed V2 MAJ3 compute exactness has only ever been checked at
+  TOKEN granularity (the all-V2 gate), never PER-OP.
+RUNNING (decisive): all-V2, NO LOAD, PIM_YDUMP legacy-vs-stream per-op.
+- DIVERGES ⇒ streamed V2 MAJ3 compute is intrinsically (slightly)
+  non-exact, token-masked in the all-V2 gate; residents merely amplify
+  it into token flips. Fix = per-op, not residency-specific.
+- EXACT ⇒ residents are truly necessary → the interaction is
+  residents-present × streamed-MAJ3 specifically (pool-cursor row
+  selection or a resident-write side effect on the compute path), and
+  the next probe recreates THAT exact pair.

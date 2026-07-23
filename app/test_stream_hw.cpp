@@ -528,6 +528,55 @@ int main(int argc,char** argv){
                NE, rows, bytes, badS, (rows||badS)? "REPRODUCED" : "clean");
       }
     }
+
+    // E11 (2026-07-23): the SINGLE-VARIABLE repro of the control result.
+    // E4/E6 (mixed streamed write+segpop-read on base rows) were CLEAN.
+    // Add ONE variable: first PRE-CHARGE a big block of pool rows (what
+    // LOAD does — fills the pool head with resident weights), THEN run
+    // the identical mixed streamed V2-analog on the base rows vs legacy.
+    // If E11 diverges where E4 didn't, the resident-charge environment
+    // is reproduced as a self-contained silicon primitive.
+    { const int NE=16;
+      // pre-charge ~256 "resident" rows across the window (LOAD-analog).
+      { vector<uint32_t> rp(2048);
+        for(uint32_t rr=45313u; rr<45313u+512u; rr+=2u){
+          mkpat(rr^0x1234u, rp.data());
+          write_row(pf,bank,rr,rp.data());   // legacy per-col write, like LOAD
+        } }
+      vector<vector<uint32_t>> p11(NE, vector<uint32_t>(2048));
+      for(int i=0;i<NE;i++) mkpat(0xE11B0000u+i, p11[i].data());
+      auto run=[&](bool stream, vector<vector<uint8_t>>& out)->int{
+        int bad=0;
+        if(stream) pf.stream_start(SoftMCPlatform::STREAM_SIZED);
+        for(int i=0;i<NE;i++){
+          uint32_t row = base + 64u + 16u*(uint32_t)i;
+          int cs=0;
+          for(int c=0;c<3;c++){ int n=(c<2)?43:42;
+            Program p;
+            p.add_inst(SMC_LI(8,CASR)); p.add_inst(SMC_LI(bank,BAR));
+            p.add_inst(SMC_LI(row,RAR)); p.add_inst(SMC_LI(cs*8,CAR));
+            p.add_below(PRE(BAR,0,0)); p.add_below(ACT(BAR,0,RAR,0));
+            for(int k=0;k<n;k++){ const uint32_t* sl=p11[i].data()+(cs+k)*16;
+              for(int q=0;q<16;q++){ p.add_inst(SMC_LI(sl[q],PATTERN_REG)); p.add_inst(SMC_LDWD(PATTERN_REG,q)); }
+              p.add_below(WRITE(BAR,CAR,1)); p.add_inst(SMC_SLEEP(8)); }
+            p.add_inst(SMC_SLEEP(8)); p.add_below(PRE(BAR,0,0)); p.add_inst(SMC_SLEEP(4)); p.add_inst(SMC_END());
+            if(stream) pf.stream_send(p,0); else pf.execute(p);
+            cs+=n; }
+          Program r=read_prog(bank,row,13000+i);
+          if(stream){ pf.stream_send(r,2048); if(pf.stream_recv(out[i].data(),2048)!=2048) bad++; }
+          else { pf.execute(r); if(pf.receiveData(out[i].data(),2048)!=2048) bad++; }
+        }
+        if(stream) pf.stream_stop();
+        return bad; };
+      vector<vector<uint8_t>> le(NE, vector<uint8_t>(2048)), se(NE, vector<uint8_t>(2048));
+      run(false, le);
+      run(true,  se);
+      int rows=0; long bytes=0;
+      for(int i=0;i<NE;i++){ int m=0; for(int q=0;q<2048;q++) if(le[i][q]!=se[i][q]) m++;
+        if(m){ rows++; bytes+=m; } }
+      printf("[stream] E11 pre-charged mixed stream: %d/%d rows differ (%ld bytes) -> %s\n",
+             rows, NE, bytes, rows? "REPRODUCED" : "clean");
+    }
     // E3: interleaved recv, PURE reads (rows already hold pat2).
     { int bad3=0;
       pf.set_stream_en(true); pf.stream_start(SoftMCPlatform::STREAM_SIZED);
