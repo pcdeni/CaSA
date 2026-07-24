@@ -169,6 +169,21 @@ class PimServer:
         For LOAD_WEIGHTS: 4 bytes (status code)."""
         import time as _time
         with self.lock:
+            # PIM_REQ_CAPTURE=<prefix> (2026-07-23 isolation tooling):
+            # append every request VERBATIM (u32 body_len, u32 resp_len,
+            # body) to <prefix>.b<bender>. Replaying this file against a
+            # fresh server reproduces the exact production request stream
+            # (incl. LOAD uploads) without the model — the seconds-scale
+            # A/B instrument for the PIM_STREAM odd-byte hunt.
+            if os.environ.get('PIM_REQ_CAPTURE'):
+                if not hasattr(self, '_cap_f'):
+                    self._cap_f = open(
+                        f"{os.environ['PIM_REQ_CAPTURE']}.b{self.bender_id}",
+                        'ab')
+                self._cap_f.write(struct.pack('<II', len(body_bytes),
+                                              expect_resp_len))
+                self._cap_f.write(body_bytes)
+                self._cap_f.flush()
             try:
                 # u32 length prefix + body, both with looped writes.
                 _ts = _time.perf_counter()
