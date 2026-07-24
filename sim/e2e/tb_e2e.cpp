@@ -19,6 +19,9 @@
 #include <string>
 #include <fstream>
 
+// Verilator shim: $display/$time in sim-only RTL debug blocks needs this.
+double sc_time_stamp() { return 0; }
+
 static Ve2e_top* top;
 static VerilatedFstC* tfp;
 static uint64_t t = 0;
@@ -28,8 +31,20 @@ static std::vector<uint8_t> c2h_bytes;        // phase-2: host receive side
 
 extern "C" void dram_expected_beat(int bg,int bank,int row,int col,uint32_t*);
 
+static long g_drain_off = 0, g_dr_budget = 8, g_dr_pause = 0;
+static long g_c2h_tlast_count = 0;
 static void tick(){
-  top->c2h_tready = 1;                        // host always draining
+  // c2h drain pacing. 0 = instant (old behaviour). N>0 = accept a
+  // short burst, then refuse for N cycles: a trailer then sits in the
+  // engine while the next program completes — the silicon condition
+  // that scenario P's instant drain hid.
+  if (g_drain_off <= 0) top->c2h_tready = 1;
+  else if (g_dr_pause > 0) { top->c2h_tready = 0; g_dr_pause--; }
+  else {
+    top->c2h_tready = 1;
+    if (top->c2h_tvalid && --g_dr_budget <= 0)
+      { g_dr_pause = g_drain_off; g_dr_budget = 8; }
+  }
   top->clk = 0; top->eval(); if(tfp) tfp->dump(t*10);
   top->clk = 1; top->eval(); if(tfp) tfp->dump(t*10+5);
   if (top->ddr_read)  ddr_read_beats++;
@@ -38,7 +53,8 @@ static void tick(){
   if (top->per_zq_init_obs)  maint_zq++;
   if (top->per_ref_init_obs) maint_ref++;
   if (top->softmc_fin && fin_seen_at < 0) fin_seen_at = (long)t;
-  if (top->c2h_tvalid){                       // collect the 32B beat
+  if (top->c2h_tvalid && top->c2h_tready && top->c2h_tlast) g_c2h_tlast_count++;
+  if (top->c2h_tvalid && top->c2h_tready){    // collect the 32B beat
     for (int i=0;i<8;i++){ uint32_t w = top->c2h_tdata[i];
       c2h_bytes.push_back((uint8_t)w); c2h_bytes.push_back((uint8_t)(w>>8));
       c2h_bytes.push_back((uint8_t)(w>>16)); c2h_bytes.push_back((uint8_t)(w>>24)); }
@@ -358,6 +374,62 @@ int main(int argc, char** argv){
     top->h2c_tkeep=0xFFFFFFFFu; top->h2c_tvalid=1; top->h2c_tlast=1;
     { long w3=0; while(!top->h2c_tready && w3++<30000) tick(); }
     tick(); top->h2c_tvalid=0; top->h2c_tlast=0;
+  }
+
+  // ---------- Q: trailer framing under back-to-back streaming --------
+  // N sized row reads, sent back-to-back, c2h drain THROTTLED.
+  // Expect N messages (tlast) of 2048+32 bytes. The silicon bug shows
+  // as fewer tlasts than records.
+  for (long throttle : {0L, 40L}) {
+    auto s4q = load_hex("s4_read128.hex");
+    if (s4q.empty()) { printf("[tb] Q SKIPPED (no s4 hex)\n"); break; }
+    const int QN = 8, QPAY = 2048;
+    // fresh state: stop streaming, settle
+    top->h2c_tdata[0]=0; for (int i=1;i<8;i++) top->h2c_tdata[i]=0;
+    top->h2c_tdata[2]=0x0800;
+    top->h2c_tkeep=0xFFFFFFFFu; top->h2c_tvalid=1; top->h2c_tlast=1;
+    { long w=0; while(!top->h2c_tready && w++<20000) tick(); }
+    tick(); top->h2c_tvalid=0; top->h2c_tlast=0;
+    for (int i=0;i<400;i++) tick();
+
+    // SEG_POP x2, then STREAM_EN on
+    for (int k=0;k<2;k++){
+      top->h2c_tdata[0]=0; top->h2c_tdata[1]=0;
+      for (int i=2;i<8;i++) top->h2c_tdata[i]=0;
+      top->h2c_tdata[2]=0x80;
+      top->h2c_tkeep=0xFFFFFFFFu; top->h2c_tvalid=1; top->h2c_tlast=1;
+      { long w=0; while(!top->h2c_tready && w++<20000) tick(); }
+      tick(); top->h2c_tvalid=0; top->h2c_tlast=0;
+      for (int i=0;i<10;i++) tick(); }
+    top->h2c_tdata[0]=1; top->h2c_tdata[1]=0;
+    for (int i=2;i<8;i++) top->h2c_tdata[i]=0;
+    top->h2c_tdata[2]=0x0800;
+    top->h2c_tkeep=0xFFFFFFFFu; top->h2c_tvalid=1; top->h2c_tlast=1;
+    { long w=0; while(!top->h2c_tready && w++<20000) tick(); }
+    tick(); top->h2c_tvalid=0; top->h2c_tlast=0;
+    for (int i=0;i<20;i++) tick();
+
+    g_drain_off = throttle;
+    c2h_bytes.clear();
+    g_c2h_tlast_count = 0;
+    bool sentQ = true;
+    for (int q=0; q<QN && sentQ; q++) sentQ = send_program(s4q);
+    long want = (long)QN * (QPAY + 32);
+    for (long i=0;i<1500000 && (long)c2h_bytes.size() < want; i++) tick();
+    printf("[tb] Q throttle=%ld: sent=%d bytes=%zu/%ld messages=%ld/%d -> %s\n",
+           throttle, sentQ, c2h_bytes.size(), want, g_c2h_tlast_count, QN,
+           (g_c2h_tlast_count == QN && (long)c2h_bytes.size() == want)
+             ? "framing OK"
+             : "**TRAILER MERGE REPRODUCED**");
+    if (g_c2h_tlast_count != QN) fails++;
+    g_drain_off = 0;
+    // stream off
+    top->h2c_tdata[0]=0; for (int i=1;i<8;i++) top->h2c_tdata[i]=0;
+    top->h2c_tdata[2]=0x0800;
+    top->h2c_tkeep=0xFFFFFFFFu; top->h2c_tvalid=1; top->h2c_tlast=1;
+    { long w=0; while(!top->h2c_tready && w++<20000) tick(); }
+    tick(); top->h2c_tvalid=0; top->h2c_tlast=0;
+    for (int i=0;i<200;i++) tick();
   }
 
   tfp->close();

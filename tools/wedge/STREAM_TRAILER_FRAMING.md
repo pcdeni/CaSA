@@ -227,3 +227,52 @@ appeared when streaming went to production shape.
 4. Interim software mitigation exists (cap outstanding records at <=4
    with spacing) but it forfeits the streaming win, so it is a
    fallback, not the fix.
+
+## 10. Sim reproduction achieved; three hypotheses killed by measurement
+
+**Reproduced in e2e_sim (scenario Q).** 8 streamed SEG_POP row reads,
+back-to-back, with the c2h drain THROTTLED:
+  throttle=0  (instant drain): 8/8 messages, 16640/16640 B  -> OK
+  throttle=40 (paced drain)  : 7/8 messages, 16608 B        -> REPRO
+Instant drain was exactly why scenario P passed earlier: a trailer that
+leaves immediately always clears before the next program ends. Silicon
+has XDMA/PCIe/FIFO latency; the sim needed pacing to be faithful.
+**Fidelity lesson: an always-ready consumer hides every framing bug.**
+
+**Instrumented census (SIM_TRAILER_DEBUG, 1M cycles):**
+  flush high-cycles 6007 == rising edges 6007   -> no edge merging
+  processed 102 == tlast 102                    -> 1 trailer per
+                                                   processed flush
+So the framing chain from `flush_proc` onward is exactly 1:1, and the
+loss is upstream of it or downstream of `tlast`.
+
+**Hypotheses tested and REJECTED (each with data, not argument):**
+1. `proc_flush_r` single-bit merge — implemented a saturating
+   pending-trailer counter. Trace shows every flush edge is serviced
+   immediately (`pend=0` -> TLAST); nothing was ever queued. Result
+   unchanged (16608).
+2. Maintenance eats user flushes via the `ignore_flush_ctr` heuristic —
+   replaced the heuristic with a per-flush ORIGIN bit carried from the
+   frontend (`frontend_ready_maint`, sampled at fin, delayed with
+   delay_fin). Maintenance flushes are correctly suppressed (no trailer
+   flood from 9118 maint events). Result unchanged (16608).
+3. Same-cycle race tagging a user fin as maintenance — sampled the
+   origin one cycle before the fin. Result unchanged (16608).
+The byte count is IDENTICAL across all three, which is itself evidence:
+none of these paths is the mechanism.
+
+**Live lead (next):** the RBE's internal `tlast` count (102) is what the
+engine *asserted*; the TB counts wire transfers
+(`c2h_tvalid && c2h_tready && c2h_tlast`) and saw one fewer in the Q
+window. So a trailer beat is very likely ASSERTED but never TRANSFERRED
+under backpressure — a tvalid/tready handshake problem at the trailer
+beat itself, not a framing-decision problem. Next experiment: count
+tlast-with-tvalid vs tlast-with-tvalid-and-tready in the TB, and if
+they differ, read `trailer_beat`/`c2h_tvalid_0` around the loss in the
+FST.
+
+**Status of the three RTL changes:** all are defensible robustness
+improvements (a counter instead of a flag; origin instead of a
+heuristic; no same-cycle sampling race) and all are currently in the
+SIM tree only. None is validated as the fix, so none goes into a
+bitstream yet.
