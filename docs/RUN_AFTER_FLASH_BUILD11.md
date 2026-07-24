@@ -1,5 +1,10 @@
 # RUN AFTER FLASH — build-11 (magic 0xDBC0DE0A)
 
+**Bitstream READY 2026-07-24 10:41** on the box:
+`.../BCU1525_QUAD.runs/impl_1/bcu1525_quad_top.bit`
+md5 `4c9d9f823696b4604b6be997d6e42c9c` (36,332,631 B).
+Timing: WNS +0.094 / TNS 0 / hold met.
+
 Fixes on board: fetch_restart (pc=0 at every program start — kills the
 stale-pc loss window, latent in legacy too) + fin/tlast same-cycle
 race. Verilator regression A–H + F(5×4000) ALL_PASS pre-synth.
