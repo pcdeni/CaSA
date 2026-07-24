@@ -151,3 +151,44 @@ Next uses: replay captured production request streams (reqcap) through
 the sim; extend the DRAM model with charge-sharing lattice ops for
 in-sim PIM semantics; every future fetch/frontend/engine RTL change
 gates on scenarios S/M/N/R1/W1 before synthesis.
+
+## Build-13 silicon + THE REAL ROOT CAUSE: the wrapper never wired restart
+
+Build-13 flashed (magic 0C confirmed): P1 passed, but armA (single
+not-taken BL) wedged — same external pattern as build-12. New probe arm
+Z (branch-free second program after an idle gap) also WEDGED →
+**branches exonerated entirely**; the failing shape is "any program
+after the first park." The maint-pulse fix greens the sim but not
+silicon → a fidelity gap remained.
+
+Found it in the wrapper: the QUAD builds **softmc_core.v** (per-channel
+wrapper), NOT softmc_top.v — and softmc_core NEVER CONNECTED
+`.fetch_restart` (frontend) nor `.restart` (pipeline). Vivado said so
+all along: `Synth 8-7071 port unconnected` ×2, present in build-11/12/13
+logs, unread (watchdogs grepped ^ERROR only). Silicon has run
+restart==0 since build-11:
+- build-11: harmless (fetch free-runs; the "loss-window fix" silently
+  never reached silicon),
+- build-12/13: park-at-END + restart that can never fire = fetch parks
+  at the FIRST program END forever. No maintenance subtlety required.
+The sim was wired from softmc_top.v (restart connected) — faithful to
+the wrong wrapper; that was the sim/silicon divergence.
+
+Confirmation both directions (SILICON_ASIS_UNWIRED_RESTART define in
+e2e_top.v): restart tied 0 → wedge class reproduced (everything dies at
+first park; sim boot-ZQ's own END parks fetch; silicon's P1 only ever
+worked because reset_fpga resets the pipeline → un-parks → pre-build-11
+free-run mechanics execute the first program). Restart wired → ALL
+GREEN (the standing regression).
+
+**Build-14** = build-13 + three lines in softmc_core.v (wire + two port
+connections) + magic 0xDBC0DE0D. New checklist rule: after every build,
+grep the log for `Synth 8-7071` on our module ports; and the sim's
+wrapper-of-record for the QUAD is softmc_core.v.
+
+Silicon-evidence notes kept honest: trailer counters at P1 showed
+cnt_rd≈0..1 over ms-scale gaps — the sim's tPRDI=1 µs maintenance rate
+does NOT match silicon's actual per-RD rate (units/params differ
+somewhere); irrelevant to this root cause but flagged for the phase-3
+fidelity pass. reset_fpga does NOT read an info packet (pure h2c word);
+counters ride normal read trailers only.

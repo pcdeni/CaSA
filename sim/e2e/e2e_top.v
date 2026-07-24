@@ -82,7 +82,16 @@ module e2e_top(
     .data_in(fr_data_out),
     .valid_in(fr_valid_out),
     .addr_in(fr_addr_out),
+    // 2026-07-24 incident: the QUAD wrapper (softmc_core.v) left BOTH
+    // restart ports unconnected since build-11 (Synth 8-7071 warnings,
+    // unread) — silicon ran with restart==0 while this sim, wired from
+    // softmc_top.v, had it connected. The define reproduces silicon-as-
+    // was; the default is the build-14 (fixed softmc_core) wiring.
+`ifdef SILICON_ASIS_UNWIRED_RESTART
+    .restart(1'b0),
+`else
     .restart(fetch_restart),
+`endif
     .ready_out(fr_ready_out),
 
     .ddr_write(ddr_write),
