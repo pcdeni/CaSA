@@ -192,3 +192,60 @@ does NOT match silicon's actual per-RD rate (units/params differ
 somewhere); irrelevant to this root cause but flagged for the phase-3
 fidelity pass. reset_fpga does NOT read an info packet (pure h2c word);
 counters ride normal read trailers only.
+
+## BUILD-14 ON SILICON — GREEN SWEEP (2026-07-24 late night)
+
+Magic 0D confirmed. Probe taxonomy: P1 OK, **armZ OK** (branch-free
+after gap — the 12/13 killer), armA/B/C all COMPLETED; trailer counters
+show per-RD maintenance running continuously between programs
+(cnt_rd 0x153→0x808 across one probe) with the conveyor surviving
+every park. Ladder: **ALL_PASS incl. E14 clean**
+(legacy_vs_model=0; streamed 0/8 rows differ) — the arm build-11
+corrupted and 12/13 never reached. Legacy 32-row read 1.5 ms
+(wedge era: 14-min hangs); stream 2.60× on raw reads.
+The verified-on-silicon stack: loss-window restart (wired at last),
+park+fence (E14 stale resolve), maint-conveyor pulse, wrapper wiring.
+Next: twin gates (c11/p11), then the ordered walls.
+
+## Build-14 twin gates (late night): legacy floor clean; STREAM+PIPE arm FAILED
+
+- c11 control (PIM_STREAM=0): exactly the established floor (V2 345/345
+  element-jitter, MM3D 100/720 straddle band, LOADs clean) — build-14
+  legacy is production-safe and now carries the REAL loss-window fix.
+- p11 (STREAM=1 + PIPE alternation): req #17 MM3D twin 2041/2048 el
+  (large deltas), then handle-9 resident verify DECAY/CORRUPTION
+  46.1% of segs (±1 popcount steps, refresh=1 flag), then a 60 s c2h
+  stall. Production-shape streaming on build-14 diverges where the
+  ladder's stream arms (incl. E13/E14) stay clean — the ladder does not
+  represent wcol sessions/sized records/pipe deferral/refresh trains.
+- **Wedges are now SELF-HEALING**: a fresh process's reset recovers a
+  jammed channel completely (probe all-green on just-wedged bender 2,
+  no reboot) — the wired restart changed recovery semantics. No more
+  channel-burn budget.
+- Isolation in flight: s11 = PIM_STREAM_ALTERNATE only (no pipe).
+
+## Day-end state (2026-07-24 ~night's end)
+
+- **Build-14 legacy: GO for production.** Ladder ALL_PASS (E14 clean),
+  probe taxonomy green, twin control at the exact floor, loss-window
+  fix genuinely on silicon for the first time, wedges self-heal via
+  process restart. Strictly better than every prior build for the
+  PIM_STREAM=0 production config (which is the current default).
+- **Streamed production shapes: QUARANTINED on build-14.** s11
+  (stream-only) and p11 (+pipe) both die within the first few MM3D
+  requests: c2h stall at a round-0 receive (60 s, 0/8192) right after
+  SEG_POP mode sets; p11 additionally showed a 46%-of-segments
+  resident-verify divergence (±1-popcount shaped, refresh-flagged)
+  before its stall. V2 requests stream fine. The ladder's stream arms
+  (incl. E13/E14) do not provoke it.
+- Sim scenario P (parked fetch → maint churn → SEG_POP ×2 → STREAM_EN
+  → sized session of full-row reads) PASSES — the approximation lacks
+  the killing ingredient. The server's real MM3D flow: ensure_readback
+  (SEG_POP) → pexec of ONE big multibank fused program (branch loops,
+  M×2048 segpop expected) per round, 64 execs/handle, mode churn
+  READ↔SEG_POP between request types, wcol|exec session scoping.
+- **Phase-3 (next): capture-replay through the sim** — feed the exact
+  reqcap byte stream (the same records replay_ab.py sends) into the
+  e2e TB and watch the first stalling record with full signal
+  visibility. The sim speaks the full protocol now; this was always
+  its designed use.

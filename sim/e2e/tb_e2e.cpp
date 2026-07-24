@@ -310,6 +310,56 @@ int main(int argc, char** argv){
     } else { printf("[tb] W1 readback SKIPPED (no s6 hex)\n"); fails++; }
   } else { printf("[tb] W1 SKIPPED (missing hex)\n"); fails++; }
 
+  // P: the production MM3D session shape that stalls on build-14
+  // silicon (s11/p11 twin gates): fetch PARKED by a completed legacy
+  // program + idle (maint churn), then SET_SEGPOP x2, STREAM_EN on,
+  // and a sized stream session of full-row reads. Silicon: the FIRST
+  // record never arrives (60 s stall). Verdict bit = record 1 arrival.
+  { // ensure parked + idle
+    bool s0ok = send_program(s1); bool f0 = s0ok && wait_fin(50000);
+    for (int i=0;i<800;i++) tick();                 // idle: maint churns
+    // SET_SEGPOP x2 (byte8 = 0x80)
+    for (int k=0;k<2;k++){
+      top->h2c_tdata[0]=0; top->h2c_tdata[1]=0;
+      for (int i=2;i<8;i++) top->h2c_tdata[i]=0;
+      top->h2c_tdata[2]=0x80;
+      top->h2c_tkeep=0xFFFFFFFFu; top->h2c_tvalid=1; top->h2c_tlast=1;
+      long w3=0; while(!top->h2c_tready && w3++<30000) tick();
+      tick(); top->h2c_tvalid=0; top->h2c_tlast=0;
+      for (int i=0;i<10;i++) tick(); }
+    // STREAM_EN on
+    top->h2c_tdata[0]=1; top->h2c_tdata[1]=0;
+    for (int i=2;i<8;i++) top->h2c_tdata[i]=0;
+    top->h2c_tdata[2]=0x0800;
+    top->h2c_tkeep=0xFFFFFFFFu; top->h2c_tvalid=1; top->h2c_tlast=1;
+    { long w3=0; while(!top->h2c_tready && w3++<30000) tick(); }
+    tick(); top->h2c_tvalid=0; top->h2c_tlast=0;
+    for (int i=0;i<20;i++) tick();
+    // session: 4 full-row reads, streamed back-to-back
+    c2h_bytes.clear();
+    bool sentP = true;
+    for (int p=0;p<4 && sentP;p++) sentP = send_program(s4);
+    long budget = 400000; long got1_at = -1;
+    for (long i=0;i<budget;i++){ tick();
+      if (got1_at<0 && c2h_bytes.size() >= 2080) got1_at = i;
+      if (c2h_bytes.size() >= 4*2080) break; }
+    printf("[tb] P segpop-session: parked=%d sent=%d rec1_at=%ld total=%zuB/%d "
+           "state=%d maint_proc=%d hold=%d -> %s\n",
+           f0, sentP, got1_at, c2h_bytes.size(), 4*2080,
+           (int)top->dbg_state, (int)top->dbg_maint_process,
+           (int)top->dbg_fetch_hold,
+           (c2h_bytes.size() >= 4*2080) ? "ALL RECORDS (no repro)" :
+           (got1_at<0) ? "FIRST RECORD NEVER ARRIVED (silicon stall REPRODUCED)"
+                       : "PARTIAL (records stalled mid-session)");
+    if (c2h_bytes.size() < 4*2080) fails++;
+    // stream off for cleanliness
+    top->h2c_tdata[0]=0; for (int i=1;i<8;i++) top->h2c_tdata[i]=0;
+    top->h2c_tdata[2]=0x0800;
+    top->h2c_tkeep=0xFFFFFFFFu; top->h2c_tvalid=1; top->h2c_tlast=1;
+    { long w3=0; while(!top->h2c_tready && w3++<30000) tick(); }
+    tick(); top->h2c_tvalid=0; top->h2c_tlast=0;
+  }
+
   tfp->close();
   printf("[tb] done, %d hard fails, maint rd=%ld zq=%ld ref=%ld, trace=e2e.fst, %lu cycles\n",
          fails, maint_rd, maint_zq, maint_ref, (unsigned long)t);
