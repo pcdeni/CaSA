@@ -1,12 +1,12 @@
 `timescale 1ns/1ps
 `include "parameters.vh"
 
-// e2e_sim phase-1 top (2026-07-24): the REAL frontend + REAL
-// softmc_pipeline (fetch/decode/execute/regfile), wired VERBATIM from
-// softmc_top.v lines 470-560. The TB drives the h2c AXIS exactly where
-// the silicon's post-CDC boundary sits. buffer_space is tied never-full
-// (no readback engine in phase 1); completion oracle = softmc_fin.
-// Phase 2 adds a behavioral DRAM array + readback engine behind ddr_*.
+// e2e_sim phase-2 top (2026-07-24): the REAL frontend + softmc_pipeline
+// (fetch/decode/execute/regfile) + the REAL readback_engine (build-13,
+// magic 0C) + a behavioral DRAM (dram_model + dram_dpi.cpp) behind the
+// ddr_* command interface. Wiring copied VERBATIM from softmc_top.v and
+// softmc_core.v. The TB drives h2c and receives c2h — the loop is
+// host-bytes-in -> host-bytes-out. buffer_space is REAL (engine-driven).
 module e2e_top(
   input                               clk,
   input                               rst,
@@ -17,6 +17,12 @@ module e2e_top(
   input                               h2c_tvalid,
   output                              h2c_tready,
   input  [`XDMA_AXI_DATA_WIDTH/8-1:0] h2c_tkeep,
+
+  output [`XDMA_AXI_DATA_WIDTH-1:0]   c2h_tdata,
+  output                              c2h_tlast,
+  output                              c2h_tvalid,
+  input                               c2h_tready,
+  output [`XDMA_AXI_DATA_WIDTH/8-1:0] c2h_tkeep,
 
   output                              softmc_fin,
   output [3:0]                        ddr_read,
@@ -51,6 +57,13 @@ module e2e_top(
   wire [4*`ROW_WIDTH-1:0]    ddr_row;
   wire [511:0]               ddr_wdata;
 
+  wire [11:0] buffer_space;                   // REAL: driven by the rbe
+  wire rbe_switch_mode, rbe_set_read, rbe_set_diff, rbe_set_segpop,
+       rbe_set_accxbp, rbe_set_accw, rbe_flush_acc;
+  wire [3:0] rbe_accw_pl;
+  wire [511:0] dram_rd_data;
+  wire         dram_rd_valid;
+
   assign fetch_restart_obs  = fetch_restart;
   assign user_rst_obs       = user_rst;
   assign frontend_ready_obs = frontend_ready;
@@ -62,7 +75,7 @@ module e2e_top(
     .softmc_end(softmc_fin),
     .read_size(read_size),
     .read_seq_incoming(read_seq_incoming),
-    .buffer_space(12'hFFF),
+    .buffer_space(buffer_space),
 
     .addr_out(fr_addr_in),
     .valid_out(fr_valid_in),
@@ -128,14 +141,65 @@ module e2e_top(
     .dbg_maint_req(dbg_maint_req),
     .dbg_maint_process(dbg_maint_process),
     .dbg_fetch_hold(dbg_fetch_hold),
-    .rbe_switch_mode(),
-    .rbe_set_read(),
-    .rbe_set_diff(),
-    .rbe_set_segpop(),
-    .rbe_set_accxbp(),
-    .rbe_set_accw(),
-    .rbe_accw_pl(),
-    .rbe_flush_acc()
+    .rbe_switch_mode(rbe_switch_mode),
+    .rbe_set_read(rbe_set_read),
+    .rbe_set_diff(rbe_set_diff),
+    .rbe_set_segpop(rbe_set_segpop),
+    .rbe_set_accxbp(rbe_set_accxbp),
+    .rbe_set_accw(rbe_set_accw),
+    .rbe_accw_pl(rbe_accw_pl),
+    .rbe_flush_acc(rbe_flush_acc)
+  );
+
+  dram_model dram(
+    .clk(clk),
+    .rst(rst),
+    .ddr_act(ddr_act),
+    .ddr_read(ddr_read),
+    .ddr_write(ddr_write),
+    .ddr_pre(ddr_pre),
+    .ddr_bg(ddr_bg),
+    .ddr_bank(ddr_bank),
+    .ddr_col(ddr_col),
+    .ddr_row(ddr_row),
+    .ddr_wdata(ddr_wdata),
+    .rd_data(dram_rd_data),
+    .rd_valid(dram_rd_valid)
+  );
+
+  // wiring copied from softmc_core.v (rbe instantiation)
+  readback_engine rbe(
+    .clk(clk),
+    .rst(rst || user_rst),
+
+    .flush(frontend_ready),
+    .switch_mode(rbe_switch_mode),
+    .set_mode_read(rbe_set_read),
+    .set_mode_diff(rbe_set_diff),
+    .set_mode_segpop(rbe_set_segpop),
+    .set_mode_accxbp(rbe_set_accxbp),
+    .set_acc_weight(rbe_set_accw),
+    .acc_weight_pl(rbe_accw_pl),
+    .flush_acc(rbe_flush_acc),
+
+    .read_seq_incoming(read_seq_incoming),
+    .incoming_reads(read_size),
+    .buffer_space(buffer_space),
+
+    .rd_data(dram_rd_data),
+    .rd_valid(dram_rd_valid),
+
+    .ddr_wdata(ddr_wdata),
+
+    .per_rd_init(per_rd_init_obs),
+    .per_zq_init(per_zq_init_obs),
+    .per_ref_init(per_ref_init_obs),
+
+    .c2h_tdata_0(c2h_tdata),
+    .c2h_tlast_0(c2h_tlast),
+    .c2h_tvalid_0(c2h_tvalid),
+    .c2h_tready_0(c2h_tready),
+    .c2h_tkeep_0(c2h_tkeep)
   );
 
 endmodule

@@ -24,8 +24,12 @@ static VerilatedFstC* tfp;
 static uint64_t t = 0;
 static long ddr_read_beats = 0, ddr_act_pulses = 0, fin_seen_at = -1;
 static long maint_rd = 0, maint_zq = 0, maint_ref = 0;
+static std::vector<uint8_t> c2h_bytes;        // phase-2: host receive side
+
+extern "C" void dram_expected_beat(int bg,int bank,int row,int col,uint32_t*);
 
 static void tick(){
+  top->c2h_tready = 1;                        // host always draining
   top->clk = 0; top->eval(); if(tfp) tfp->dump(t*10);
   top->clk = 1; top->eval(); if(tfp) tfp->dump(t*10+5);
   if (top->ddr_read)  ddr_read_beats++;
@@ -34,6 +38,11 @@ static void tick(){
   if (top->per_zq_init_obs)  maint_zq++;
   if (top->per_ref_init_obs) maint_ref++;
   if (top->softmc_fin && fin_seen_at < 0) fin_seen_at = (long)t;
+  if (top->c2h_tvalid){                       // collect the 32B beat
+    for (int i=0;i<8;i++){ uint32_t w = top->c2h_tdata[i];
+      c2h_bytes.push_back((uint8_t)w); c2h_bytes.push_back((uint8_t)(w>>8));
+      c2h_bytes.push_back((uint8_t)(w>>16)); c2h_bytes.push_back((uint8_t)(w>>24)); }
+  }
   t++;
 }
 
@@ -222,6 +231,84 @@ int main(int argc, char** argv){
            s, f, ddr_read_beats);
     if (!(s && f)) fails++;
   }
+
+  // ---------- PHASE 2: host-bytes-out (real readback engine + DRAM) ---
+  auto s4 = load_hex("s4_read128.hex");
+  auto s5 = load_hex("s5_wrloop.hex");
+  printf("[tb] phase2: s4=%zu insts (full-row read), s5=%zu insts (E14 write loop)\n",
+         s4.size(), s5.size());
+  const int P2_BANK = 1, P2_ROW = 60000, P2_WROW = 60016;
+
+  // R1: full-row read -> expect 8192B payload (oracle-exact) + 32B
+  // trailer with magic 0xDBC0DE0C. Beat c <-> col 8c (CASR=8).
+  if (!s4.empty()){
+    c2h_bytes.clear();
+    bool sent = send_program(s4);
+    bool fin  = sent && wait_fin(80000);
+    for (int i=0;i<4000 && c2h_bytes.size() < 8224; i++) tick();  // drain
+    long got = (long)c2h_bytes.size();
+    int bad = -1; long badBytes = 0;
+    if (got >= 8224){
+      for (int c=0;c<128;c++){
+        uint32_t exp[16];
+        dram_expected_beat(0, P2_BANK, P2_ROW, c*8, exp);
+        if (memcmp(&c2h_bytes[c*64], exp, 64) != 0){
+          if (bad<0) bad = c;
+          for (int b=0;b<64;b++) if (c2h_bytes[c*64+b] != ((uint8_t*)exp)[b]) badBytes++;
+        }
+      }
+    }
+    uint32_t magic = got>=8224 ? *(uint32_t*)&c2h_bytes[8192] : 0;
+    bool pass = sent && fin && got>=8224 && bad<0 && magic==0xDBC0DE0Cu;
+    printf("[tb] R1 full-row read : sent=%d fin=%d got=%ldB firstBadBeat=%d badBytes=%ld magic=%08x -> %s\n",
+           sent, fin, got, bad, badBytes, magic, pass?"PASS":"FAIL");
+    if (!pass) fails++;
+  } else { printf("[tb] R1 SKIPPED (no s4 hex)\n"); fails++; }
+
+  // W1: the E14-content test, faithfully — branch-looped LDWD/WRITE body
+  // (production wrRow idiom) then read the row back over c2h; compare
+  // against the INTENT pattern (slot0 = col index, slots 1-15 = prol).
+  if (!s5.empty() && !s4.empty()){
+    { bool sent = send_program(s5);
+      bool fin  = sent && wait_fin(120000);
+      printf("[tb] W1 write loop   : sent=%d fin=%d\n", sent, fin);
+      if (!(sent&&fin)) fails++; }
+    // read W-row back: s4 targets P2_ROW; W-row read needs its own hex —
+    // gen emits s6_readw.hex for P2_WROW.
+    auto s6 = load_hex("s6_readw.hex");
+    if (!s6.empty()){
+      c2h_bytes.clear();
+      bool sent = send_program(s6);
+      bool fin  = sent && wait_fin(80000);
+      for (int i=0;i<4000 && c2h_bytes.size() < 8224; i++) tick();
+      long got = (long)c2h_bytes.size();
+      uint32_t prol[16];
+      for(int q=0;q<16;q++) prol[q]=0xE1400000u + 0x01010101u*(uint32_t)q + 0xB1u;
+      int bad = -1; long badBytes = 0;
+      if (got >= 8224){
+        for (int c=0;c<128;c++){
+          uint32_t want[16];
+          want[0] = (uint32_t)c;
+          for (int q=1;q<16;q++) want[q] = prol[q];
+          if (memcmp(&c2h_bytes[c*64], want, 64) != 0){
+            if (bad<0) bad = c;
+            for (int b=0;b<64;b++) if (c2h_bytes[c*64+b] != ((uint8_t*)want)[b]) badBytes++;
+          }
+        }
+      }
+      uint32_t magic = got>=8224 ? *(uint32_t*)&c2h_bytes[8192] : 0;
+      bool pass = sent && fin && got>=8224 && bad<0 && magic==0xDBC0DE0Cu;
+      printf("[tb] W1 readback     : sent=%d fin=%d got=%ldB firstBadBeat=%d badBytes=%ld magic=%08x -> %s (E14-content oracle)\n",
+             sent, fin, got, bad, badBytes, magic, pass?"PASS":"FAIL");
+      if (!pass && got>=64){
+        const uint32_t* g=(const uint32_t*)&c2h_bytes[0];
+        printf("[tb]   W1 beat0 got : %08x %08x %08x %08x | %08x %08x %08x %08x\n",
+               g[0],g[1],g[2],g[3],g[4],g[5],g[6],g[7]);
+        printf("[tb]   W1 beat0 g8+ : %08x %08x %08x %08x\n", g[8],g[9],g[10],g[11]);
+      }
+      if (!pass) fails++;
+    } else { printf("[tb] W1 readback SKIPPED (no s6 hex)\n"); fails++; }
+  } else { printf("[tb] W1 SKIPPED (missing hex)\n"); fails++; }
 
   tfp->close();
   printf("[tb] done, %d hard fails, maint rd=%ld zq=%ld ref=%ld, trace=e2e.fst, %lu cycles\n",

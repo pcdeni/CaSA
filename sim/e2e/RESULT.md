@@ -116,3 +116,38 @@ Tower (authoring): /home/deni/Claude/e2e_sim_2026_07_24/
   dir, emits s1_read.hex/s2_brloop.hex here), this RESULT.
 Box (runs): /home/daniel/Claude/bcu1525/e2e_sim/ (+ e2e.fst traces).
 Build-13 frontend: rtl/frontend.v here = the fixed build-12 copy.
+
+## Phase 2 — CLOSED LOOP, ALL GREEN (2026-07-24 night)
+
+Host-bytes-in → host-bytes-out now runs end to end: the REAL readback
+engine (build-13 copy, magic 0C) + a behavioral DRAM (dram_model.v shim,
+dram_dpi.cpp: open-row tracking, sparse content store with deterministic
+seeding, in-order RL=24 return queue) behind the ddr_* interface;
+buffer_space is engine-driven (real backpressure). rdback_fifo_sim from
+the old harness provides the 512→256 width conversion (low-half-first,
+IP-faithful).
+
+Verdicts (one run, 0 hard fails, all phase-1 scenarios still green):
+- R1: full-row read (REAL rdRow_immediate_label, 21 insts, branch loop)
+  → 8192 B payload BYTE-EXACT vs the DRAM oracle + 32 B trailer,
+  magic dbc0de0c.
+- W1: the production wrRow idiom (LDWD prologue + 128-iter branch-looped
+  WRITE, slot-0 column rotation — E14's exact shape) → readback over c2h
+  BYTE-EXACT vs the INTENT pattern. This is the E14 content test running
+  faithfully in sim — the test that would have caught build-11's E14 and
+  build-12's wedge pre-synthesis.
+
+Fidelity findings on the way:
+- The Vivado build defines POPCOUNT_ACCUM_MODE=1 at the fileset level
+  (visible only in the generated runs/*.tcl) — sims must add it or the
+  engine's outstanding-reads accounting compiles out.
+- MIG lane semantics: a beat's first 32 bytes ride the UPPER 256 bits of
+  rd_data; the engine's din half-swap undoes it (the sim DRAM must
+  present MIG order, not storage order).
+- LDWD lane map confirmed: slot q = wdata[32q +: 32] exactly; the DPI
+  write log showed the intent pattern byte-exact at the DRAM boundary.
+
+Next uses: replay captured production request streams (reqcap) through
+the sim; extend the DRAM model with charge-sharing lattice ops for
+in-sim PIM semantics; every future fetch/frontend/engine RTL change
+gates on scenarios S/M/N/R1/W1 before synthesis.
