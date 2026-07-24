@@ -25,6 +25,9 @@ static int fails = 0;
 static vector<uint32_t> dispatched;
 static int fin_delay_ctr = -1;
 static int fin_delay_next = 40;   // F overrides per program
+#include <deque>
+static std::deque<int> fin_q;      // per-program fin delays (send order)
+static bool fin_armed = false;     // one fin per executed program
 
 static const int      INSTR_WIDTH = 64;
 static const uint64_t END_WORD    = 0ull;    // is_end = &~instr
@@ -51,6 +54,9 @@ static void set_tdata(uint64_t lo64, uint32_t ctrl_dword2) {
 // DDR/execute side actually consumes.
 static bool prog_done = false;
 static int  prev_exec_bank = -1;
+static bool g_trace = false;
+static int  g_cyc = 0;
+static uint32_t g_last_sig = 0xFFFFFFFFu;
 static void tick_obs() {
   top->clk = 0; top->eval();
   top->clk = 1; top->eval();
@@ -61,8 +67,25 @@ static void tick_obs() {
   // so keying the boundary on fin (as a first cut did) drops the whole
   // next program — the bank flip is the correct boundary.
   int eb = top->obs_exec_bank;
-  if (prev_exec_bank >= 0 && eb != prev_exec_bank) prog_done = false;
+  if (prev_exec_bank >= 0 && eb != prev_exec_bank) {
+    prog_done = false;
+    fin_armed = false;   // new program began — its fin may arm
+  }
   prev_exec_bank = eb;
+  if (g_trace) {
+    g_cyc++;
+    uint32_t sig = (top->obs_state << 24) | (eb << 20) |
+                   (top->obs_loaded << 16) | (top->obs_swap_pending << 12) |
+                   (top->obs_fetch_hold << 8) | (top->obs_tready << 4) |
+                   (top->obs_instr_valid);
+    if (sig != g_last_sig) {
+      fprintf(stderr, "T%5d st=%d eb=%d ld=%d sp=%d fh=%d trdy=%d iv=%d instr=%x\n",
+              g_cyc, top->obs_state, eb, top->obs_loaded,
+              top->obs_swap_pending, top->obs_fetch_hold, top->obs_tready,
+              top->obs_instr_valid, (unsigned)top->obs_instr);
+      g_last_sig = sig;
+    }
+  }
   // fetch_stage DEASSERTS instr_valid for the END word, so END arrives
   // only as obs_softmc_end. Record real instr dispatches (one clean pass
   // per program), stop at END.
@@ -72,7 +95,11 @@ static void tick_obs() {
   }
   if (top->obs_softmc_end) prog_done = true;
   top->softmc_fin = 0;
-  if (top->obs_softmc_end && fin_delay_ctr < 0) fin_delay_ctr = fin_delay_next;
+  if (top->obs_softmc_end && fin_delay_ctr < 0 && !fin_armed) {
+    if (!fin_q.empty()) { fin_delay_ctr = fin_q.front(); fin_q.pop_front(); }
+    else fin_delay_ctr = fin_delay_next;
+    fin_armed = true;   // re-loop ENDs must not pop the next program's fin
+  }
   if (fin_delay_ctr > 0) fin_delay_ctr--;
   else if (fin_delay_ctr == 0) { top->softmc_fin = 1; fin_delay_ctr = -1; }
 }
@@ -86,7 +113,12 @@ static bool beat(uint64_t lo64, uint32_t ctrl_dword2, bool last, int maxc = 6000
     top->eval();
     bool ready = top->h2c_tready_0;
     tick_obs();
-    if (ready) { top->h2c_tvalid_0 = 0; top->h2c_tlast_0 = 0; top->eval(); return true; }
+    if (ready) {
+      if (g_trace)
+        fprintf(stderr, "T%5d H2C fire lo=%llx last=%d\n", g_cyc,
+                (unsigned long long)lo64, last ? 1 : 0);
+      top->h2c_tvalid_0 = 0; top->h2c_tlast_0 = 0; top->eval(); return true;
+    }
   }
   top->h2c_tvalid_0 = 0; top->h2c_tlast_0 = 0;
   return false;
@@ -129,6 +161,7 @@ static bool seq_ok(const vector<uint32_t>& exp) {
 }
 static void hard_reset() {
   dispatched.clear(); fin_delay_ctr = -1; prog_done = false; prev_exec_bank = -1;
+  fin_q.clear(); fin_armed = false;
   top->rst = 1; top->softmc_fin = 0; top->h2c_tvalid_0 = 0;
   top->h2c_tlast_0 = 0; top->init_calib_complete = 1;
   for (int i = 0; i < 8; i++) tick_obs();
@@ -219,7 +252,7 @@ int main(int argc, char** argv) {
     bool ok = stream_en(true); idle(4);
     std::vector<uint32_t> exp;
     for (size_t q = 0; q < sc.size() && ok; q++) {
-      fin_delay_next = sc[q].fin;
+      fin_q.push_back(sc[q].fin);
       if (sc[q].setw) ok = ok && send_ctrl(7, 0);
       ok = ok && stream_program(exp, base + (uint32_t)q * 0x40, sc[q].len);
       if (sc[q].pause) idle(sc[q].pause);
@@ -229,6 +262,7 @@ int main(int argc, char** argv) {
     if (pass) for (size_t i = 0; i < exp.size(); i++)
       if (dispatched[i] != exp[i]) { pass = false; break; }
     if (!pass && verbose) {
+      seq_ok(exp);   // dumps exp vs got
       printf("    SHRUNK SCRIPT (%zu progs): {len,fin,pause,set}\n", sc.size());
       for (size_t q = 0; q < sc.size(); q++)
         printf("      {%d,%d,%d,%d},\n", sc[q].len, sc[q].fin,
@@ -268,7 +302,7 @@ int main(int argc, char** argv) {
         if (rnd(0,6) == 0) e.len = rnd(1,2);
         e.setw  = (rnd(0,9) == 0) ? 1 : 0;
         e.pause = (rnd(0,4) == 0) ? rnd(1, 900) : 0;
-        fin_delay_next = e.fin;
+        fin_q.push_back(e.fin);
         if (e.setw) ok = ok && send_ctrl(7, 0);
         ok = ok && stream_program(exp, 0xF0000 + p*0x40, e.len);
         if (e.pause) idle(e.pause);
@@ -304,6 +338,29 @@ int main(int argc, char** argv) {
                sd, fail_at, exp.size(), dispatched.size());
       check(nm, pass);
     }
+  }
+
+  // H: LEGACY (stream OFF) with LONG fin — does the phase bug predate
+  // build-9? The original TB used fin=40 with 5-word programs; if the
+  // re-loop period divides 40, legacy scenarios froze at pc~0 by
+  // COINCIDENCE. Long fin sweeps the freeze phase.
+  { hard_reset();
+    vector<uint32_t> exp; bool ok = true;
+    for (int p = 0; p < 3 && ok; p++) {
+      fin_q.push_back(890 + p * 121);   // vary phase
+      ok = stream_program(exp, 0x800 + p*0x10, 5);
+      drain_until(exp.size(), 4000000); idle(60);
+    }
+    check("H stream-OFF legacy with long/varied fin", ok && seq_ok(exp)); }
+
+  // G: traced replay of the shrunk 4-program repro (env G_TRACE=1)
+  if (getenv("G_TRACE")) {
+    std::vector<FProg> sc = { {23,1002,0,0}, {8,331,288,0},
+                              {2,277,0,0}, {16,11,0,1} };
+    g_trace = true; g_cyc = 0; g_last_sig = 0xFFFFFFFFu;
+    bool pass = run_script(sc, 0xA0000, true);
+    g_trace = false;
+    check("G traced 4-program repro", pass);
   }
 
   printf("build9 stream TB: %s (%d fails)\n", fails ? "FAIL" : "ALL_PASS", fails);
