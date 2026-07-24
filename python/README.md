@@ -83,6 +83,3 @@ in and out of PIM without reloading the model.
   different calibrated tuples have different per-cell flaky
   patterns. For exact reproducibility (e.g., the demo punchline),
   pin to one bank. See `docs/METHODOLOGY.md`.
-- The default Piper TTS / Manim production tooling lives in the
-  private prototype repository; this repo is the pure
-  silicon + orchestrator path.
