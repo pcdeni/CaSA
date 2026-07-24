@@ -1548,6 +1548,26 @@ static int g_refresh    = -1;
 // g_bitstream_imem mirrors the platform's runtime IMEM ceiling so K-cap
 // decisions can be made server-side without touching api/.
 static int g_inline_bp  = -1;
+// PIM_K_ALTERNATE=1 (2026-07-23 DIAGNOSTIC): per-request effective K
+// alternates 1 / PIM_INLINE_BITPLANES so replay --dup twins become
+// same-process (K=1, K=hi) pairs — the valid exactness gate for the
+// K-batching lever (V2 twins judged gate≈control against the rerun
+// distribution; MM3D twins must stay bit-exact). Off: g_req_K is
+// simply g_inline_bp for every request.
+static int  g_req_K        = 1;
+static int  g_k_alternate  = -1;
+static long g_k_req_counter = 0;
+static void set_req_K() {
+  if (g_k_alternate < 0) {
+    const char* v = getenv("PIM_K_ALTERNATE");
+    g_k_alternate = (v && *v) ? atoi(v) : 0;
+    if (g_k_alternate > 0)
+      fprintf(stderr, "[server] PIM_K_ALTERNATE=1: per-request K "
+              "alternates 1/%d (same-process twin gate)\n", g_inline_bp);
+  }
+  g_req_K = (g_k_alternate > 0 && ((g_k_req_counter++ & 1) == 0))
+            ? 1 : g_inline_bp;
+}
 static int g_bitstream_imem = -1;
 // PIM_PARALLEL_BANKS = 1 swaps build_multibank_combined_program for
 // build_multibank_parallel_program: SiMRA doubleACTs (RowClone /
@@ -1640,12 +1660,19 @@ static void init_debug_flags() {
     int max_K_fit = g_bitstream_imem / (per_body * n_banks);
     if (max_K_fit < 1) max_K_fit = 1;
     if (g_inline_bp > max_K_fit) {
-      fprintf(stderr, "[server] WARN PIM_INLINE_BITPLANES=%d likely won't fit"
-                      " IMEM=%d (est. body=%d × banks=%d × K=%d = %d > %d);"
-                      " auto-cap is NOT applied — platform gate will skip"
-                      " the program. Either lower K or raise BITSTREAM_IMEM.\n",
-              g_inline_bp, g_bitstream_imem, per_body, n_banks, g_inline_bp,
-              per_body * n_banks * g_inline_bp, g_bitstream_imem);
+      // 2026-07-24: CLAMP (was warn-only). The warn's own prophecy came
+      // true: K=8 built an 8258-inst MM3D program (> IMEM 8192), the
+      // platform gate fired, and the truncated program spun execute()'s
+      // completion poll forever (11 h at 100% CPU in the K-gate replay).
+      // per_body=416 is the serial-emitter worst case, so this clamp is
+      // safe by construction; actual fused bodies (~258) would allow
+      // K≈7 — a measured-size gate can lift this later if K>4 matters.
+      fprintf(stderr, "[server] PIM_INLINE_BITPLANES=%d exceeds IMEM fit "
+                      "(est. body=%d × banks=%d × K = %d > %d) — CLAMPED "
+                      "to K=%d.\n",
+              g_inline_bp, per_body, n_banks,
+              per_body * n_banks * g_inline_bp, g_bitstream_imem, max_K_fit);
+      g_inline_bp = max_K_fit;
     }
   }
 }
@@ -1944,6 +1971,7 @@ static int process_request(SoftMCPlatform& platform,
                             const uint8_t* req, size_t req_len,
                             int& label_base, int response_fd) {
   init_debug_flags();
+  set_req_K();          // per-request effective K (PIM_K_ALTERNATE twin gate)
   if (banks.empty()) {
     fprintf(stderr, "[server] no banks configured\n");
     return -1;
@@ -2035,7 +2063,7 @@ static int process_request(SoftMCPlatform& platform,
   const size_t n_rounds = (n_units + N - 1) / N;       // # of N-bank executes per bitplane
 
   // PIM_ACCUM_XBP request-level eligibility (see the g_accxbp block).
-  bool req_accxbp = g_accxbp > 0 && single && g_inline_bp == 1
+  bool req_accxbp = g_accxbp > 0 && single && g_req_K == 1
                     && d_out <= 2048 && n_bitplanes <= 32
                     && !getenv("PIM_DEBUG_RX");
   int axb_neg[32] = {0}, axb_shift[32] = {0};
@@ -2143,15 +2171,16 @@ static int process_request(SoftMCPlatform& platform,
     }
     if (active_in_round == 0) break;
 
-    // 2. Bitplane dispatch — chunked by g_inline_bp (= PIM_INLINE_BITPLANES).
+    // 2. Bitplane dispatch — chunked by g_req_K (= PIM_INLINE_BITPLANES,
+    //    or the per-request alternated K under PIM_K_ALTERNATE).
     // K=1 reproduces the historical per-bitplane cadence; K>1 chains
     // K × active_in_round bank bodies into one program, doing a single
     // platform.execute + single receiveData per chunk. Each extra bitplane
     // amortises one host-FPGA round-trip (~30 µs) at the cost of K× more
     // c2h drain per execute (K × N × 8 KB).
     for (uint32_t bp_start = 0; bp_start < n_bitplanes;
-         bp_start += (uint32_t)g_inline_bp) {
-      uint32_t K = std::min((uint32_t)g_inline_bp, n_bitplanes - bp_start);
+         bp_start += (uint32_t)g_req_K) {
+      uint32_t K = std::min((uint32_t)g_req_K, n_bitplanes - bp_start);
       size_t   M = (size_t)K * (size_t)active_in_round;
       std::vector<int>             ex_bank_ids;
       std::vector<uint32_t>        ex_backup_rows;
@@ -2462,6 +2491,7 @@ static int process_matmul_handle(SoftMCPlatform& platform,
   int n_maj3_execs = 0;
 
   init_debug_flags();
+  set_req_K();          // per-request effective K (PIM_K_ALTERNATE twin gate)
 
   // Refresh ALL handles' subarrays before doing any MM3D work. With
   // auto-refresh disabled, weights loaded by an earlier LOAD_WEIGHTS
@@ -2962,8 +2992,8 @@ static int process_matmul_handle(SoftMCPlatform& platform,
           if (h.per_round_calib_sel[round][bk] != 0)
             round_all_primary = false;
       for (uint32_t bp_start = 0; bp_start < n_bitplanes;
-           bp_start += (uint32_t)g_inline_bp) {
-        uint32_t K = std::min((uint32_t)g_inline_bp, n_bitplanes - bp_start);
+           bp_start += (uint32_t)g_req_K) {
+        uint32_t K = std::min((uint32_t)g_req_K, n_bitplanes - bp_start);
         size_t M_next = (size_t)K * (size_t)active_in_round;
         bool new_all_primary = pend_all_primary && round_all_primary;
         int est = (new_all_primary && fused_coset_mode() == 1)
@@ -3020,11 +3050,11 @@ static int process_matmul_handle(SoftMCPlatform& platform,
       continue;  // next round — the unpacked path below is not taken
     }
 
-    // Bitplane dispatch — chunked by g_inline_bp; see process_request for
+    // Bitplane dispatch — chunked by g_req_K; see process_request for
     // the matching v2-path comment.
     for (uint32_t bp_start = 0; bp_start < n_bitplanes;
-         bp_start += (uint32_t)g_inline_bp) {
-      uint32_t K = std::min((uint32_t)g_inline_bp, n_bitplanes - bp_start);
+         bp_start += (uint32_t)g_req_K) {
+      uint32_t K = std::min((uint32_t)g_req_K, n_bitplanes - bp_start);
       size_t   M = (size_t)K * (size_t)active_in_round;
       std::vector<int>             ex_bank_ids;
       std::vector<uint32_t>        ex_backup_rows;
