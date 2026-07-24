@@ -1,0 +1,230 @@
+// e2e_sim phase-1 TB (2026-07-24). Drives the REAL frontend+pipeline
+// with the REAL machine code (hex emitted by gen_progs via the actual
+// Program encoder), over the exact h2c beat protocol platform.cpp uses:
+// one 256-bit beat per instruction, u64 word in the low lane, tlast on
+// the final beat (execute(): temp_ptr[i*4]=iseq[i], sendData(bytes*4)).
+//
+// Scenarios (verdicts on stdout, full FST trace for the microscope):
+//   S0  reset word (bit INSTR_WIDTH), as reset_fpga() sends it.
+//   S1  s1_read.hex   branch-free 46-inst read  -> expect FIN + 8 reads
+//   S2  s2_brloop.hex 6-inst BL loop            -> build-12: expect WEDGE
+//   S3  s1 again      -> on silicon the channel jams; expect send-stall
+//                        or no-FIN if the wedge reproduces.
+#include "Ve2e_top.h"
+#include "verilated.h"
+#include "verilated_fst_c.h"
+#include <cstdio>
+#include <cstdint>
+#include <vector>
+#include <string>
+#include <fstream>
+
+static Ve2e_top* top;
+static VerilatedFstC* tfp;
+static uint64_t t = 0;
+static long ddr_read_beats = 0, ddr_act_pulses = 0, fin_seen_at = -1;
+static long maint_rd = 0, maint_zq = 0, maint_ref = 0;
+
+static void tick(){
+  top->clk = 0; top->eval(); if(tfp) tfp->dump(t*10);
+  top->clk = 1; top->eval(); if(tfp) tfp->dump(t*10+5);
+  if (top->ddr_read)  ddr_read_beats++;
+  if (top->ddr_act)   ddr_act_pulses++;
+  if (top->per_rd_init_obs)  maint_rd++;
+  if (top->per_zq_init_obs)  maint_zq++;
+  if (top->per_ref_init_obs) maint_ref++;
+  if (top->softmc_fin && fin_seen_at < 0) fin_seen_at = (long)t;
+  t++;
+}
+
+static std::vector<uint64_t> load_hex(const std::string& p){
+  std::vector<uint64_t> v; std::ifstream f(p); std::string ln;
+  while (std::getline(f, ln)) if (ln.size()>=16)
+    v.push_back(strtoull(ln.c_str(), nullptr, 16));
+  return v;
+}
+
+// one beat; returns false if tready never rose (the silicon jam shape)
+static bool beat(uint64_t word, bool extra_bit64, bool last, long budget=20000){
+  top->h2c_tdata[0] = (uint32_t)(word & 0xFFFFFFFFu);
+  top->h2c_tdata[1] = (uint32_t)(word >> 32);
+  for (int i=2;i<8;i++) top->h2c_tdata[i] = 0;
+  if (extra_bit64) top->h2c_tdata[2] = 1;      // bit INSTR_WIDTH = tdata[64]
+  top->h2c_tkeep = 0xFFFFFFFFu;   // 32 keep bits = one IData
+  top->h2c_tvalid = 1; top->h2c_tlast = last ? 1 : 0;
+  long waited = 0;
+  while (!top->h2c_tready){ tick(); if (++waited > budget){
+      top->h2c_tvalid = 0; top->h2c_tlast = 0; return false; } }
+  tick();                                       // beat accepted this edge
+  top->h2c_tvalid = 0; top->h2c_tlast = 0;
+  return true;
+}
+
+static bool send_program(const std::vector<uint64_t>& w){
+  for (size_t i=0;i<w.size();i++)
+    if (!beat(w[i], false, i+1==w.size())) return false;
+  return true;
+}
+
+// wait for FIN; true if seen within budget
+static bool wait_fin(long budget){
+  fin_seen_at = -1;
+  for (long i=0;i<budget;i++){ tick(); if (fin_seen_at>=0){
+      for (int j=0;j<50;j++) tick();            // drain a little
+      return true; } }
+  return false;
+}
+
+int main(int argc, char** argv){
+  Verilated::commandArgs(argc, argv);
+  Verilated::traceEverOn(true);
+  top = new Ve2e_top;
+  tfp = new VerilatedFstC;
+  top->trace(tfp, 99);
+  tfp->open("e2e.fst");
+
+  top->rst = 1; top->h2c_tvalid = 0; top->h2c_tlast = 0;
+  top->init_calib_complete = 0;          // silicon: calib incomplete at boot
+  for (int i=0;i<30;i++) tick();
+  top->rst = 0;
+  for (int i=0;i<40;i++) tick();         // timers load their divisors here
+  top->init_calib_complete = 1;          // calib completes; timers count
+  for (int i=0;i<10;i++) tick();
+
+  int fails = 0;
+  auto s1 = load_hex("s1_read.hex");
+  auto s2 = load_hex("s2_brloop.hex");
+  printf("[tb] s1=%zu insts, s2=%zu insts\n", s1.size(), s2.size());
+  if (s1.empty() || s2.empty()){ printf("[tb] HEX MISSING\n"); return 3; }
+
+  // S0: reset word, as reset_fpga() emits (bit INSTR_WIDTH set)
+  { bool ok = beat(0, true, true); for (int i=0;i<80;i++) tick();
+    printf("[tb] S0 reset word: %s (user_rst pulsed=%d)\n",
+           ok?"sent":"SEND-STALL", (int)top->user_rst_obs); }
+
+  // S1: branch-free read
+  { ddr_read_beats = 0; ddr_act_pulses = 0;
+    bool sent = send_program(s1);
+    bool fin  = sent && wait_fin(50000);
+    printf("[tb] S1 branch-free: sent=%d fin=%d cyc=%ld ddr_read_beats=%ld acts=%ld -> %s\n",
+           sent, fin, fin_seen_at, ddr_read_beats, ddr_act_pulses,
+           (sent&&fin&&ddr_read_beats>0) ? "PASS" : "FAIL");
+    if (!(sent&&fin&&ddr_read_beats>0)) fails++; }
+
+  // S2: the 6-inst BL loop — the silicon wedge shape
+  { bool sent = send_program(s2);
+    bool fin  = sent && wait_fin(100000);
+    printf("[tb] S2 branch loop : sent=%d fin=%d cyc=%ld -> %s\n",
+           sent, fin, fin_seen_at,
+           fin ? "COMPLETED (no repro on this fetch)" : "WEDGE REPRODUCED");
+    if (!fin) fails += 0; /* expected on build-12; verdict is informational */ }
+
+  // S3: branch-free again — does the wedge persist / jam h2c like silicon?
+  { bool sent = send_program(s1);
+    bool fin  = sent && wait_fin(50000);
+    printf("[tb] S3 post-branch : sent=%d fin=%d -> %s\n",
+           sent, fin,
+           (!sent) ? "H2C JAMMED (matches silicon errno-512 shape)" :
+           (!fin)  ? "ACCEPTED BUT NO FIN (fetch parked)" :
+                     "RECOVERED (unlike silicon)"); }
+
+  // Frontend-state probe: what do state/maint look like across a long
+  // idle window after a completed program (silicon: per-RD fires here)?
+  { printf("[tb] idle probe: state=%d maint_req=%d maint_proc=%d\n",
+           (int)top->dbg_state, (int)top->dbg_maint_req, (int)top->dbg_maint_process);
+    int last_state = -1;
+    for (int i = 0; i < 2000; i++){
+      tick();
+      int st = (int)top->dbg_state;
+      if (st != last_state || (i % 500 == 499))
+        printf("[tb]   idle+%4d: state=%d maint_req=%d maint_proc=%d rd=%ld fin=%d\n",
+               i, st, (int)top->dbg_maint_req, (int)top->dbg_maint_process,
+               maint_rd, (int)top->softmc_fin);
+      last_state = st;
+    } }
+
+  // M: maintenance-overlap phase sweep. tPRDI = 1 us on this design —
+  // silicon runs per-RD microcode constantly, so every real program
+  // start races a maintenance boundary. Launch the branch loop at 64
+  // phases; count maint pulses inside each window; any no-FIN = repro.
+  printf("[tb] M: phase sweep (maint so far: rd=%ld zq=%ld ref=%ld)\n",
+         maint_rd, maint_zq, maint_ref);
+  int wedged_at = -1;
+  for (int ph = 0; ph < 64 && wedged_at < 0; ph++){
+    for (int i = 0; i < ph * 5 + 7; i++) tick();
+    long m0 = maint_rd + maint_zq + maint_ref;
+    bool sent = send_program(s2);
+    bool fin  = sent && wait_fin(120000);
+    long dm = (maint_rd + maint_zq + maint_ref) - m0;
+    if (!sent || !fin){
+      wedged_at = ph;
+      printf("[tb] M: phase %2d sent=%d fin=%d maint_in_window=%ld -> **WEDGE REPRODUCED**\n",
+             ph, sent, fin, dm);
+      // the verdict read, silicon-style
+      bool s = send_program(s1);
+      bool f = s && wait_fin(50000);
+      printf("[tb] M: post-wedge read: sent=%d fin=%d (silicon: jams)\n", s, f);
+    } else if (dm > 0) {
+      printf("[tb] M: phase %2d fin=%d cyc=%ld maint_in_window=%ld (overlap survived)\n",
+             ph, fin, fin_seen_at, dm);
+    }
+  }
+  if (wedged_at < 0)
+    printf("[tb] M: 64 phases clean — maint overlap not yet the trigger shape\n");
+
+  // N: STREAMED branch loops with host-pacing gaps + live maintenance —
+  // the E14 shape the fetch-boundary TB could never test faithfully.
+  // With the restored maint pulse, the hazard to disprove is: a maint
+  // event slipping into an inter-program IDLE gap and restarting fetch
+  // mid-stream. Verdict = exactly NSTREAM fins, no hang.
+  { // STREAM_EN=on control word: byte[9]=0x08 (bit INSTR_WIDTH+11), bit0=on
+    top->h2c_tdata[0] = 1; top->h2c_tdata[1] = 0;
+    for (int i=2;i<8;i++) top->h2c_tdata[i] = 0;
+    top->h2c_tdata[2] = 0x0800;                    // byte9 = 0x08
+    top->h2c_tkeep = 0xFFFFFFFFu; top->h2c_tvalid = 1; top->h2c_tlast = 1;
+    long w2 = 0; while(!top->h2c_tready && w2++ < 20000) tick();
+    tick(); top->h2c_tvalid = 0; top->h2c_tlast = 0;
+    for (int i=0;i<20;i++) tick();
+
+    const int NSTREAM = 8;
+    long fins = 0, m0 = maint_rd + maint_zq + maint_ref;
+    bool sent_all = true;
+    long fin_lo = 0;
+    // maint programs share EXECUTE_S and end with softmc_fin too — a
+    // fin while dbg_maint_process=1 is maintenance, not a user program.
+    auto count_fins = [&](long budget){
+      for (long i=0;i<budget;i++){ tick();
+        if (top->softmc_fin && !fin_lo && !top->dbg_maint_process)
+          { fins++; }
+        fin_lo = top->softmc_fin ? 1 : 0;
+        if (fins >= NSTREAM) return; } };
+    for (int p = 0; p < NSTREAM && sent_all; p++){
+      sent_all = send_program(s2);
+      for (int g = 0; g < 40 + p*17; g++) { tick();   // host-pacing gap
+        if (top->softmc_fin && !fin_lo && !top->dbg_maint_process) fins++;
+        fin_lo = top->softmc_fin ? 1 : 0; }
+    }
+    count_fins(200000);
+    long dm = (maint_rd + maint_zq + maint_ref) - m0;
+    printf("[tb] N streamed-branch+maint: sent_all=%d fins=%ld/%d maint_in_window=%ld -> %s\n",
+           sent_all, fins, NSTREAM, dm,
+           (sent_all && fins == NSTREAM) ? "PASS" : "E14-CLASS FAIL");
+    if (!(sent_all && fins == NSTREAM)) fails++;
+    // stream off
+    top->h2c_tdata[0] = 0; top->h2c_tdata[2] = 0x0800;
+    for (int i=3;i<8;i++) top->h2c_tdata[i] = 0; top->h2c_tdata[1] = 0;
+    top->h2c_tkeep = 0xFFFFFFFFu; top->h2c_tvalid = 1; top->h2c_tlast = 1;
+    w2 = 0; while(!top->h2c_tready && w2++ < 20000) tick();
+    tick(); top->h2c_tvalid = 0; top->h2c_tlast = 0;
+    // final legacy integrity read
+    bool s = send_program(s1); bool f = s && wait_fin(50000);
+    printf("[tb] N post-stream legacy read: sent=%d fin=%d ddr_reads_total=%ld\n",
+           s, f, ddr_read_beats);
+    if (!(s && f)) fails++;
+  }
+
+  tfp->close();
+  printf("[tb] done, %d hard fails, maint rd=%ld zq=%ld ref=%ld, trace=e2e.fst, %lu cycles\n",
+         fails, maint_rd, maint_zq, maint_ref, (unsigned long)t);
+  return fails;
+}
