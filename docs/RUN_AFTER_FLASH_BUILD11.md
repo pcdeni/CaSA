@@ -1,9 +1,13 @@
 # RUN AFTER FLASH — build-11 (magic 0xDBC0DE0A)
 
-**Bitstream READY 2026-07-24 10:41** on the box:
-`.../BCU1525_QUAD.runs/impl_1/bcu1525_quad_top.bit`
-md5 `4c9d9f823696b4604b6be997d6e42c9c` (36,332,631 B).
-Timing: WNS +0.094 / TNS 0 / hold met.
+**BUILD-12 supersedes build-11.** build-11 (magic 0A) cured the loss
+window but regressed streamed branch-loop writes (E14). Build-12
+(magic **0xDBC0DE0B**) parks fetch at END until the restart strobe —
+kills the whole stale-state hazard class. Bitstream READY:
+md5 `00d99cd1b5e8…` (36,445,579 B), timing WNS +0.128 / TNS 0.
+TB regression A–I + 5×4,000 randomized ALL_PASS.
+**FIRST GATE after flash = E14** (stream-hw-exe branch-loop arm):
+must read `clean`, not REPRODUCED. Only then proceed to the walls.
 
 Fixes on board: fetch_restart (pc=0 at every program start — kills the
 stale-pc loss window, latent in legacy too) + fin/tlast same-cycle
@@ -20,7 +24,9 @@ cd /home/deni/Claude/SiMRA-DRAM-main/DRAM-Bender/sources/apps/DSN_AE_APPS/BitNet
 BITSTREAM_IMEM=8192 ./stream-hw-exe 2 1 45320 32
 ```
 - Trailer magic must read **0xDBC0DE0A** (PIM_RECV_DEBUG=1 if needed).
-- All arms A–F14 must pass (E3's 16/32 vs stale reference is the known
+- All arms A–E14 must pass — **E14 is THE build-12 gate** (build-11
+  showed it REPRODUCED; build-12 must show clean). E3's 16/32 vs stale
+  reference is the known
   benign arm-ordering artifact).
 
 ## 2. Twin gates (replay, ~15 min each, watchdogged)
