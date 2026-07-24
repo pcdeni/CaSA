@@ -44,8 +44,18 @@ module fetch_stage(
   localparam FETCH_NEXT_LINE_S   = 1;
   localparam WAIT_BUFFER_SPACE_S = 2;
   localparam WAIT_SLEEP_S        = 3;
+  // build12: post-END park — fetch stays here until the frontend's
+  // restart strobe starts the next program. Kills the re-loop and with
+  // it the whole stale-state hazard class (stale pc, stale branches,
+  // post-END junk dispatches).
+  localparam WAIT_RESTART_S      = 4;
 
   reg [2:0] state_r, state_ns;
+  // build12: a br_resolve is only valid while a branch WE dispatched is
+  // outstanding. restart clears it — a stale resolve from the previous
+  // program's parked post-END re-loop must not pair with the next
+  // program's first branch (build-11 E14 silicon regression).
+  reg br_outstanding_r, br_outstanding_ns;
 
   // kind of confusing but these PCs map to
   // an instruction instead of to a byte.
@@ -83,6 +93,7 @@ module fetch_stage(
   always @* begin
     sleep_ctr_ns   = sleep_ctr_r;
     state_ns       = state_r;
+    br_outstanding_ns = br_outstanding_r;
     pc_ns          = pc_r;
     instr_ns       = instr_r;
     instr_pc_ns    = instr_pc_r;
@@ -91,10 +102,12 @@ module fetch_stage(
     read_seq_incoming = `LOW;
     case(state_r)
       WAIT_RESOLVE_S: begin
-        if(br_resolve) begin
+        if(br_resolve && br_outstanding_r) begin
           state_ns = FETCH_NEXT_LINE_S;
           pc_ns    = br_target;
+          br_outstanding_ns = 1'b0;
         end
+        // build12: a resolve with no outstanding branch is stale — drop.
       end
       FETCH_NEXT_LINE_S: begin
         if(ready_out && valid_out)
@@ -108,10 +121,14 @@ module fetch_stage(
           end
           if(is_ddr_start && ~need_flush && (|data_in[9:0]))
             read_seq_incoming = `HIGH;
-          if(inst_is_br && ~is_sleep) // we don't have the ability to perform well
+          if(inst_is_br && ~is_sleep) begin // we don't have the ability to perform well
             state_ns = WAIT_RESOLVE_S;
-          else if(is_end)
+            br_outstanding_ns = 1'b1;   // build12: our branch is in flight
+          end
+          else if(is_end) begin
             pc_ns    = {`IMEM_ADDR_WIDTH{`LOW}};
+            state_ns = WAIT_RESTART_S;   // build12: park, no re-loop
+          end
           else if(need_flush) begin
             state_ns = WAIT_BUFFER_SPACE_S;
             pc_ns    = addr_in;     // register the info packet
@@ -129,6 +146,9 @@ module fetch_stage(
         if(sleep_ctr_r == 32'b1)
           state_ns = FETCH_NEXT_LINE_S;
       end
+      WAIT_RESTART_S: begin
+        ; // build12: only the restart override below exits this state
+      end
     endcase
     // build11: program-start override — unconditional, wins over every
     // state. pc=0, clean fetch state, no stale dispatch.
@@ -136,6 +156,7 @@ module fetch_stage(
       pc_ns          = {`IMEM_ADDR_WIDTH{1'b0}};
       state_ns       = FETCH_NEXT_LINE_S;
       instr_valid_ns = 1'b0;
+      br_outstanding_ns = 1'b0;   // build12: fence stale resolves
     end
   end
 
@@ -147,6 +168,7 @@ module fetch_stage(
       instr_r       <= {`INSTR_WIDTH{`LOW}};
       instr_pc_r    <= {`IMEM_ADDR_WIDTH{`LOW}};
       sleep_ctr_r   <= {32{`LOW}};
+      br_outstanding_r <= `LOW;
     end
     else begin
       state_r       <= state_ns;
@@ -155,6 +177,7 @@ module fetch_stage(
       instr_pc_r    <= instr_pc_ns;
       instr_valid_r <= instr_valid_ns;
       sleep_ctr_r   <= sleep_ctr_ns;
+      br_outstanding_r <= br_outstanding_ns;
     end
   end
 

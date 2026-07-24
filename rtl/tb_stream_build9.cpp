@@ -31,6 +31,9 @@ static bool fin_armed = false;     // one fin per executed program
 
 static const int      INSTR_WIDTH = 64;
 static const uint64_t END_WORD    = 0ull;    // is_end = &~instr
+static uint64_t branch_word(uint32_t tag) {  // bit62 = BRANCH_OFFSET
+  return (((uint64_t)(tag & 0x00FFFFFF)) | (1ull << 40)) | (1ull << 62);
+}
 static uint64_t instr_word(uint32_t tag) {   // nonzero, no INFO/BRANCH/ctrl bits
   return ((uint64_t)(tag & 0x00FFFFFF)) | (1ull << 40);
 }
@@ -54,6 +57,17 @@ static void set_tdata(uint64_t lo64, uint32_t ctrl_dword2) {
 // DDR/execute side actually consumes.
 static bool prog_done = false;
 static int  prev_exec_bank = -1;
+// branch execute-model: each dispatched BR resolves after BR_DELAY;
+// taken (target=g_br_target) g_br_takes times per program pass-window,
+// then not-taken (target = br_pc+1). Post-END sightings resolve TOO —
+// deliberately, to model the silicon stale-resolve hazard (E14).
+static int  g_br_delay   = 12;
+static int  g_br_target  = 1;     // loop start address
+static int  g_br_takes   = 2;     // taken twice then fall through
+static int  g_br_ctr     = -1;    // countdown to pulse
+static int  g_br_taken_n = 0;
+static int  g_br_fallpc  = 4;     // BR at addr 3 -> fallthrough 4
+static bool g_br_stale = false;
 static bool g_trace = false;
 static int  g_cyc = 0;
 static uint32_t g_last_sig = 0xFFFFFFFFu;
@@ -92,6 +106,27 @@ static void tick_obs() {
   if (top->obs_instr_valid && !prog_done) {
     uint64_t w = (uint64_t)top->obs_instr;
     if (w != END_WORD) dispatched.push_back(tag_of(w));
+  }
+  // branch model: sight EVERY dispatched branch (even post-END ones —
+  // prog_done only gates counting) and schedule a resolve.
+  if (top->obs_instr_valid) {
+    uint64_t w = (uint64_t)top->obs_instr;
+    if (w & (1ull << 62)) {
+      if (g_br_ctr < 0) { g_br_ctr = g_br_delay; g_br_stale = prog_done; }
+    }
+  }
+  top->tb_br_resolve = 0;
+  if (g_br_ctr > 0) g_br_ctr--;
+  else if (g_br_ctr == 0) {
+    top->tb_br_resolve = 1;
+    if (g_br_stale) {
+      top->tb_br_target = g_br_target;   // poison: legit counter untouched
+    } else if (g_br_taken_n < g_br_takes) {
+      top->tb_br_target = g_br_target; g_br_taken_n++;
+    } else {
+      top->tb_br_target = g_br_fallpc; g_br_taken_n = 0;
+    }
+    g_br_ctr = -1;
   }
   if (top->obs_softmc_end) prog_done = true;
   top->softmc_fin = 0;
@@ -162,6 +197,8 @@ static bool seq_ok(const vector<uint32_t>& exp) {
 static void hard_reset() {
   dispatched.clear(); fin_delay_ctr = -1; prog_done = false; prev_exec_bank = -1;
   fin_q.clear(); fin_armed = false;
+  g_br_ctr = -1; g_br_taken_n = 0; g_br_stale = false;
+  top->tb_br_resolve = 0; top->tb_br_target = 0;
   top->rst = 1; top->softmc_fin = 0; top->h2c_tvalid_0 = 0;
   top->h2c_tlast_0 = 0; top->init_calib_complete = 1;
   for (int i = 0; i < 8; i++) tick_obs();
@@ -361,6 +398,40 @@ int main(int argc, char** argv) {
     bool pass = run_script(sc, 0xA0000, true);
     g_trace = false;
     check("G traced 4-program repro", pass);
+  }
+
+  // I: STREAMED BRANCH-LOOP programs — the E14 silicon shape the TB
+  // never covered (branches were tied off). Program: [A][B][C][BR->B]
+  // [D][END], BR taken twice (3 body passes). Streamed back-to-back
+  // with long fins; the post-END re-loop re-dispatches the BR and the
+  // execute model resolves it — the stale-resolve hazard. build-11
+  // fetch pairs it with the NEXT program's first branch (corruption);
+  // build-12 (br_outstanding fence) must drop it.
+  { hard_reset();
+    bool ok = stream_en(true); idle(4);
+    vector<uint32_t> exp;
+    for (int p = 0; p < 4 && ok; p++) {
+      uint32_t base = 0xB0000 + p * 0x100;
+      fin_q.push_back(700 + 137 * p);
+      // send: A(base+0) B(+1) C(+2) BR D(+4) END
+      ok = ok && beat(instr_word(base + 0), 0, false);
+      ok = ok && beat(instr_word(base + 1), 0, false);
+      ok = ok && beat(instr_word(base + 2), 0, false);
+      ok = ok && beat(branch_word(base + 3), 0, false);
+      ok = ok && beat(instr_word(base + 4), 0, false);
+      ok = ok && beat(END_WORD, 0, true);
+      // expected dispatch: A B C BR | B C BR | B C BR | D
+      exp.push_back(base + 0);
+      for (int pass = 0; pass < 3; pass++) {
+        if (pass) { exp.push_back(base + 1); }
+        else      { exp.push_back(base + 1); }
+        exp.push_back(base + 2);
+        exp.push_back(base + 3);
+      }
+      exp.push_back(base + 4);
+    }
+    drain_until(exp.size(), 6000000);
+    check("I streamed branch-loops (E14 shape)", ok && seq_ok(exp));
   }
 
   printf("build9 stream TB: %s (%d fails)\n", fails ? "FAIL" : "ALL_PASS", fails);
