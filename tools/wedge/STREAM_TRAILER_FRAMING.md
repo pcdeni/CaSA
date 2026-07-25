@@ -703,3 +703,36 @@ KEPT: the maintenance announcements (the model is now complete and
 legacy is byte-exact). NOTE: they also consume buffer_space credit for
 reads that are never delivered; measure that against the baseline before
 shipping.
+
+## 26. build17: origin bit threaded through the pipeline — labelling CORRECT
+
+Implemented the design: tag where the origin is known (the frontend mux
+between program and maintenance microcode) and carry it WITH the
+instruction, one register per stage, matched to the command path:
+
+    frontend    data_out_maint = ~program_process   (combinational)
+    fetch       instr_maint                         (with instr_r)
+    decode      ddr_maint                           (with ddr_uop_r)
+    execute     pass-through
+    ddr_pipeline ddr_read_maint                     (with ddr_read_r)
+    -> readback_engine builds its queue AT THE COMMAND BUS, one entry
+       per issuing cycle {n_issued, origin}. Issue order IS return
+       order, so the mapping is correct by construction.
+
+MEASURED at the command bus:
+
+    before (frontend-stage signal) : user=465  maint=0
+    after  (pipeline-carried bit)  : user=32   maint=392
+
+32 = 4 programs x 8 reads, EXACT. Every read is now attributed to the
+program that issued it. This is the piece none of the three earlier
+attempts could deliver (return-time: signal already dropped; issue-time:
+stale fetch-stage signal; announce-time: right origin, fetch ORDER).
+
+STATUS: legacy stays BYTE-EXACT vs the SiMRA baseline. Streamed records
+1-3 still differ by 128 B each — but no longer from mislabelling, since
+labelling is now provably correct. The remaining 128 B must come from
+the framing side (trailer position still decided by `rbf_empty`, which
+is not a record boundary) or from queue depth (16 entries, 4-bit
+pointers) under burst. Both are checkable with the reference now in
+place; neither should be guessed at.
