@@ -736,3 +736,35 @@ the framing side (trailer position still decided by `rbf_empty`, which
 is not a record boundary) or from queue depth (16 entries, 4-bit
 pointers) under burst. Both are checkable with the reference now in
 place; neither should be guessed at.
+
+## 27. Trailer position measured — it is a BOUNDARY SHIFT, not corruption
+
+    baseline      : (no magic — upstream trailer has none)
+    ours legacy   : magics at 512, 1056, 1600, 2144   EXACT (every 544)
+    ours streamed : magics at 640, 1184, 1728, 2144
+
+The first streamed trailer fires 2 beats (128 B) LATE; every later
+boundary shifts with it and the final record is 128 B short. Total
+length is correct (2176). So the streamed data is not corrupt — the
+DELIMITER is misplaced, which my earlier fixed-offset slicing reported
+as "records 1-3 corrupted".
+
+With build17 labelling measured exact (user=32 / maint=392), the sole
+remaining streaming defect is trailer POSITION, i.e. `rbf_empty` used as
+a record boundary. That is item 2 of the contract in
+golden_ref_2026_07_25/DRAM_BENDER_STREAMING_ANALYSIS.md.
+
+## 28. The real lesson, stated properly
+
+Not "implement before measuring" — **implement before UNDERSTANDING**.
+Patching a system whose invariants were never written down, hoping each
+patch fixes one thing without breaking another. Six patches produced
+byte-identical output precisely because two sources of truth (the old
+heuristics and the new structure) were both live.
+
+The corrective artifact is DRAM_BENDER_STREAMING_ANALYSIS.md: the path
+end to end, the state each stage holds, the single unstated precondition
+("one program in flight, drained before the next"), which assumptions
+streaming voids, the minimal contract that replaces it, and a verdict on
+every change we have accumulated. Written from measurements, with the
+unmeasured parts marked as review notes rather than facts.
