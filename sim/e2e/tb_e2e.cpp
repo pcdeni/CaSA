@@ -12,7 +12,7 @@
 //                        or no-FIN if the wedge reproduces.
 #include "Ve2e_top.h"
 #include "verilated.h"
-#include "verilated_fst_c.h"
+#include "verilated_vcd_c.h"
 #include <cstdio>
 #include <cstdint>
 #include <vector>
@@ -23,7 +23,7 @@
 double sc_time_stamp() { return 0; }
 
 static Ve2e_top* top;
-static VerilatedFstC* tfp;
+static VerilatedVcdC* tfp;
 static uint64_t t = 0;
 static long ddr_read_beats = 0, ddr_act_pulses = 0, fin_seen_at = -1;
 static long maint_rd = 0, maint_zq = 0, maint_ref = 0;
@@ -31,13 +31,23 @@ static std::vector<uint8_t> c2h_bytes;        // phase-2: host receive side
 
 extern "C" void dram_expected_beat(int bg,int bank,int row,int col,uint32_t*);
 
+static bool g_trace_en = false;   // waveform only around the failure
 static long g_drain_off = 0, g_dr_budget = 8, g_dr_pause = 0;
 static long g_c2h_tlast_count = 0;
+static long g_fin_edges = 0; static int g_fin_d = 0;
+static long g_fr_edges = 0, g_fr_hi = 0, g_fr_user = 0, g_fr_maint = 0; static int g_fr_d = 0;
 static void tick(){
   // c2h drain pacing. 0 = instant (old behaviour). N>0 = accept a
   // short burst, then refuse for N cycles: a trailer then sits in the
   // engine while the next program completes — the silicon condition
   // that scenario P's instant drain hid.
+  // Duty-cycle drain: tready follows a FIXED pattern derived only from
+  // the cycle counter, never from tvalid. The testbench therefore cannot
+  // react to the DUT, so any framing loss is the DUT's, not mine.
+  // Burst drain: accept 8 beats, then pause. This is the model whose
+  // signature matched silicon exactly (one trailer per session,
+  // last record = 2112-32N). The duty-cycle variant is kept below for
+  // stress but is far harsher than PCIe.
   if (g_drain_off <= 0) top->c2h_tready = 1;
   else if (g_dr_pause > 0) { top->c2h_tready = 0; g_dr_pause--; }
   else {
@@ -45,13 +55,21 @@ static void tick(){
     if (top->c2h_tvalid && --g_dr_budget <= 0)
       { g_dr_pause = g_drain_off; g_dr_budget = 8; }
   }
-  top->clk = 0; top->eval(); if(tfp) tfp->dump(t*10);
-  top->clk = 1; top->eval(); if(tfp) tfp->dump(t*10+5);
+  top->clk = 0; top->eval(); if(tfp && g_trace_en) tfp->dump(t*10);
+  top->clk = 1; top->eval(); if(tfp && g_trace_en) tfp->dump(t*10+5);
   if (top->ddr_read)  ddr_read_beats++;
   if (top->ddr_act)   ddr_act_pulses++;
   if (top->per_rd_init_obs)  maint_rd++;
   if (top->per_zq_init_obs)  maint_zq++;
   if (top->per_ref_init_obs) maint_ref++;
+  if (top->softmc_fin && !g_fin_d) g_fin_edges++;
+  g_fin_d = top->softmc_fin ? 1 : 0;
+  if (top->frontend_ready_obs && !g_fr_d) {
+    g_fr_edges++;
+    if (top->frontend_ready_maint_obs) g_fr_maint++; else g_fr_user++;
+  }
+  if (top->frontend_ready_obs) g_fr_hi++;
+  g_fr_d = top->frontend_ready_obs ? 1 : 0;
   if (top->softmc_fin && fin_seen_at < 0) fin_seen_at = (long)t;
   if (top->c2h_tvalid && top->c2h_tready && top->c2h_tlast) g_c2h_tlast_count++;
   if (top->c2h_tvalid && top->c2h_tready){    // collect the 32B beat
@@ -104,9 +122,9 @@ int main(int argc, char** argv){
   Verilated::commandArgs(argc, argv);
   Verilated::traceEverOn(true);
   top = new Ve2e_top;
-  tfp = new VerilatedFstC;
+  tfp = new VerilatedVcdC;
   top->trace(tfp, 99);
-  tfp->open("e2e.fst");
+  tfp->open("e2e.vcd");
 
   top->rst = 1; top->h2c_tvalid = 0; top->h2c_tlast = 0;
   top->init_calib_complete = 0;          // silicon: calib incomplete at boot
@@ -409,15 +427,43 @@ int main(int argc, char** argv){
     tick(); top->h2c_tvalid=0; top->h2c_tlast=0;
     for (int i=0;i<20;i++) tick();
 
+    // Wait for genuine quiescence before zeroing the counters: a trailer
+    // still in flight from the previous window would otherwise be
+    // attributed to this one (and its own record counted as missing).
+    { long quiet = 0; size_t last = c2h_bytes.size();
+      for (long i = 0; i < 200000 && quiet < 2000; i++) {
+        tick();
+        if (c2h_bytes.size() != last) { last = c2h_bytes.size(); quiet = 0; }
+        else quiet++;
+      } }
     g_drain_off = throttle;
     c2h_bytes.clear();
     g_c2h_tlast_count = 0;
+    g_fin_edges = 0; g_fr_edges = 0; g_fr_hi = 0; g_fr_user = 0; g_fr_maint = 0;
     bool sentQ = true;
+    if (throttle) g_trace_en = true;      // capture the merge
     for (int q=0; q<QN && sentQ; q++) sentQ = send_program(s4q);
     long want = (long)QN * (QPAY + 32);
-    for (long i=0;i<1500000 && (long)c2h_bytes.size() < want; i++) tick();
-    printf("[tb] Q throttle=%ld: sent=%d bytes=%zu/%ld messages=%ld/%d -> %s\n",
+    for (long i=0;i<1500000 && (long)c2h_bytes.size() < want; i++) {
+      tick();
+      if (g_trace_en && c2h_bytes.size() > 7000) g_trace_en = false;
+    }
+    g_trace_en = false;
+    // WIRE TRUTH: the trailer's first word is the magic, so the byte
+    // stream itself shows where every record actually ends. No DUT
+    // instrumentation, no counter reconciliation.
+    { long nmag = 0; printf("[tb] Q wire map (magic offsets):");
+      for (size_t o = 0; o + 4 <= c2h_bytes.size(); o += 4) {
+        uint32_t w; memcpy(&w, &c2h_bytes[o], 4);
+        if ((w & 0xFFFFFF00u) == 0xDBC0DE00u) {
+          if (nmag < 12) printf(" %zu", o);
+          nmag++;
+        }
+      }
+      printf("  (total %ld; expected at 2048,4128,6208,... every 2080)\n", nmag); }
+    printf("[tb] Q throttle=%ld: sent=%d bytes=%zu/%ld messages=%ld/%d fins=%ld USER_flushes=%ld maint_flushes=%ld -> %s\n",
            throttle, sentQ, c2h_bytes.size(), want, g_c2h_tlast_count, QN,
+           g_fin_edges, g_fr_user, g_fr_maint,
            (g_c2h_tlast_count == QN && (long)c2h_bytes.size() == want)
              ? "framing OK"
              : "**TRAILER MERGE REPRODUCED**");
@@ -433,7 +479,7 @@ int main(int argc, char** argv){
   }
 
   tfp->close();
-  printf("[tb] done, %d hard fails, maint rd=%ld zq=%ld ref=%ld, trace=e2e.fst, %lu cycles\n",
+  printf("[tb] done, %d hard fails, maint rd=%ld zq=%ld ref=%ld, trace=e2e.vcd, %lu cycles\n",
          fails, maint_rd, maint_zq, maint_ref, (unsigned long)t);
   return fails;
 }

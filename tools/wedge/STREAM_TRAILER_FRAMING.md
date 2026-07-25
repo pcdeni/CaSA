@@ -276,3 +276,54 @@ improvements (a counter instead of a flag; origin instead of a
 heuristic; no same-cycle sampling race) and all are currently in the
 SIM tree only. None is validated as the fix, so none goes into a
 bitstream yet.
+
+## 11. build16: per-record framing implemented (partial)
+
+**Root cause, stated precisely.** The record delimiter was positioned by
+FIFO idleness plus GLOBAL counters. Nothing in the engine could answer
+"is THIS record finished". Consequences, all reproduced:
+  - trailer late  : next record's payload arrives first -> delimiter at
+                    4096 instead of 2048 (silicon's signature)
+  - trailer early : read credit throttles the DDR reads, FIFO drains
+                    mid-record -> delimiters every 1216 B
+  - merged pairs  : a global rd_outstanding gate waits for the NEXT
+                    record's reads too
+Six patches to WHEN the flush is processed could not fix a defect in
+WHERE the boundary is.
+
+**Implemented (readback_engine.v, build16):**
+1. Per-record accounting: `read_seq_incoming`/`incoming_reads` are
+   accumulated between flushes; at a processed (user) flush the total is
+   converted to c2h beats (READ: reads*2, SEG_POP: reads/2) and queued;
+   the trailer is emitted when exactly that many payload beats have
+   been transferred. Queue depth 8 keeps overlapped records delimited.
+2. `.rd_en(c2h_tready_0 && ~trailer_beat)` — the payload FIFO was popped
+   on EVERY ready cycle including the trailer's, which would discard a
+   payload word. This coupling was the ONLY reason the trailer had to
+   wait for an empty FIFO; removing it is what allows a boundary that
+   does not depend on quiescence.
+3. Maintenance attribution: `in_maint` excludes maintenance
+   announcements, and maintenance flushes no longer close the user
+   accumulator.
+Plus (earlier, kept): flush origin bit, swap acknowledge, pending
+counter — each defensible on its own, none sufficient.
+
+**Validation state (scenario Q, 8 streamed SEG_POP row reads):**
+  fast drain        : 8/8 messages, magics EXACTLY at 2048,4128,...,16608
+                      -> per-record framing is correct, no regression
+  burst backpressure: 6/8, first magic at 6176 = 3 payloads + 1 trailer
+                      -> the first expectation covers THREE records,
+                         i.e. two user flushes did not close the
+                         accumulator. NOT FIXED.
+  all other scenarios (S1, N, R1/W1 payloads byte-exact) still pass;
+  R1/W1 "FAIL" is a stale hard-coded magic 0C check in the TB.
+
+**Next (do not guess again):** the accumulator is not closing on every
+user flush under backpressure. Instrument `rec_acc_r`, `recq_wr/rd` and
+`flush_proc` in the WAVEFORM at the first three flushes of the throttled
+window and read why. Do not add another speculative patch.
+
+**Fidelity caveat worth resolving first:** the sim runs ~1127
+maintenance programs per user program; silicon's trailer counters imply
+~170. Same order, but 6x. Every interleaving conclusion drawn here
+should be re-checked at silicon's real maintenance rate.
