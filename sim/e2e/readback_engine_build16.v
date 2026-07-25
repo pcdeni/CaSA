@@ -320,7 +320,16 @@ module readback_engine(
       // SEG_POP user read whose per-segment popcounts are now on pc_out_l4.
       seg_beat_valid <= rd_valid && ~ignore_read_r && (mode_r == SEG_POP_MODE);
       seg_word_valid <= `LOW;
-      if(seg_beat_valid) begin
+      // build16: clear the group assembler when SEG_POP is (re)entered.
+      // seg_sr/seg_cnt were reset only on hard reset, so a session that
+      // ended mid-group left residue and the NEXT session's first 64-byte
+      // group came out as a blend of both. Measured: 43 of the first 64
+      // bytes of record 0 wrong, everything from byte 64 on exact.
+      if(set_mode_segpop) begin
+        seg_cnt <= 2'd0;
+        seg_sr  <= 512'b0;
+      end
+      else if(seg_beat_valid) begin
         // shift the new beat's 16 bytes into the high lane; beat 0 ends in
         // bits [127:0] after 4 shifts (natural: segment g = beat*16+lane).
         seg_sr <= {seg_beat_bytes, seg_sr[511:128]};

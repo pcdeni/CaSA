@@ -463,17 +463,52 @@ int main(int argc, char** argv){
       printf("  (total %ld; expected at 2048,4128,6208,... every 2080)\n", nmag); }
     { // records are identical programs on one row: payload k must equal
       // payload 0. Byte totals can be right while content is wrong.
-      int bad_rec = 0, first_bad = -1;
-      for (int k = 1; k < QN; k++) {
-        size_t a0 = 0, ak = (size_t)k * (QPAY + 32);
-        if (ak + QPAY > c2h_bytes.size()) { bad_rec++; if(first_bad<0) first_bad=k; continue; }
-        if (memcmp(&c2h_bytes[a0], &c2h_bytes[ak], QPAY) != 0) {
-          bad_rec++; if (first_bad < 0) first_bad = k;
+      // Which record is the odd one out? Comparing everything to record 0
+      // hides the case where record 0 itself is polluted. Group the
+      // records by payload and report the classes, plus where the first
+      // differing byte sits inside the record.
+      int cls[16]; for (int i=0;i<QN;i++) cls[i] = -1;
+      int nclass = 0;
+      for (int k = 0; k < QN; k++) {
+        size_t ak = (size_t)k * (QPAY + 32);
+        if (ak + QPAY > c2h_bytes.size()) { cls[k] = -2; continue; }
+        for (int j = 0; j < k; j++) {
+          size_t aj = (size_t)j * (QPAY + 32);
+          if (cls[j] < 0) continue;
+          if (memcmp(&c2h_bytes[aj], &c2h_bytes[ak], QPAY) == 0) { cls[k] = cls[j]; break; }
+        }
+        if (cls[k] == -1) cls[k] = nclass++;
+      }
+      printf("[tb] Q CONTENT: %d distinct payloads over %d records; classes:",
+             nclass, QN);
+      for (int k = 0; k < QN; k++) printf(" r%d=%d", k, cls[k]);
+      printf(" -> %s\n", (nclass == 1) ? "payload consistent" : "PAYLOAD DIFFERS");
+      // where does the difference start, and by how much?
+      if (nclass > 1) {
+        for (int k = 1; k < QN; k++) {
+          size_t a0 = 0, ak = (size_t)k * (QPAY + 32);
+          if (ak + QPAY > c2h_bytes.size()) break;
+          if (memcmp(&c2h_bytes[a0], &c2h_bytes[ak], QPAY)) {
+            int off = 0; while (off < QPAY && c2h_bytes[off] == c2h_bytes[ak+off]) off++;
+            long ndiff = 0;
+            for (int b=0;b<QPAY;b++) if (c2h_bytes[b] != c2h_bytes[ak+b]) ndiff++;
+            printf("[tb]   r0 vs r%d: first diff at byte %d of %d, %ld bytes differ"
+                   " (r0=%02x r%d=%02x)\n", k, off, QPAY, ndiff,
+                   c2h_bytes[off], k, c2h_bytes[ak+off]);
+            // contiguous warm-up prefix, or scattered? print the first
+            // differing offsets and the largest one.
+            printf("[tb]   diff offsets:");
+            int shown2 = 0, lastoff = -1;
+            for (int b = 0; b < QPAY && shown2 < 12; b++)
+              if (c2h_bytes[b] != c2h_bytes[ak+b]) { printf(" %d", b); shown2++; lastoff = b; }
+            for (int b = QPAY-1; b >= 0; b--)
+              if (c2h_bytes[b] != c2h_bytes[ak+b]) { printf(" ... last=%d", b); break; }
+            printf("\n");
+            break;
+          }
         }
       }
-      printf("[tb] Q CONTENT: %d/%d records differ from record 0 (first=%d) -> %s\n",
-             bad_rec, QN-1, first_bad, bad_rec ? "PAYLOAD WRONG" : "payload consistent");
-      if (bad_rec) fails++; }
+      if (nclass != 1) fails++; }
     printf("[tb] Q throttle=%ld: sent=%d bytes=%zu/%ld messages=%ld/%d fins=%ld USER_flushes=%ld maint_flushes=%ld -> %s\n",
            throttle, sentQ, c2h_bytes.size(), want, g_c2h_tlast_count, QN,
            g_fin_edges, g_fr_user, g_fr_maint,

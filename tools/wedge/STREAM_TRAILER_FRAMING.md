@@ -434,3 +434,48 @@ in the causal path and more patches are waste.
 - Per-record counter + origin queue: present but inert/incorrect;
   documented above. Do not ship.
 - Fast drain: framing perfect. Burst: 6/8. Payload: wrong in BOTH.
+
+## 17. Payload corruption — localized, mechanism found, partially fixed
+
+CORRECTION to §14: the payload is NOT generally corrupt. With correct
+framing (fast drain) the records classify as:
+    r0 = class 0, r1..r7 = class 1   (records 1-7 byte-IDENTICAL)
+Only the FIRST record differs, and every differing byte lay in
+bytes 0..63 — exactly ONE 64-byte SEG_POP group.
+
+**Mechanism.** SEG_POP assembles four 16-byte beats into a 512-bit word
+through a shift register:
+    seg_sr <= {seg_beat_bytes, seg_sr[511:128]};
+    if(seg_cnt == 3) begin seg_word <= ...; seg_cnt <= 0; end
+`seg_sr` and `seg_cnt` are reset ONLY on hard reset — never on mode
+entry. A session that ends mid-group leaves residue, and the next
+session's first 64-byte group is a blend of both. The server churns
+READ<->SEG_POP constantly, so on silicon this corrupts the first group
+after every mode switch.
+
+**Partial fix applied**: clear seg_cnt/seg_sr on `set_mode_segpop`.
+Corruption window shrank 43 bytes -> 13 bytes and moved from byte 0 to
+byte 32 (beats 2-3 of the group). Remaining residue is almost certainly
+`seg_word` (the output register) and the `seg_beat_valid` pipeline
+stage, which are likewise cleared only on hard reset. Finish by clearing
+the whole SEG_POP datapath on mode entry.
+
+**Records 1-7 stay byte-identical throughout** — the defect is confined
+to the first record of a session, which is exactly why it survived every
+steady-state test.
+
+## 18. Session close — three defects, two fixed
+
+1. Maintenance read leak (one-shot suppression) — FIXED, byte-exact.
+2. SEG_POP group-assembler residue — mechanism found, PARTIALLY fixed
+   (43 -> 13 bytes); finish by clearing the rest of the datapath.
+3. Framing under backpressure (6/8 delimiters) — OPEN. Design settled:
+   tag returns by origin (announcement queue, in-order returns) and
+   anchor the record boundary at PROGRAM START, not at the flush.
+   Do not add more patches to the existing global heuristics; build the
+   per-record structure and delete the heuristics it replaces.
+
+Method note for whoever continues: byte totals are not verification
+(16640 was a leak plus two missing delimiters cancelling). The content
+self-consistency check — identical programs must yield identical
+payloads — is what found defects 1 and 2. Keep it in every gate.
