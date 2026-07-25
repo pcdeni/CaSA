@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The experiment trail — what we tried, how it went, what it pointed to</title>
+<style>
+  :root {
+    --bg: #f7f6f2; --card: #ffffff; --ink: #1e232a; --muted: #5b6470;
+    --line: #e2e0d8; --accent: #14507a;
+    --win: #1a7f4e; --win-bg: #e8f5ee;
+    --neutral: #8a6d1a; --neutral-bg: #faf3dd;
+    --neg: #a83232; --neg-bg: #fbeaea;
+    --rev: #6a3fa0; --rev-bg: #f1eafa;
+    --disc: #14507a; --disc-bg: #e7f0f7;
+    --lesson: #874f16; --lesson-bg: #f8eede;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.55 -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 32px 20px 80px; }
+  h1 { font-size: 1.9rem; line-height: 1.25; margin: 0 0 6px; }
+  h2 { font-size: 1.35rem; margin: 44px 0 4px; color: var(--accent); }
+  h2 .era { color: var(--muted); font-weight: 500; font-size: 1rem; margin-left: 8px; }
+  .sub { color: var(--muted); margin: 0 0 22px; }
+  .intro, .thread, .outro {
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: 18px 20px; margin: 18px 0;
+  }
+  .thread { border-left: 5px solid var(--accent); }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px 18px 12px; margin: 14px 0;
+  }
+  .card h3 { margin: 0 0 8px; font-size: 1.05rem; }
+  .badge {
+    display: inline-block; font-size: .72rem; font-weight: 700; letter-spacing: .04em;
+    padding: 2px 9px; border-radius: 999px; vertical-align: 2px; margin-left: 8px;
+    text-transform: uppercase;
+  }
+  .b-win { color: var(--win); background: var(--win-bg); }
+  .b-neutral { color: var(--neutral); background: var(--neutral-bg); }
+  .b-neg { color: var(--neg); background: var(--neg-bg); }
+  .b-rev { color: var(--rev); background: var(--rev-bg); }
+  .b-disc { color: var(--disc); background: var(--disc-bg); }
+  .b-lesson { color: var(--lesson); background: var(--lesson-bg); }
+  .row { margin: 3px 0; }
+  .row b { display: inline-block; min-width: 92px; color: var(--muted); font-weight: 600; }
+  .why { color: var(--muted); }
+  code { background: #f0efe9; border-radius: 4px; padding: 1px 5px; font-size: .88em; overflow-wrap: anywhere; }
+  .codes { overflow-wrap: anywhere; }
+  .legend span { margin-right: 10px; white-space: nowrap; }
+  .kicker { font-size: .8rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  .codes { font-family: ui-monospace, 'Cascadia Code', Menlo, monospace;
+           font-size: .74rem; color: var(--muted); margin: 6px 0 0;
+           border-top: 1px dashed var(--line); padding-top: 5px; }
+  .codes b { color: var(--accent); font-weight: 600; }
+  ul { margin: 8px 0 4px; padding-left: 22px; }
+  li { margin: 4px 0; }
+  .footnote { color: var(--muted); font-size: .88rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p class="kicker">DRAM processing-in-memory campaign · April → July 2026 · written 2026-07-22 · last verified 2026-07-24</p>
+<h1>The experiment trail</h1>
+<p class="sub">What we tried, how it went (and why), and what each result pointed to next.</p>
+
+<div class="intro">
+  <p><b>How to read this.</b> Every entry has the same four parts:
+  <b>Tried</b> (the idea), <b>Result</b> (what the silicon said),
+  <b>Why</b> (the mechanism behind the outcome), and <b>Pointed&nbsp;to</b>
+  (what it changed about the plan). The honest verdicts are the point —
+  the wall-neutral and negative results built the cost model that now
+  drives everything, and several of the biggest wins started life as
+  failures.</p>
+  <p class="legend">
+    <span class="badge b-win">win</span>
+    <span class="badge b-neutral">wall-neutral</span>
+    <span class="badge b-neg">negative</span>
+    <span class="badge b-rev">reversed later</span>
+    <span class="badge b-disc">discovery</span>
+    <span class="badge b-lesson">lesson</span>
+  </p>
+  <p class="footnote">Hardware shorthand: the rig drives four DDR4 modules
+  through one FPGA (BCU1525). Benders 0 and 2 are two <i>different</i>
+  SK&nbsp;hynix modules (bender 2 is the dual-rank production die); benders 1
+  and 3 are two <i>different</i> Micron modules. A "tuple" is a calibrated
+  16-row set that computes MAJ3; a "doubleACT" is the timing-violating
+  double activation that makes rows share charge.</p>
+</div>
+
+<div class="thread">
+  <p class="kicker">Decoder ring — the codes the ledgers use</p>
+  <p>Internal docs, RESULT files and the ledgers tag work with short codes;
+  each card below carries its codes on the bottom line so you can jump
+  from this narrative straight into the paper trail.</p>
+  <ul>
+    <li><b>S-n / M-n / T-n / B-n</b> — the STOCKTAKE plan's phase tasks
+      (S=science, M=merge, T=throughput, B=benchmark; e.g. S3 = the FCDRAM
+      NOT attempt, M2 = in-DRAM popcount accumulation, T3 = the
+      keep-both-roads decision, B1 = the llama.cpp hook).</li>
+    <li><b>lever #n</b> (and section letters A/B/C/D/E, plus sub-ids like
+      3a4/3b/3d) — <code>LEVERS.md</code> entries; the public mirror is
+      <code>docs/ROADMAP.md</code>.</li>
+    <li><b>O-n</b> — the server-optimization series (O3 fused×pack4
+      composition, O4 resident const rows, O8 refresh-label fix, O9
+      extras-cap pilot, O10 fused column-mask repair…).</li>
+    <li><b>task #n</b> — session task-list numbers (e.g. task #75 = the
+      May dual-subarray failure, task #80 = the shadow-pool design note).</li>
+    <li><b>addendum n</b> — numbered addenda of the 2026-07-17 session
+      writeup (<code>sublattice_broadcast_2026_07_17/RESULT.md</code>).</li>
+    <li><b>ADR-n</b> — architecture decision records in
+      <code>mvdram-repro/</code> (ADR-005 = the readout-killer decision).</li>
+    <li><b>build-n ↔ trailer magic</b> — bitstreams identify themselves
+      in-band: build-3…9 ↔ <code>0xDBC0DE01…08</code> (build-8a=06,
+      8b=07, 9=08).</li>
+    <li><b>Rung 0–3</b> — the controller-native ladder
+      (<code>docs/CONTROLLER_NATIVE.md</code>); <b>CLICK 1–7</b> — the
+      STOCKTAKE's cross-source connections; <b>Road A/B</b> — faithful
+      readout vs accumulate-in-DRAM; <b>Lane 1/2</b> — our BitNet lane vs
+      the MVDRAM-faithful lane (never blended, user directive);
+      <b>V2/V2G/V2S/V2GS, MM3D, LOAD</b> — the client↔server wire
+      protocols; <b>PR #n</b> — github.com/pcdeni/CaSA pull requests.</li>
+  </ul>
+</div>
+
+<h2>Act I <span class="era">April – May · foundations</span></h2>
+
+<div class="card">
+  <h3>Characterize all four modules in parallel <span class="badge b-win">win</span></h3>
+  <div class="row"><b>Tried</b> Multi-DIMM plumbing in SiMRA so all four modules sweep at once.</div>
+  <div class="row"><b>Result</b> The yield map: bender 2 best (~38% MAJ3 tuple yield), bender 0 usable, benders 1/3 partial.</div>
+  <div class="row"><b>Pointed to</b> Bender 2 as the production die, bender 0 as the second compute die.</div>
+  <p class="codes">codes: multi-DIMM plumbing &middot; CHECKPOINT-MULTI-DIMM.md &middot; yield map (memory <b>dimm_yield_map</b>)</p>
+</div>
+
+<div class="card">
+  <h3>The XOR-8 "corruption" <span class="badge b-disc">discovery</span></h3>
+  <div class="row"><b>Tried</b> Ordinary calibrated doubleACT operations.</div>
+  <div class="row"><b>Result</b> Every operation also wrote the source row's bits into the row at address <code>src XOR 8</code>. It looked like data corruption.</div>
+  <div class="row"><b>Why</b> Rows whose addresses differ in specific bits co-activate — the row decoder fires several wordlines under the violated timing.</div>
+  <div class="row"><b>Pointed to</b> First a workaround (stride-16 pool layouts). Months later, the entire lattice program: the bug became the instrument.</div>
+  <p class="codes">codes: memory <b>simra_xor8_spread</b> &middot; ancestor of <b>task #80</b> &rarr; the M3 line</p>
+</div>
+
+<div class="card">
+  <h3>The readout floor <span class="badge b-neg">negative</span></h3>
+  <div class="row"><b>Tried</b> A CaSA-shaped compute pipeline, benchmarked against a CPU.</div>
+  <div class="row"><b>Result</b> Disqualified: reading the amplified outputs cost ~8× the useful data.</div>
+  <div class="row"><b>Why</b> The shape produces more readout bytes than compute value; the host pays for every byte.</div>
+  <div class="row"><b>Pointed to</b> "Readout is the enemy" became design law, and MVDRAM (arXiv 2503.23817) became the peer system to reproduce and compare against.</div>
+  <p class="codes">codes: <b>exp0</b> (new/exp0_readout_floor.py) &middot; new/MEASURED-RESULTS.md</p>
+</div>
+
+<div class="card">
+  <h3>BitNet, phase by phase <span class="badge b-win">win</span></h3>
+  <div class="row"><b>Tried</b> Bit-exact MAJ3 → batched matvec → real BitNet weights → all seven layer-0 projections → the model in the loop.</div>
+  <div class="row"><b>Result</b> "What is the capital of France?" → "Paris", computed through DRAM charge-sharing (projections at 99.98%).</div>
+  <div class="row"><b>Pointed to</b> Correctness was solved; the campaign became throughput.</div>
+  <p class="codes">codes: phases 0–4f &middot; Lane 1 &middot; memory <b>bitnet_phase4f_pim_in_loop</b></p>
+</div>
+
+<div class="card">
+  <h3>The May bug chain <span class="badge b-lesson">lesson</span></h3>
+  <div class="row"><b>Tried</b> Chasing "degrading" and "flaky" full-model output.</div>
+  <div class="row"><b>Result</b> Four separate deterministic software bugs (a pointer shifted 4 bytes by an in-band field, a divide where the model multiplies, a pool stride that placed twin rows, a stale cache key).</div>
+  <div class="row"><b>Why</b> Byte-identical wrong output is logic, never noise.</div>
+  <div class="row"><b>Pointed to</b> The house rule: <i>structural before stochastic</i> — "silicon lottery" is a scapegoat until an experiment proves randomness.</div>
+  <p class="codes">codes: pre-ledger era &middot; house rule &rarr; memory <b>feedback_structural_before_stochastic</b></p>
+</div>
+
+<h2>Act II <span class="era">June · the reproduction and the wall</span></h2>
+
+<div class="card">
+  <h3>MVDRAM reproduction <span class="badge b-rev">reversed later</span></h3>
+  <div class="row"><b>Tried</b> Reproduce MVDRAM faithfully (their models, their conventions, kept in its own lane).</div>
+  <div class="row"><b>Result</b> Correctness-faithful: achieved. Performance-faithful: blocked — their fast dataflow measured 6.1% accuracy here and was ruled "impossible" on our substrate.</div>
+  <div class="row"><b>Why</b> (As discovered in July:) the placement was tripping co-activation; the verdict was a wrong model of the physics, not physics.</div>
+  <div class="row"><b>Pointed to</b> A standing question the lattice work later answered — and a reminder that "impossible" verdicts need mechanisms attached.</div>
+  <p class="codes">codes: <b>Lane 2</b> &middot; ADR-001..004 &middot; GAP-1/GAP-3 &middot; Result A/B &middot; mvdram-repro/</p>
+</div>
+
+<div class="card">
+  <h3>Two roads decision <span class="badge b-disc">discovery</span></h3>
+  <div class="row"><b>Tried</b> Deciding between faithful in-DRAM readout (Road A) and accumulate-in-DRAM (Road B).</div>
+  <div class="row"><b>Result</b> Keep both: Road A for fidelity claims, Road B to attack the readout wall.</div>
+  <div class="row"><b>Pointed to</b> The eventual merge: BitNet with in-DRAM accumulation.</div>
+  <p class="codes">codes: <b>Road A/B</b> &middot; <b>T3</b> / <b>ADR-005</b> (decided 07-17, addendum 16)</p>
+</div>
+
+<h2>Act III <span class="era">July 17 · the lattice week</span></h2>
+
+<div class="card">
+  <h3>Sub-lattice broadcast <span class="badge b-win">win</span></h3>
+  <div class="row"><b>Tried</b> doubleACT between two members of a calibrated tuple at k-generator distance.</div>
+  <div class="row"><b>Result</b> The source's data lands in <i>exactly</i> the predicted 2<sup>k</sup> sub-coset — bit-exact, zero leak, on both hynix dies.</div>
+  <div class="row"><b>Why</b> Row-address bits partition into decoder groups; the pair distance selects which groups fire.</div>
+  <div class="row"><b>Pointed to</b> The spread stopped being a hazard and became a targeted in-DRAM broadcast primitive.</div>
+  <p class="codes">codes: 07-17 session &middot; docs/LATTICE_ADDRESSING_2026_07.md &middot; feeds the <b>M3</b> line</p>
+</div>
+
+<div class="card">
+  <h3>Safe-load <span class="badge b-rev">reversed a block</span></h3>
+  <div class="row"><b>Tried</b> RowClone into tuples with the pair offset chosen by the lattice rules.</div>
+  <div class="row"><b>Result</b> Corruption-free by construction, 16/16 — June's "clone corrupts tuples" block was a wrong model.</div>
+  <div class="row"><b>Pointed to</b> The MVDRAM fast path un-blocked the same day: their computation-rows dataflow ran at 99.98% with safe placement, 2.2–2.3× per gate at ~0.17% end-to-end cost. June's "impossible" verdict reversed.</div>
+  <p class="codes">codes: <b>T2</b> (2.2–2.3×/gate) &middot; <b>Result B reversal</b> &middot; Lane 2 &middot; PR #1</p>
+</div>
+
+<div class="card">
+  <h3>The "probabilistic XDMA stall" <span class="badge b-lesson">lesson</span></h3>
+  <div class="row"><b>Tried</b> Living with weeks of intermittent DMA stalls blamed on the driver.</div>
+  <div class="row"><b>Result</b> Root cause: program finalization ran on every execution, silently corrupting any program object executed more than once. One flag fixed it; 100-iteration re-execution now runs clean.</div>
+  <div class="row"><b>Why</b> The finalizer re-inserted bookkeeping packets and OR-ed branch targets over baked bits — growth and garbage on re-run.</div>
+  <div class="row"><b>Pointed to</b> Upstream DRAM-Bender carries the same latent bug (outreach item). Also: "probabilistic" is usually a deterministic bug seen from too far away.</div>
+  <p class="codes">codes: <b>api patch 0001</b> (finalize-once) &middot; upstream-relevant</p>
+</div>
+
+<div class="card">
+  <h3>Benders 1/3 rescue attempt <span class="badge b-neg">negative, definitive</span></h3>
+  <div class="row"><b>Tried</b> Rescue the two Micron modules with lattice-aware screening.</div>
+  <div class="row"><b>Result</b> Definitively MAJ3-limited: zero separated-generator lattices exist there.</div>
+  <div class="row"><b>Why</b> Their decoder topology never fires the row combinations MAJ3 needs — structure, not luck.</div>
+  <div class="row"><b>Pointed to</b> Storage/shuttle roles for those modules; compute stays on the hynix pair.</div>
+  <p class="codes">codes: <b>S1</b> (selection-law fingerprints on benders 1/3) &middot; memory <b>dimm13_rescue</b></p>
+</div>
+
+<div class="card">
+  <h3>The merge: in-DRAM accumulation <span class="badge b-win">win</span></h3>
+  <div class="row"><b>Tried</b> Popcount accumulation inside DRAM (a carry-save tree of dual-track adders) with lattice-aware allocation.</div>
+  <div class="row"><b>Result</b> 98.6–99.7% lane-exact and a 213× readout reduction at BitNet scale.</div>
+  <div class="row"><b>Pointed to</b> The readout wall has an in-DRAM answer; the two roads began to merge.</div>
+  <p class="codes">codes: <b>CLICK 1</b> &middot; <b>M2</b> (addendum 14) &middot; <b>M1</b> lattice_alloc.h &middot; Road B</p>
+</div>
+
+<h2>Act IV <span class="era">July 20 – 21 · the throughput ladder and the wall model</span></h2>
+
+<div class="card">
+  <h3>Bonsai-1.7B on silicon <span class="badge b-win">win</span></h3>
+  <div class="row"><b>Tried</b> A second model family (PrismML Bonsai, Qwen3-class, g128 quantization).</div>
+  <div class="row"><b>Result</b> Token-exact on the production die; then dual-DIMM 1.95×, fused operand loading 1.52×, and a 1-bit single-track protocol at 18.7 s/token — 5.36× stacked, and 1-bit now beats ternary.</div>
+  <div class="row"><b>Pointed to</b> Generality beyond BitNet, and a ladder of levers worth naming individually.</div>
+  <p class="codes">codes: Lane 1 &middot; V2S/V2G/V2GS &middot; PR #2 &middot; the 07-21 ladder (5.36×)</p>
+</div>
+
+<div class="card">
+  <h3>Request-path profiling <span class="badge b-lesson">hypothesis killed</span></h3>
+  <div class="row"><b>Tried</b> Instrumenting the server, suspecting the Python client's request assembly was half the wall.</div>
+  <div class="row"><b>Result</b> Wrong: the client keeps the pipe full (~0.2 ms gaps). The handler is ~3 ms ≈ one program round-trip, and receive time is dominated by a fixed ~1.5 ms DMA wake, nearly independent of size.</div>
+  <div class="row"><b>Pointed to</b> The real currency: <b>host↔DRAM round-trips</b>. Batching and packing became the levers — and they delivered the only real wall moves of the week (−12.7% stacked).</div>
+  <p class="codes">codes: <b>lever 3b</b> (original) &middot; req-prof/srv-prof in the dispatcher</p>
+</div>
+
+<div class="card">
+  <h3>SEG_POP readback (bitstream build-7) <span class="badge b-neutral">wall-neutral</span></h3>
+  <div class="row"><b>Tried</b> Cut readback bytes 4× by returning per-segment popcounts instead of raw rows.</div>
+  <div class="row"><b>Result</b> Silicon-exact, production token-identical — and the wall didn't move.</div>
+  <div class="row"><b>Why</b> Receive time is latency-bound, not byte-bound; fewer bytes per wake changes nothing.</div>
+  <div class="row"><b>Pointed to</b> Byte savings are banked, to be cashed once round-trips amortize. First confirmation of the cost model.</div>
+  <p class="codes">codes: <b>lever A.1</b> &middot; build-7 / magic 05 &middot; PR #5 &middot; PIM_SEGPOP</p>
+</div>
+
+<div class="card">
+  <h3>Driver poll mode <span class="badge b-neg">negative</span></h3>
+  <div class="row"><b>Tried</b> Kill the DMA interrupt-wake tax with the driver's poll mode.</div>
+  <div class="row"><b>Result</b> The read path returned I/O errors on the validation ladder; rolled back immediately, everything re-verified.</div>
+  <div class="row"><b>Pointed to</b> The wake tax stands; the structural attack on it is streaming (Rung-1), not driver flags.</div>
+  <p class="codes">codes: <b>lever 3a4</b> &middot; fpga-helper load-poll (rolled back)</p>
+</div>
+
+<div class="card">
+  <h3>Bank scale-out <span class="badge b-win">win</span> <span class="badge b-neutral">wall-neutral</span></h3>
+  <div class="row"><b>Tried</b> Run virgin banks with a calibration transferred verbatim from bank 0.</div>
+  <div class="row"><b>Result</b> Token-identical on never-calibrated banks — transfer is "copy the line, byte-verify once". Sixteen banks later measured deposit-set md5-identical. Wall: neutral.</div>
+  <div class="row"><b>Why</b> The physics is die-wide; but more residency doesn't cut round-trips, and receive time is size-sublinear.</div>
+  <div class="row"><b>Pointed to</b> "Calibrate one bank, run the die" (a repo doc), and residency demoted as a wall lever.</div>
+  <p class="codes">codes: <b>levers #11–#14</b> &middot; <b>O9</b> extras pilot &middot; PR #7 &middot; docs/CALIBRATION_TRANSFER.md</p>
+</div>
+
+<div class="card">
+  <h3>MAJ5 under a new reference policy <span class="badge b-neg">honest negative</span></h3>
+  <div class="row"><b>Tried</b> Rescue faithful MAJ5 with a zero-initialized reference and fractional operations (a ~5× column-level gain existed).</div>
+  <div class="row"><b>Result</b> Chain-level accuracy 99.51% vs the MAJ3 route's 99.90% — the column gains don't survive composition.</div>
+  <div class="row"><b>Pointed to</b> The SiMRA-style MAJ3 route stands; MAJ5 stays a science lane, not the production lever.</div>
+  <p class="codes">codes: <b>S2</b> lane &middot; ZERO+2 frac policy &middot; memory <b>frac_not_the_lever</b></p>
+</div>
+
+<h2>Act V <span class="era">July 22 · the inversion</span></h2>
+
+<div class="card">
+  <h3>ACCUM_XBP accumulator (bitstream build-8) <span class="badge b-neg">net-negative in production</span></h3>
+  <div class="row"><b>Tried</b> An in-fabric accumulator that weights and sums bit-planes, draining one vector per group instead of one per plane.</div>
+  <div class="row"><b>Result</b> An RTL saga (first image had a real alignment bug, reproduced in simulation, fixed, silicon-exact on both dies) — and then the production A/B came out +8% wall. Drains collapsed 3.6×; the wall went the wrong way.</div>
+  <div class="row"><b>Why</b> The lever collapses drains, but the binding term is per-execute round-trips, which still stand — and the no-output executes paid a receiver tax on top.</div>
+  <div class="row"><b>Pointed to</b> Second confirmation of the cost model. RTL effort redirected to the term that binds: streaming.</div>
+  <p class="codes">codes: <b>lever A.0</b> &middot; build-8a/8b / magic 06/07 &middot; PR #9 &middot; PIM_ACCUM_XBP</p>
+</div>
+
+<div class="card">
+  <h3>Dual-subarray residency wiring <span class="badge b-lesson">lesson</span></h3>
+  <div class="row"><b>Tried</b> The ledger said: wire the second subarray's pool into weight loading.</div>
+  <div class="row"><b>Result</b> Code audit first: that "dual" path is dead code — zero call sites. The live mechanism (per-calibration extras + overflow) already does the job, and residency growth measures wall-neutral anyway.</div>
+  <div class="row"><b>Pointed to</b> No code written — correctly. Read the code before wiring the ledger's premise.</div>
+  <p class="codes">codes: <b>lever #8</b> &middot; task #75 (May) &middot; tasks #25/#29</p>
+</div>
+
+<div class="card">
+  <h3>M3 coset-deposit scratch loading, gates 1 &amp; 2 <span class="badge b-win">win</span> <span class="badge b-disc">discovery</span></h3>
+  <div class="row"><b>Tried</b> Replace the per-column weight write (≈4,500 instructions, 3 programs) with one lattice deposit from a resident row.</div>
+  <div class="row"><b>Result</b> Byte-exact on production pools, both dies, at 17 instructions in 1 program — 265.8× fewer instructions, ~4× wall. Then gate 2: 800-class shadow-pair supply per bank, every offset class byte-exact (including bit-9 where the window allows it), deposits chain (a deposit target is a valid clone source), fan-out to 7 rows per operation is clean, and <b>32 loads packed into one program ran 114× faster than the write path</b>.</div>
+  <div class="row"><b>Why</b> The first tool run also failed beautifully: the production pool contains <i>no coupled pairs at all</i> — it was screened to make writes safe, which excludes exactly the rows deposits need. The coupling the old layout avoided is the load channel.</div>
+  <div class="row"><b>Pointed to</b> A shadow-row allocator (pair each resident row with its coupled shadow), sources enrolled in the existing refresh cadence — and the burst number means this pays <i>before</i> streaming lands, then becomes the top lever after.</div>
+  <p class="codes">codes: <b>M3</b> &middot; <b>lever #6</b> &middot; gates 1–2 &middot; PR #11 &middot; m3_alloc.h &middot; PIM_BCAST_LOAD (next)</p>
+</div>
+
+<div class="card">
+  <h3>Rung-1 streaming fetch (bitstream build-9) <span class="badge b-win">in flight</span> <span class="badge b-lesson">two lessons</span></h3>
+  <div class="row"><b>Tried</b> A ping-pong instruction memory: load program N+1 while N executes, so the DRAM command bus stops waiting on the host between programs.</div>
+  <div class="row"><b>Result</b> The simulation gate caught a real silicon hazard before any flash (the bank swap skipped the new program's first word — a one-cycle read-latency seam). The host streaming side is written and unit-proven. The first flashed image reported the <i>old</i> version magic: one file (the version-stamped readback engine) was never pushed to the build box — my staging omission. The ladder still passed on it, which silently validated the risky half (the new frontend). Rebuild is running.</div>
+  <div class="row"><b>Pointed to</b> Why gates exist, twice over: the simulation catch, and the magic check refusing an image that can't identify itself. Pre-launch checklist now includes md5-ing every staged file and grepping the source set for the new magic.</div>
+  <p class="codes">codes: <b>lever A.3</b> &middot; <b>Rung 1</b> of 0–3 &middot; build-9/9b / magic 08 &middot; api patches 0000/0006 &middot; PR #12</p>
+</div>
+
+<h2>Act VI <span class="era">July 23 · what the noise turned out to be</span></h2>
+
+<div class="card">
+  <h3>The streaming "corruption" that wasn't <span class="badge b-disc">discovery</span> <span class="badge b-lesson">methodology</span></h3>
+  <div class="row"><b>Tried</b> The producer loop's first full-model run diverged. A per-op dump showed the streamed answer differing from the legacy one on a specific, structured set of elements — only the odd-indexed ones, every operation, phase-locked. It looked exactly like a digital bug in the readout packer.</div>
+  <div class="row"><b>Result</b> A day of chasing plausible mechanisms — byte lanes, packing counters, fetch hazards — each refuted. Then the cheap control nobody had run: compare two <i>legacy</i> runs to each other. They differed <i>identically</i> — same odd-only structure, same magnitude. The effect had nothing to do with streaming. Any two separate server processes disagree on ~all odd 32-bit segments (the upper half of every 64-bit transfer — chips 4–7 of the module), plus the same fixed 13 even ones, deterministically within a boot.</div>
+  <div class="row"><b>Why</b> Unmodeled structural determinism masquerades as noise. The comparison itself was invalid: cross-<i>process</i> results were never comparable, because a per-boot analog operating point (the chip's init/training state) sets a slightly different margin for the upper DQ half. We had been reading a boot-to-boot silicon fingerprint and calling it a datapath fault.</div>
+  <div class="row"><b>Pointed to</b> A new instrument and a new rule. The instrument: a captured production request stream replayed twice inside <i>one</i> process, legacy-vs-streamed back-to-back — the only comparison below the cross-process floor. The rule, now standing: <b>gate ≈ control, and design the control first</b>. It converted a phantom bug into a determinism map (screened kernels bit-exact; resident matmuls bit-exact but for refresh-straddle steps; raw un-screened requests ~95%-element metastable jitter that the vote/margin stack silently absorbs; the per-boot shift on top).</div>
+  <p class="codes">codes: <b>the inversion</b> &middot; PIM_REQ_CAPTURE + replay <code>--dup</code> &middot; memory <b>cross_process_floor</b> &middot; PR #12</p>
+</div>
+
+<div class="card">
+  <h3>The producer loop, finally measured <span class="badge b-win">win</span></h3>
+  <div class="row"><b>Tried</b> With streaming exonerated, the same-process gate could actually bless it: replay twins, gate ≈ control to within one element in 345 requests.</div>
+  <div class="row"><b>Result</b> Streaming on: <b>−4% wall</b>, token-identical, shipped default-on. Then the send-ahead pipeline (host builds program N+1 while N's result drains): <b>−29% measured</b> on the full model (1,307 s vs 1,848 s). A resident-constants lever, resurrected because streaming changed its economics, added <b>−31%</b> on its own — they multiply toward roughly 2× on the request wall.</div>
+  <div class="row"><b>Why</b> Streaming already hid the per-program round-trip, so readout time became silicon-execution time — which flipped the whole cost model. Program <i>count</i> stopped being the wall (a K-batching lever, tried honestly, came back +19%); the un-overlapped host build/send became the target the pipeline attacks.</div>
+  <div class="row"><b>Pointed to</b> The controller-native execution regime MVDRAM describes — the command bus as the clock — now built on our card. The remaining request-path levers are constant factors; the class-changer (in-DRAM accumulation) is the next arc.</div>
+  <p class="codes">codes: <b>Rung 1 → phase-2</b> &middot; PIM_STREAM / PIM_STREAM_PIPE &middot; PR #14</p>
+</div>
+
+<h2>Act VII <span class="era">July 24 · the fetch saga</span></h2>
+
+<div class="card">
+  <h3>A one-in-4,000 stall that was deterministic all along <span class="badge b-disc">discovery</span> <span class="badge b-lesson">simulation</span></h3>
+  <div class="row"><b>Tried</b> The pipeline ran clean for thousands of requests, then wedged. It smelled like a rare race — but "rare stochastic" and "deterministic with a deferred trigger" look identical in one sample.</div>
+  <div class="row"><b>Result</b> A rerun sailed past the first stall point: position not fixed, so environmental arrival, not a fixed counter. The simulation testbench — extended with <i>randomized</i> program lengths and execution times instead of the fixed values it had always used — reproduced the loss instantly, 3 of 3 seeds, and self-shrank it to a four-program script. The fetch stage re-loops <code>pc=0…END</code> between a program's end and its completion signal; any hold parks the counter at an arbitrary phase, and the next program resumes from it, losing its first words. <b>Latent in the legacy path too</b> — masked for the project's whole life because every testbench pinned the timing that happened to land the freeze on zero.</div>
+  <div class="row"><b>Why</b> Every parameter a testbench fixes is an assumption in disguise, and this bug lived exactly in the pinned dimension. The happy path was verified faithfully; the failure was never aimed at.</div>
+  <div class="row"><b>Pointed to</b> Randomized stress with a checker as a permanent pre-flash gate. The fix (build-11): a program-start strobe forcing the counter to zero. Regression across every scenario plus 5×4,000 randomized programs: clean.</div>
+  <p class="codes">codes: <b>build-11 / magic 0A</b> &middot; scenario F (self-shrinking) &middot; fetch_restart &middot; PR #14</p>
+</div>
+
+<div class="card">
+  <h3>The fix that broke the thing the sim couldn't see <span class="badge b-lesson">the model's edge</span></h3>
+  <div class="row"><b>Tried</b> Flash build-11. The streaming ladder passed clean — the stall was cured on silicon.</div>
+  <div class="row"><b>Result</b> But one arm regressed: streamed branch-loop writes — the exact shape production's fused bodies use — now corrupted, where they had been fine before. The restart strobe un-parks the previous program's re-loop from where a branch used to harmlessly strand it, and that stale state becomes execute-visible. A branch-capable testbench (branches had been tied off) exercised the shape — but <i>still couldn't reproduce the exact failure</i>, because it happens where fetch crosses into the decode/execute side the sim stubs.</div>
+  <div class="row"><b>Why</b> An ALL_PASS from a simulation is a statement about the verification boundary, not the design. This fix changed an invariant whose consumers live across that boundary; the moment a fix does that, the sim goes structurally silent on it. It is the same edge the end-to-end memory model has: the model omits exactly the part you're overlooking.</div>
+  <div class="row"><b>Pointed to</b> Build-12: rather than patch symptoms, remove the disease. Fetch <i>parks</i> at end-of-program until the restart strobe — no re-loop, so the whole stale-state hazard class (stale counter, stale branch, post-end junk) cannot exist. Streaming reverted default-off on build-11 meanwhile; legacy paths stay exact, so production is safe at the −4% baseline until build-12's silicon gate.</div>
+  <p class="codes">codes: <b>build-12 / magic 0B</b> &middot; park-at-END (WAIT_RESTART) + branch fence &middot; scenario I &middot; PR #14</p>
+</div>
+
+<div class="thread">
+  <p class="kicker">The through-line</p>
+  <p><b>The cost model, earned the hard way — then inverted, then re-earned.</b>
+  Three "obvious" walls were attacked and each came back neutral or worse —
+  readback bytes (SEG_POP), drain wakes (ACCUM_XBP), instruction count
+  (M3's first gate moved the wall only 4× despite cutting instructions 265×).
+  The one quantity whose reduction always moved the wall was the
+  <b>host↔DRAM round-trip count</b> — until streaming destroyed it, and the
+  regime inverted exactly as predicted: readout became silicon time, program
+  count stopped mattering (K-batching, tried, +19%), and the un-overlapped
+  host path became the target the pipeline cut by 29%. Every neutral and
+  negative verdict was load-bearing. And the deepest lesson wasn't about the
+  wall at all: <b>the two hardest bugs of the month were a structural
+  determinism dressed as noise, and a years-latent fault dressed as a rare
+  race</b> — both invisible until a control run and a randomized testbench
+  forced them into the light. The house rule that nothing is "noise" until an
+  experiment proves randomness paid for itself twice in two days.</p>
+</div>
+
+<div class="outro">
+  <p class="kicker">Where this points now</p>
+  <ul>
+    <li><b>Build-12</b> → flash → the branch-loop gate → streaming back on → the pipeline and constants walls land the measured ~2× on the request wall.</li>
+    <li><b>Then the merge</b> — in-DRAM accumulation, the one lever that changes the <i>complexity class</i> of the wall (what crosses the bus goes from row-count to output-count — a measured 213× on the readout term) rather than a constant factor. Its prerequisites — streaming, the M3 deposit machinery, the shadow allocator — all matured as side effects of the work above.</li>
+    <li><b>Alongside, rolling:</b> the science this campaign produced as exhaust — the selection law, the deposit direction, the determinism map, the complementarity with the field's own PuDGhost characterization — assembled and published as it settles, not held to the end.</li>
+  </ul>
+  <p class="footnote">Keeping up: <code>LEVERS.md</code> is the live private
+  ledger (every lever, dated, with status); <code>docs/ROADMAP.md</code> is
+  its public mirror in the CaSA repo; each experiment directory carries a
+  <code>RESULT.md</code> with the honest verdict; this page is the narrative
+  companion to those. Sibling explainers: DRAM internals, the XOR-spread
+  story, and the PIM overview.</p>
+</div>
+
+</div>
+</body>
+</html>

@@ -384,10 +384,6 @@ Full details in `docs/HARDWARE.md`.
   [`docs/BONSAI_2026_07.md`](docs/BONSAI_2026_07.md)).
 - **Hugging Face** — `transformers` library (we test against
   v4.52).
-- The communities behind `Manim`, `Piper TTS`, `matplotlib`, and
-  `ffmpeg` for the video-production tooling used in the
-  presentation (sources for those live in the private prototype
-  repository, not here).
 
 ## License
 

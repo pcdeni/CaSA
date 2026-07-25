@@ -47,6 +47,7 @@
 #include <string>
 #include <unistd.h>
 #include <vector>
+#include <deque>
 
 using namespace std;
 
@@ -1568,6 +1569,51 @@ static void set_req_K() {
   g_req_K = (g_k_alternate > 0 && ((g_k_req_counter++ & 1) == 0))
             ? 1 : g_inline_bp;
 }
+// PIM_STREAM_PIPE=1 (phase-2, 2026-07-24): within a stream session,
+// exec SENDS run ahead of receives (receives defer to a FIFO drained
+// opportunistically / at request end) so program build+send for later
+// rounds hides under earlier rounds' silicon time. PIM_PIPE_ALTERNATE=1
+// = the same-process twin gate (per-request pipe alternates off/on).
+static int  g_stream_pipe      = -1;
+static bool g_req_pipe         = false;
+static int  g_pipe_alternate   = -1;
+static long g_pipe_req_counter = 0;
+static void set_req_pipe() {
+  if (g_stream_pipe < 0) {
+    const char* v = getenv("PIM_STREAM_PIPE");
+    g_stream_pipe = (v && *v) ? atoi(v) : 0;
+    if (g_stream_pipe > 0)
+      fprintf(stderr, "[server] PIM_STREAM_PIPE=1: phase-2 send-ahead "
+              "pipeline (stream sessions only)\n");
+  }
+  if (g_pipe_alternate < 0) {
+    const char* v = getenv("PIM_PIPE_ALTERNATE");
+    g_pipe_alternate = (v && *v) ? atoi(v) : 0;
+    if (g_pipe_alternate > 0)
+      fprintf(stderr, "[server] PIM_PIPE_ALTERNATE=1: per-request pipe "
+              "off/on twins (same-process gate)\n");
+  }
+  if (g_pipe_alternate > 0)
+    g_req_pipe = ((g_pipe_req_counter++ & 1) == 1);
+  else
+    g_req_pipe = (g_stream_pipe > 0);
+}
+// PIM_PIPE_DEPTH (default 1): max exec payloads outstanding before the
+// next consume. The build-9 ping-pong was only ever validated with the
+// host ≤1 program ahead (phase-1 recv pacing); UNBOUNDED deferral hangs
+// the engine (2026-07-24: drain starved in xdma_engine_read_cyclic,
+// main spinning in receiveData — programs likely clobbered in the idle
+// IMEM bank when h2c outruns execution). Depth 1 already hides the
+// host build+send under silicon time — the phase-2 win as designed.
+static int g_pipe_depth = -1;
+static int pipe_depth() {
+  if (g_pipe_depth < 0) {
+    const char* v = getenv("PIM_PIPE_DEPTH");
+    g_pipe_depth = (v && *v) ? atoi(v) : 1;
+    if (g_pipe_depth < 0) g_pipe_depth = 0;
+  }
+  return g_pipe_depth;
+}
 static int g_bitstream_imem = -1;
 // PIM_PARALLEL_BANKS = 1 swaps build_multibank_combined_program for
 // build_multibank_parallel_program: SiMRA doubleACTs (RowClone /
@@ -1972,6 +2018,7 @@ static int process_request(SoftMCPlatform& platform,
                             int& label_base, int response_fd) {
   init_debug_flags();
   set_req_K();          // per-request effective K (PIM_K_ALTERNATE twin gate)
+  set_req_pipe();       // per-request phase-2 pipe (PIM_PIPE_ALTERNATE gate)
   if (banks.empty()) {
     fprintf(stderr, "[server] no banks configured\n");
     return -1;
@@ -2126,6 +2173,99 @@ static int process_request(SoftMCPlatform& platform,
   // lands in its chunk's group. n_groups == 1 (plain V2) is the
   // historical single-accumulator behavior, bit for bit.
   vector<int32_t> y((size_t)n_groups * d_out, 0);
+  // Phase-2 producer pipeline (PIM_STREAM_PIPE, 2026-07-24): EVERY exec
+  // flows through pend_recv + consume_one. Pipe OFF: each push is
+  // consumed immediately — the platform call sequence is byte-identical
+  // to the historical send->recv->pop cadence. Pipe ON (stream session
+  // only): receives defer, so later rounds' program build+send hides
+  // under earlier rounds' silicon time. The 2026-05-04 write-then-use
+  // locality constraint is untouched: the SEND order (= the DDR-side
+  // timeline) is identical; only host-side receive timing moves.
+  struct PendingRecv {
+    size_t   total_bytes;
+    uint32_t bp_start, K;
+    int      active;
+    size_t   round;
+    std::vector<int> signs;
+  };
+  std::deque<PendingRecv> pend_recv;
+  auto consume_one = [&]() -> int {
+    PendingRecv pr = std::move(pend_recv.front());
+    pend_recv.pop_front();
+    static thread_local std::vector<uint8_t> rows_buf;
+    if (rows_buf.size() < pr.total_bytes) rows_buf.resize(pr.total_bytes);
+    auto t_recv0 = clk::now();
+    int rc = platform.receiveData(rows_buf.data(), (int)pr.total_bytes);
+    t_recv_ns += std::chrono::duration_cast<ns_t>(clk::now() - t_recv0).count();
+    if (rc != (int)pr.total_bytes) {
+      fprintf(stderr, "[server] receiveData rc=%d expected=%zu "
+              "(round=%zu bp=[%u..%u))\n", rc, pr.total_bytes,
+              pr.round, pr.bp_start, pr.bp_start + pr.K);
+      return -1;
+    }
+    // PIM_DUMP_ROWS=<dir> forensics (moved with the recv, 07-24).
+    if (const char* dd = getenv("PIM_DUMP_ROWS")) {
+      static int dump_n = 0;
+      static int dump_max = getenv("PIM_DUMP_ROWS_MAX")
+                            ? atoi(getenv("PIM_DUMP_ROWS_MAX")) : 64;
+      if (dump_n < dump_max) {
+        char path[512];
+        snprintf(path, sizeof path, "%s/rows_%05d_r%zu_bp%u_M%zu.bin",
+                 dd, dump_n++, pr.round, pr.bp_start,
+                 pr.total_bytes / row_read_bytes());
+        if (FILE* fp = fopen(path, "wb")) {
+          fwrite(rows_buf.data(), 1, pr.total_bytes, fp);
+          fclose(fp);
+        }
+      }
+    }
+    auto t_pop0 = clk::now();
+    for (uint32_t kp = 0; kp < pr.K; kp++) {
+      uint32_t b = pr.bp_start + kp;
+      for (int bk = 0; bk < pr.active; bk++) {
+        size_t idx = (size_t)kp * (size_t)pr.active + (size_t)bk;
+        const uint8_t* row = rows_buf.data() + idx * row_read_bytes();
+        vector<int> pc(d_out);
+        row_pc(row, pc.data(), (int)d_out);
+        // O10: host-repair fused-marginal columns (fused layout iff
+        // calib_idx==0 and coset mode 1/3; the unit's mask is in-request).
+        if (calib_idx == 0 && !banks[bk].fused_col_bad.empty()) {
+          int fm = fused_coset_mode();
+          if (fm == 1 || fm == 3) {
+            size_t u2 = pr.round * (size_t)N + (size_t)bk;
+            uint32_t ch2 = single ? (uint32_t)u2 : (uint32_t)(u2 / 2);
+            const uint32_t* m2 = (single || (u2 % 2) == 0)
+                ? pos_mask_all + (size_t)ch2 * d_out
+                : neg_mask_all + (size_t)ch2 * d_out;
+            fused_repair_pc(banks[bk], pc.data(), m2,
+                            x_bitplane_all[(size_t)ch2 * n_bitplanes + b]);
+          }
+        }
+        int sign_factor = (pr.signs[idx] == 0) ? +1 : -1;
+        int weight = sign_factor * bitplane_factor[b];
+        size_t u_acc = pr.round * (size_t)N + (size_t)bk;
+        uint32_t chunk_acc = single ? (uint32_t)u_acc : (uint32_t)(u_acc / 2);
+        size_t g_acc = (size_t)(chunk_acc / group_chunks);
+        int32_t* y_g = y.data() + g_acc * d_out;
+        for (uint32_t j = 0; j < d_out; j++) y_g[j] += weight * pc[j];
+        if (getenv("PIM_DEBUG_RX")) {
+          fprintf(stderr,
+              "[srv-rx] round=%zu bp=%u bk=%d sign=%d weight=%d "
+              "row[0..15]=%02x%02x%02x%02x %02x%02x%02x%02x "
+              "%02x%02x%02x%02x %02x%02x%02x%02x  "
+              "pc[0..7]=%d %d %d %d %d %d %d %d  "
+              "y[0..7]=%d %d %d %d %d %d %d %d\n",
+              pr.round, b, banks[bk].bank_id, sign_factor, weight,
+              row[0],row[1],row[2],row[3],row[4],row[5],row[6],row[7],
+              row[8],row[9],row[10],row[11],row[12],row[13],row[14],row[15],
+              pc[0],pc[1],pc[2],pc[3],pc[4],pc[5],pc[6],pc[7],
+              y[0],y[1],y[2],y[3],y[4],y[5],y[6],y[7]);
+        }
+      }
+    }
+    t_pop_ns += std::chrono::duration_cast<ns_t>(clk::now() - t_pop0).count();
+    return 0;
+  };
   for (size_t round = 0; round < n_rounds; round++) {
     // 1. Per-col write each active bank's backup row for this round.
     //    PIM_V2_PACK=1 packs the round's writes into ~3 IMEM-bounded
@@ -2279,88 +2419,19 @@ static int process_request(SoftMCPlatform& platform,
       pexec(platform, p, (int)(M * row_read_bytes()));
       t_exec_ns += std::chrono::duration_cast<ns_t>(clk::now() - t_exec0).count();
       n_maj3_execs++;
-
-      static thread_local std::vector<uint8_t> rows_buf;
-      size_t total_bytes = M * row_read_bytes();
-      if (rows_buf.size() < total_bytes) rows_buf.resize(total_bytes);
-      auto t_recv0 = clk::now();
-      int rc = platform.receiveData(rows_buf.data(), (int)total_bytes);
-      t_recv_ns += std::chrono::duration_cast<ns_t>(clk::now() - t_recv0).count();
-      if (rc != (int)total_bytes) {
-        fprintf(stderr, "[server] receiveData rc=%d expected=%zu "
-                "(round=%zu bp=[%u..%u))\n", rc, total_bytes,
-                round, bp_start, bp_start + K);
-        return -1;
+      pend_recv.push_back(PendingRecv{M * row_read_bytes(), bp_start, K,
+                                      active_in_round, round,
+                                      std::move(ex_signs)});
+      // Pipe OFF (or no session): consume immediately — byte-identical
+      // platform call sequence to the historical cadence. Pipe ON:
+      // consume down to PIM_PIPE_DEPTH outstanding (bounded send-ahead;
+      // depth 1 = the validated ping-pong envelope).
+      if (!(g_req_pipe && g_stream_session)) {
+        if (consume_one() != 0) return -1;
+      } else {
+        while (pend_recv.size() > (size_t)pipe_depth())
+          if (consume_one() != 0) return -1;
       }
-      // PIM_DUMP_ROWS=<dir> (2026-07-23 forensics): dump the raw
-      // received row images of the first PIM_DUMP_ROWS_MAX programs
-      // (default 64) so the corrupted odd bytes can be decoded offline
-      // (stale? neighbor's counts? shifted?). Use with replay_ab.py.
-      if (const char* dd = getenv("PIM_DUMP_ROWS")) {
-        static int dump_n = 0;
-        static int dump_max = getenv("PIM_DUMP_ROWS_MAX")
-                              ? atoi(getenv("PIM_DUMP_ROWS_MAX")) : 64;
-        if (dump_n < dump_max) {
-          char path[512];
-          snprintf(path, sizeof path, "%s/rows_%05d_r%zu_bp%u_M%zu.bin",
-                   dd, dump_n++, round, bp_start, M);
-          if (FILE* fp = fopen(path, "wb")) {
-            fwrite(rows_buf.data(), 1, total_bytes, fp);
-            fclose(fp);
-          }
-        }
-      }
-      auto t_pop0 = clk::now();
-      for (uint32_t kp = 0; kp < K; kp++) {
-        uint32_t b = bp_start + kp;
-        for (int bk = 0; bk < active_in_round; bk++) {
-          size_t idx = (size_t)kp * (size_t)active_in_round + (size_t)bk;
-          const uint8_t* row = rows_buf.data() + idx * row_read_bytes();
-          vector<int> pc(d_out);
-          row_pc(row, pc.data(), (int)d_out);
-          // O10: host-repair fused-marginal columns. This V2 program ran
-          // the fused layout iff calib_idx==0 (g_fused_calib_ok above)
-          // and the coset mode is 1/3; the unit's mask is in-request.
-          if (calib_idx == 0 && !banks[bk].fused_col_bad.empty()) {
-            int fm = fused_coset_mode();
-            if (fm == 1 || fm == 3) {
-              size_t u2 = round * (size_t)N + (size_t)bk;
-              // single-track: chunk = u2, always the pos mask (V2GS/V2S);
-              // dual-track: chunk = u2/2, pos on even units / neg on odd.
-              uint32_t ch2 = single ? (uint32_t)u2 : (uint32_t)(u2 / 2);
-              const uint32_t* m2 = (single || (u2 % 2) == 0)
-                  ? pos_mask_all + (size_t)ch2 * d_out
-                  : neg_mask_all + (size_t)ch2 * d_out;
-              fused_repair_pc(banks[bk], pc.data(), m2,
-                              x_bitplane_all[(size_t)ch2 * n_bitplanes + b]);
-            }
-          }
-          int sign_factor = (ex_signs[idx] == 0) ? +1 : -1;
-          int weight = sign_factor * bitplane_factor[b];
-          // V2G: route this unit's contribution into its chunk's group
-          // slot (g == 0 always for plain V2, where group_chunks==n_chunks).
-          // single-track: chunk = u_acc; dual-track: chunk = u_acc/2.
-          size_t u_acc = round * (size_t)N + (size_t)bk;
-          uint32_t chunk_acc = single ? (uint32_t)u_acc : (uint32_t)(u_acc / 2);
-          size_t g_acc = (size_t)(chunk_acc / group_chunks);
-          int32_t* y_g = y.data() + g_acc * d_out;
-          for (uint32_t j = 0; j < d_out; j++) y_g[j] += weight * pc[j];
-          if (getenv("PIM_DEBUG_RX")) {
-            fprintf(stderr,
-                "[srv-rx] round=%zu bp=%u bk=%d sign=%d weight=%d "
-                "row[0..15]=%02x%02x%02x%02x %02x%02x%02x%02x "
-                "%02x%02x%02x%02x %02x%02x%02x%02x  "
-                "pc[0..7]=%d %d %d %d %d %d %d %d  "
-                "y[0..7]=%d %d %d %d %d %d %d %d\n",
-                round, b, banks[bk].bank_id, sign_factor, weight,
-                row[0],row[1],row[2],row[3],row[4],row[5],row[6],row[7],
-                row[8],row[9],row[10],row[11],row[12],row[13],row[14],row[15],
-                pc[0],pc[1],pc[2],pc[3],pc[4],pc[5],pc[6],pc[7],
-                y[0],y[1],y[2],y[3],y[4],y[5],y[6],y[7]);
-          }
-        }
-      }
-      t_pop_ns += std::chrono::duration_cast<ns_t>(clk::now() - t_pop0).count();
     }
 
     // PIM_ACCUM_XBP: this round's planes accumulated in-fabric — ONE
@@ -2385,6 +2456,10 @@ static int process_request(SoftMCPlatform& platform,
       t_pop_ns += std::chrono::duration_cast<ns_t>(clk::now() - t_pop0).count();
     }
   }
+  // Phase-2 drain: anything still in flight lands here, in order.
+  while (!pend_recv.empty())
+    if (consume_one() != 0) return -1;
+
   // PIM_ACCUM_XBP epilogue: an oversize-skipped program would have
   // silently dropped a whole plane from the in-fabric sums (the
   // accum-stream hazard class — see oversize_skips()) — fail loudly.
