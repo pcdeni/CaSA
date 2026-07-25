@@ -377,3 +377,60 @@ all indices per-record, none global.
 STATE: leak fix = keep (independent win, byte-exact). Per-record
 counter = revert to inert (harmless) until rebuilt around program-start
 boundaries. Fast drain 8/8 exact; burst backpressure 6/8.
+
+## 14. Answers to the three questions (evidence, not opinion)
+
+**"Byte totals are exact — but are they correct?"  NO.**
+16640 = 8*2048 payload + 64 (one leaked 512-bit read = 2 beats) + 192
+(SIX trailers). A leak and two missing delimiters cancelled in the sum.
+Counting bytes is not verification. A content check was added: the 8
+records run the SAME program on the SAME row, so every payload must be
+byte-identical to record 0.
+
+**"Why 6/8 and not 8/8?"** Two records have no delimiter; the byte
+total hid it because the leaked 64 B exactly offset the two missing
+32 B trailers.
+
+**NEW, and worse than the framing bug:** with the content check in
+place, even the FAST-DRAIN case — where framing is now provably perfect
+(magics at exactly 2048, 4128, ... 16608) — reports 7/7 records
+differing from record 0. Identical programs, identical row,
+deterministic DRAM model: the payloads must match and do not. So there
+is payload corruption INDEPENDENT of delimiter placement. Framing was
+never the whole story.
+
+## 15. The origin-tag design (user's proposal) — right, partially built
+
+Proposal: tag/gate the returning data by origin (user program vs
+maintenance), so we know when one IMEM bank's program is done and the
+swap is safe. This is correct and is the only structure that fixes the
+class: the readback path carries no per-instruction metadata, and DDR
+returns are in order, so the announcement stream can label them:
+
+    announce (read_seq_incoming, incoming_reads, in_maint)
+        -> push {count, origin}
+    return  (rd_valid)
+        -> decrement head; pop when it empties
+    => origin of the beat returning NOW, and
+       "this program's reads have all returned"
+
+BUILT: the (count, origin) queue, payload FIFO gated on user beats.
+NOT WORKING YET: completion still used a RUNNING counter
+(`user_outstanding_r`) that spans programs, so the next program's
+announcements block the current record. Anchoring it at program start
+(fetch_restart) produced byte-identical output = the path as wired is
+not causal; it needs to be built deliberately.
+
+STOPPED iterating here. Nine RTL attempts in this session; the last
+several produced byte-identical results, which means the edits are not
+in the causal path and more patches are waste.
+
+## 16. State kept
+
+- Maintenance read leak fix (level-based suppression): KEEP. Independent
+  defect, byte totals became exact, would corrupt legacy reads too.
+- Content self-consistency check in scenario Q: KEEP. It is the only
+  check that would have caught the payload corruption.
+- Per-record counter + origin queue: present but inert/incorrect;
+  documented above. Do not ship.
+- Fast drain: framing perfect. Burst: 6/8. Payload: wrong in BOTH.

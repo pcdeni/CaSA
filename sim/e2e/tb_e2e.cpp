@@ -461,6 +461,19 @@ int main(int argc, char** argv){
         }
       }
       printf("  (total %ld; expected at 2048,4128,6208,... every 2080)\n", nmag); }
+    { // records are identical programs on one row: payload k must equal
+      // payload 0. Byte totals can be right while content is wrong.
+      int bad_rec = 0, first_bad = -1;
+      for (int k = 1; k < QN; k++) {
+        size_t a0 = 0, ak = (size_t)k * (QPAY + 32);
+        if (ak + QPAY > c2h_bytes.size()) { bad_rec++; if(first_bad<0) first_bad=k; continue; }
+        if (memcmp(&c2h_bytes[a0], &c2h_bytes[ak], QPAY) != 0) {
+          bad_rec++; if (first_bad < 0) first_bad = k;
+        }
+      }
+      printf("[tb] Q CONTENT: %d/%d records differ from record 0 (first=%d) -> %s\n",
+             bad_rec, QN-1, first_bad, bad_rec ? "PAYLOAD WRONG" : "payload consistent");
+      if (bad_rec) fails++; }
     printf("[tb] Q throttle=%ld: sent=%d bytes=%zu/%ld messages=%ld/%d fins=%ld USER_flushes=%ld maint_flushes=%ld -> %s\n",
            throttle, sentQ, c2h_bytes.size(), want, g_c2h_tlast_count, QN,
            g_fin_edges, g_fr_user, g_fr_maint,
