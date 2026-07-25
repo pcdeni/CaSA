@@ -72,10 +72,12 @@ it with nothing. Consequences, each measured against the baseline:
    but does not fix ordering, because fetch order and command-bus order
    diverge the moment maintenance interleaves — costing exactly 2 beats.
 3. **"FIFO empty" is not a record boundary.** **[M]** Streamed trailer
-   magics land at 640/1184/1728/2144 where legacy gives
-   512/1056/1600/2144: the first trailer is 2 beats late, everything
-   shifts 128 B, the last record is 128 B short. Total length is correct
-   — a pure boundary shift, not corruption.
+   magics landed at 640/1184/1728/2144 where legacy gives
+   512/1056/1600/2144: the first trailer 2 beats late, everything shifted
+   128 B, the last record 128 B short. Total length correct — a pure
+   boundary shift, not corruption. **RESOLVED (build18)**: streamed now
+   gives 512/1056/1600/2144, payload byte-exact against the SiMRA
+   baseline, in 65,585 cycles vs 72,763 legacy (−9.9%).
 4. **Maintenance c2h leakage.** **[M]** Baseline emits *zero* c2h bytes
    from maintenance; ours emitted ~154 KB per inter-program gap before
    the origin fix, 0 after (2176 B total, byte-exact).
@@ -92,8 +94,18 @@ Not a patch list — the contract that replaces the precondition:
    The record is the set of user-labelled reads issued between one
    program start and the next; its trailer is due when exactly that many
    payload beats have been delivered. `rbf_empty` must not appear in the
-   trailer condition. *(designed, not yet built — this is the remaining
-   128 B.)*
+   trailer condition. *(build18, done, measured exact.)*
+
+   What made this implementable was realising the extent needs a
+   **program identity**, not just an origin: build16 fed the per-record
+   accumulator from *announcements*, which are fetch-order and user-only,
+   so under streaming the next program announced before this one's flush
+   closed the accumulator and record N absorbed one read of record N+1 —
+   the measured 2 beats. build18 threads a 3-bit **program tag** down the
+   same path as build17's origin bit; a user read arriving with a new tag
+   *is* the boundary. The tag advances only on user program starts:
+   maintenance entry also pulses `fetch_restart` (frontend.v:357), and
+   897 maintenance programs alias a 1-bit tag straight through **[M]**.
 3. **Per-record state must be per-record.** `rd_outstanding`,
    `proc_flush`, `ignore_read` are global and must be replaced by
    per-record quantities anchored at program start, not tuned.
@@ -122,6 +134,51 @@ Not a patch list — the contract that replaces the precondition:
   It is the right idea and the measured win is real, but it was merged
   with no record identity, no per-program accounting, no swap
   acknowledge, and framing still derived from an idle FIFO.
+
+## 6b. The throttled reproducer was measuring itself
+
+`Q throttle=40` merged records 0 and 1 and was the scenario built to
+model the silicon symptom. It was a **testbench artifact**, and the
+measurement that found it is worth keeping as a method.
+
+`flush_pend` was instrumented with observation-only outputs and every
+flush edge and trailer logged with the credit sampled on both sides of
+the clock edge. The result refuted the hypothesis outright **[M]**:
+`same-cycle=0` — no same-cycle flush-edge-plus-trailer exists at all —
+and `credit-anomalies=0`, every user edge a clean 0->1. What it exposed
+instead was that the engine emitted **all 8** trailers while the wire
+showed only 7 magics: the two counters disagreed with *each other*.
+
+Cause: `c2h_tready` was driven before `eval()`, while `c2h_tvalid`,
+`c2h_tdata` and `c2h_tlast` were read *after* the posedge — pairing
+cycle N+1's data with cycle N's ready. Invisible while `tready` is
+constant, which is why it never showed at throttle=0; wrong exactly when
+a throttle toggles `tready`. The mispairing also stretched the run 17x
+(1,585,531 -> 89,185 cycles), which is where the "897 maintenance
+programs" came from.
+
+With the handshake sampled as one settled view of the cycle, throttle=40
+passes: 16,640/16,640 B, 8/8 messages, magics at 2048/4128/.../16608.
+Suite hard fails 4 -> 2 (the two remaining are the pre-existing E14
+content oracles). **The same latent flaw was in the golden-reference
+harness** — masked because it had only ever been run at throttle=0.
+Fixed there too, and the gate re-run across a backpressure sweep **[M]**:
+
+| throttle | stream | len | trailer magics | payload vs SiMRA |
+|---|---|---|---|---|
+| 0 | 0 | 2176 | 512, 1056, 1600, 2144 | BYTE-EXACT |
+| 0 | 1 | 2176 | 512, 1056, 1600, 2144 | BYTE-EXACT |
+| 40 | 0 | 2176 | 512, 1056, 1600, 2144 | BYTE-EXACT |
+| 40 | 1 | 2176 | 512, 1056, 1600, 2144 | BYTE-EXACT |
+| 120 | 0 | 2176 | 512, 1056, 1600, 2144 | BYTE-EXACT |
+| 120 | 1 | 2176 | 512, 1056, 1600, 2144 | BYTE-EXACT |
+
+The lesson generalises past this bug: **a reproducer is not evidence
+until it has been cross-checked against a second observer.** Two
+independent counters of the same event disagreeing is what broke this
+open, and it only became visible because both were instrumented at once.
+The silicon symptom itself (one trailer per session) remains real and
+unproven-fixed until a bitstream carries build17+18.
 
 ## 7. How to work on this from here
 

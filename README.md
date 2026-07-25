@@ -5,6 +5,14 @@ question, and the matrix-multiplications that produce the answer
 happen *inside the DRAM cells* of a regular DDR4 memory module — via
 charge-sharing, on real silicon.
 
+**The name.** *CaSA* comes from **cha**rge **s**h**a**ring — the physical
+effect that does the arithmetic here. Open several DRAM rows close
+enough together and their capacitors share charge onto the same bitline;
+the value that survives is the majority of what they held. That majority
+is the computation. Everything else in this repo — the addressing law,
+the readback engine, the model plumbing — exists to aim that one effect
+at a language model.
+
 > **What this is (and isn't).** This is *processing-using-DRAM* (PUD):
 > we compute with the same physical charge-sharing effects that, aimed
 > the other way, underlie disturbance attacks like RowHammer. The
