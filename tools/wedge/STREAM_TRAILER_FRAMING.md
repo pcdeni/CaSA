@@ -479,3 +479,63 @@ Method note for whoever continues: byte totals are not verification
 (16640 was a leak plus two missing delimiters cancelling). The content
 self-consistency check — identical programs must yield identical
 payloads — is what found defects 1 and 2. Keep it in every gate.
+
+## 19. SEG_POP clear COMPLETE; ILA parked; drift measured
+
+SEG_POP datapath now clears fully on mode entry: seg_beat_valid, seg_sr,
+seg_cnt, seg_word, seg_word_valid (seg_beat_bytes is combinational).
+Window went 43 bytes -> 13 bytes; the residual 13 (bytes 32..44, i.e.
+beat 2 of the first group) is therefore NOT assembler residue and needs
+the golden reference to attribute.
+
+ILA / AXI-Lite: PARKED by decision. Root blocker recorded for whoever
+returns: the upstream generate.tcl calls reset_target+generate_target on
+every IP, which regenerates XDMA from its .xci and reverts the
+AXI-Lite-master customisation (Basic mode wins), removing the m_axil
+ports every build. A no-regeneration build flow (build_noregen.tcl,
+written) is the way in if it is ever wanted. It was adding unknowns
+faster than it removed them.
+
+## 20. How far our engine has drifted from upstream (measured)
+
+    readback_engine.v : 271 -> 1017 lines  (904 changed)  3.8x
+    frontend.v        : 261 ->  547 lines  (396 changed)  2.1x
+    fetch_stage.v     : 147 ->  193 lines  ( 52 changed)  1.3x
+
+Upstream DRAM Bender is a request/response machine with ONE implicit
+precondition: a single program in flight, fully drained before the next.
+Every mechanism we have been fighting is correct under that precondition
+and only that one --
+  * trailer emitted when the payload FIFO happens to be empty
+  * maintenance read suppression armed for exactly one beat
+  * SEG_POP group assembler never cleared between sessions
+  * single-bit "trailer owed" flag
+  * saturating maintenance-vs-user flush heuristic
+None of these is a bug in the original design. All of them are bugs the
+moment programs overlap, which is exactly what streaming introduced. The
+precondition was never written down, so each graft (DIFF, SEG_POP,
+ACCUM_XBP, buffer_space conservation, ping-pong IMEM) was locally
+reasonable and cumulatively violated it.
+
+## 21. GOLDEN REFERENCE (next instrument, user's proposal)
+
+Run the SAME command sequence through UNMODIFIED DRAM Bender and record
+(a) the DDR command stream at the PHY and (b) the c2h byte stream. Use
+it as ground truth and comb our design against it.
+
+Value: it separates "our modifications broke this" from "it was always
+so", which is exactly the question every defect above raised and none of
+today's experiments could answer.
+
+Concrete plan:
+1. pristine tree extracted: golden_ref_2026_07_25/pristine/
+2. build e2e_ref: pristine frontend/fetch/pipeline/readback in the SAME
+   e2e_top harness, same DRAM model, same programs (s1/s4 hex).
+3. record per run: ddr_act/read/write/pre + bank/row/col trace, and the
+   full c2h byte stream.
+4. GATE (new, and we have never had it): in LEGACY cadence our engine
+   must produce a BYTE-IDENTICAL c2h stream to pristine for the same
+   program. Any delta is ours, named and justified or fixed.
+5. Only then re-open streaming, where pristine has no reference and the
+   precondition must be replaced by an explicit contract (origin-tagged
+   returns + record boundary at program start).

@@ -326,8 +326,13 @@ module readback_engine(
       // group came out as a blend of both. Measured: 43 of the first 64
       // bytes of record 0 wrong, everything from byte 64 on exact.
       if(set_mode_segpop) begin
-        seg_cnt <= 2'd0;
-        seg_sr  <= 512'b0;
+        // clear the WHOLE assembler, not just the shift register: the
+        // output word and any beat already in flight carry residue too
+        // (all of it was cleared on hard reset only).
+        seg_cnt        <= 2'd0;
+        seg_sr         <= 512'b0;
+        seg_word       <= 512'b0;
+        seg_beat_valid <= `LOW;
       end
       else if(seg_beat_valid) begin
         // shift the new beat's 16 bytes into the high lane; beat 0 ends in
