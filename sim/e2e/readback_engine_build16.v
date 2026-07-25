@@ -318,7 +318,7 @@ module readback_engine(
     else begin
       // align to read_diff, same as diff_valid (line above): a beat is a
       // SEG_POP user read whose per-segment popcounts are now on pc_out_l4.
-      seg_beat_valid <= rd_valid && ~ignore_read_r && (mode_r == SEG_POP_MODE);
+      seg_beat_valid <= beat_is_user && (mode_r == SEG_POP_MODE);
       seg_word_valid <= `LOW;
       // build16: clear the group assembler when SEG_POP is (re)entered.
       // seg_sr/seg_cnt were reset only on hard reset, so a session that
@@ -567,7 +567,8 @@ module readback_engine(
     .full(rbf_full),
     .prog_full(fifo_almost_full),
     .empty(rbf_empty),
-    .wr_en(mode_r == READ_MODE      ? rd_valid && ~ignore_read_r :
+    // build16c: only beats whose ANNOUNCEMENT said "user" may enter.
+    .wr_en(mode_r == READ_MODE      ? beat_is_user :
            mode_r == SEG_POP_MODE   ? seg_word_valid :
            mode_r == ACCUM_XBP_MODE ? acc_dword_valid : dsr_valid),
     // shuffle data because fifo outputs them on wrong order. SEG_POP uses
@@ -593,6 +594,20 @@ module readback_engine(
   // trailer still queued", which silently dropped the second trailer
   // and desynchronised the host's per-record framing.
   reg [3:0] flush_pend_r, flush_pend_ns;
+
+  // ---- build16c: origin-tagged reads -------------------------------
+  // One entry per announced batch: reads remaining, and whether the
+  // announcing program was maintenance. Returns are in order, so the
+  // head always describes the beat coming back now.
+  reg [15:0] rdq_cnt   [0:15];
+  reg        rdq_maint [0:15];
+  reg [3:0]  rdq_wr, rdq_rd;
+  wire       rdq_empty     = (rdq_wr == rdq_rd);
+  // Unannounced returns (should not happen) are treated as NOT user, so
+  // the failure mode is a missing beat rather than foreign data in the
+  // host's stream.
+  wire       beat_is_maint = rdq_empty ? 1'b1 : rdq_maint[rdq_rd];
+  wire       beat_is_user  = rd_valid && ~beat_is_maint;
 
   // ---- build16: per-record payload accounting ----------------------
   // rec_acc_r  : reads announced since the last flush (this record)
@@ -813,6 +828,8 @@ module readback_engine(
       rec_sent_r   <= 16'd0;
       recq_wr      <= 3'd0;
       recq_rd      <= 3'd0;
+      rdq_wr       <= 4'd0;
+      rdq_rd       <= 4'd0;
       mode_r <= READ_MODE;
       ignore_read_r <= 1'b0;
       rd_valid_r <= 1'b0;
@@ -905,6 +922,19 @@ module readback_engine(
       end
       proc_flush_r <= proc_flush_ns;
       flush_pend_r <= flush_pend_ns;
+
+      // build16c: label announced batches, consume them as beats return
+      if(read_seq_incoming) begin
+        rdq_cnt[rdq_wr]   <= {4'd0, incoming_reads};
+        rdq_maint[rdq_wr] <= in_maint;
+        rdq_wr            <= rdq_wr + 4'd1;
+      end
+      if(rd_valid && ~rdq_empty) begin
+        if(rdq_cnt[rdq_rd] > 16'd1)
+          rdq_cnt[rdq_rd] <= rdq_cnt[rdq_rd] - 16'd1;
+        else
+          rdq_rd <= rdq_rd + 4'd1;
+      end
 
       // build16 accounting -----------------------------------------
       // announcements accumulate into the record being executed

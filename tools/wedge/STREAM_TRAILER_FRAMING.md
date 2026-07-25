@@ -579,3 +579,36 @@ was right; sampling a level at return time was not.
 "In legacy cadence our engine must produce a c2h stream byte-identical
 to pristine for the same program." Today it produces 284x the bytes.
 That is now a measurable, closeable target rather than an opinion.
+
+## 23. ORIGIN TRAVELS WITH THE READ — leak FIXED, verified against baseline
+
+Provenance corrected first: the chain is vanilla DRAM-Bender (271 lines)
+-> **SiMRA fork (244)** -> ours (1017). We forked from SiMRA, so SiMRA
+is the true baseline. Both baselines emit the SAME 2176 B for the test,
+so the reference is anchored either way.
+
+Fix: label each read at its ANNOUNCEMENT (`read_seq_incoming` +
+`incoming_reads` + `in_maint`) and consume the labels in order as beats
+return. DDR returns are in order, so the label travels with the read
+instead of being re-derived at return time (which is what leaked: reads
+come back ~24 cycles after issue, so a maintenance program's last reads
+landed after `maint_process` dropped and were scored as user payload).
+Scope kept narrow: PAYLOAD gating only, framing untouched.
+
+RESULT, same harness / same program / legacy cadence:
+
+    baseline (SiMRA) : 2176 B, 72763 cycles
+    ours BEFORE      : 618816 B (284x), 1660272 cycles
+    ours AFTER       : 2176 B, 72762 cycles
+
+Record-by-record against the baseline:
+
+    record 0..3: payload MATCH (all four, byte-exact)
+                 trailer differs -- ours carries magic 0xDBC0DE0E plus
+                 debug counters where the baseline has zeros. That is an
+                 INTENTIONAL feature of our engine, not a defect.
+
+So in legacy cadence our engine is now byte-identical to the baseline on
+every payload byte, with framing identical (4 x 544) and timing within
+one cycle. The maintenance leak is closed, and closed with evidence
+rather than assertion.
