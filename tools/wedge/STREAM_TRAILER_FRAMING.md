@@ -612,3 +612,45 @@ So in legacy cadence our engine is now byte-identical to the baseline on
 every payload byte, with framing identical (4 x 544) and timing within
 one cycle. The maintenance leak is closed, and closed with evidence
 rather than assertion.
+
+## 24. STREAMING DIFF — the streaming defect, measured and mechanised
+
+With legacy now byte-exact against the baseline, ours-legacy becomes a
+trustworthy reference for ours-streaming (same programs, same data).
+
+    baseline legacy : 2176 B  (4 x 544), all 4 records IDENTICAL
+    ours legacy     : 2176 B, payloads byte-exact vs baseline
+    ours STREAMED   : 2176 B  <- correct length and record count
+        record 0 : payload MATCHES legacy and baseline
+        record 1 : 128/512 bytes differ
+        record 2 : 128/512 bytes differ  } records 1-3 identical to
+        record 3 : 128/512 bytes differ  } each other, wrong the same way
+
+128 bytes = 2 reads. Foreign data, not lost data: the length is right.
+
+**Mechanism, measured.** Counting announcements by origin over a
+streamed run:
+
+        user announcements  = 32   (4 programs x 8 reads)
+        maint announcements = 0
+        maintenance active  = 5922 cycles
+
+Maintenance NEVER announces its reads. So maintenance returns consume
+USER entries from the origin queue, are labelled user, and land in the
+payload — displacing two reads' worth per record. In legacy this is
+invisible because the queue is EMPTY when maintenance runs
+(rdq_empty -> treated as maintenance -> suppressed); under streaming
+there are pending user entries, so the mislabelling bites.
+
+**Consequence for the design.** Announcements are a user-program-only
+prediction; they cannot label every read. The tag must be applied where
+every read is visible: the command bus at ISSUE (`ddr_read` + the
+executing origin). A first attempt at that regressed (legacy back to
+618 KB) because issue pulses and `rd_valid` returns are not 1:1 in this
+pipeline, so the queue desynchronised. Reverted; the issue/return
+correspondence has to be established from the waveform first, not
+assumed.
+
+STATE KEPT: announcement-based tagging (legacy byte-exact vs baseline,
+verified twice). The streaming defect is now a 10-second reproducer in
+READ mode with an 8-read program — the smallest it has ever been.
