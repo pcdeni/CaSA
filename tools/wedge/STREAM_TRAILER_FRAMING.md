@@ -654,3 +654,52 @@ assumed.
 STATE KEPT: announcement-based tagging (legacy byte-exact vs baseline,
 verified twice). The streaming defect is now a 10-second reproducer in
 READ mode with an 8-read program — the smallest it has ever been.
+
+## 25. Maintenance announcements implemented — legacy holds, streaming unchanged
+
+Implemented the proposal: maintenance microcode now announces its reads.
+Announcement encoding decoded from pre_decode.v: bit61 (INFO_OFFSET)
+set, bit63 (DDR_OFFSET) clear, count in [9:0] -> 0x2000000000000001 for
+one read. `pr_read` issues exactly one read per invocation, and the
+routine terminates on an END (zero) word, so a word could be prepended
+safely. Data change only; no RTL logic touched.
+
+    announcements BEFORE : user=32  maint=0
+    announcements AFTER  : user=32  maint=433 (legacy) / 392 (streamed)
+
+433 matches the ~433 previously-unaccounted reads exactly, so the
+announcement stream is now complete and the model of the return stream
+is faithful.
+
+RESULT:
+    legacy   : BYTE-EXACT vs baseline, all 4 records   (no regression)
+    streamed : records 1-3 still differ by 128 B each  (unchanged)
+
+**Why it does not fix streaming — the definitive answer.**
+Announcements are made at FETCH; reads are issued several stages later
+at the COMMAND BUS; returns are in command-bus order. Those two orders
+are the same only while nothing interleaves. When maintenance is fetched
+and announced while a user program's reads are still issuing, the queue
+order (user-batch, then maint) no longer matches the return order (some
+user, maint, remaining user) — and the mislabelling is exactly one
+maintenance beat delivered plus one user beat displaced = 2 beats =
+**128 bytes**, which is precisely the observed corruption.
+
+So neither endpoint can carry the origin:
+  * at RETURN  : `maint_process` has already dropped (25-cycle latency)
+  * at ISSUE   : `maint_process` is a FETCH-stage signal, stale by then
+                 (measured: 465 reads issued, 0 attributed to maint)
+  * at ANNOUNCE: correct stage and correct origin, but fetch-ORDER,
+                 which is not return-order once anything interleaves
+
+**The origin must be a pipeline-carried attribute**: tagged at fetch,
+where it is known, and flowing with the instruction through
+decode -> execute -> ddr_pipeline, so it arrives at the command bus with
+its read and lands in return order by construction. That is a small
+datapath addition (1 bit per stage) and it is the only formulation that
+survives all three measurements above.
+
+KEPT: the maintenance announcements (the model is now complete and
+legacy is byte-exact). NOTE: they also consume buffer_space credit for
+reads that are never delivered; measure that against the baseline before
+shipping.
