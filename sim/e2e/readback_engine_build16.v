@@ -607,11 +607,17 @@ module readback_engine(
     ignore_flush_ctr_ns = ignore_flush_ctr_r;
     flush_eaten = `LOW;
     buffer_space_ns = buffer_space_r;
-    if(per_rd_init || per_zq_init || per_ref_init) begin
-      ignore_read_ns = per_rd_init;
-    end
-    if(rd_valid_r)
-      ignore_read_ns = `LOW;
+    // build16: suppress maintenance read data for the DURATION of the
+    // maintenance program. The old logic armed on per_rd_init and
+    // cleared on the FIRST returning beat, so every later maintenance
+    // read LEAKED into the user's payload stream: measured +2 c2h beats
+    // (one 512b read = 64 B) per record, drifting the delimiter by a
+    // whole record after a few programs. The readback stream carries no
+    // per-instruction metadata, so a single foreign beat is
+    // indistinguishable from payload -- it must never enter the FIFO.
+    ignore_read_ns = in_maint;
+    if(per_rd_init || per_zq_init || per_ref_init)
+      ignore_read_ns = `HIGH;
     proc_flush_ns = proc_flush_r;
     // build3: single decision per flush RISING EDGE. Processed flushes
     // set proc_flush (trailer framing); eaten flushes only decrement

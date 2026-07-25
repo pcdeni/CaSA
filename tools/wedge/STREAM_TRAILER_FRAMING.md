@@ -327,3 +327,53 @@ window and read why. Do not add another speculative patch.
 maintenance programs per user program; silicon's trailer counters imply
 ~170. Same order, but 6x. Every interleaving conclusion drawn here
 should be re-checked at silicon's real maintenance rate.
+
+## 12. THE LEAK — a real defect found and fixed (waveform-derived)
+
+Reading `rec_acc_r` / `rec_sent_r` in the waveform (as instructed, not
+guessed) showed each record emitting **66 c2h beats where 64 were
+announced** — exactly +2 beats = one 512-bit DDR read = 64 bytes of
+foreign data per record, drifting the delimiter by a whole record after
+a few programs.
+
+Source: maintenance read suppression was ONE-SHOT.
+
+    if(per_rd_init || per_zq_init || per_ref_init) ignore_read_ns = per_rd_init;
+    if(rd_valid_r) ignore_read_ns = `LOW;      // cleared after ONE beat
+
+Only the FIRST read of a maintenance program was discarded; every later
+maintenance read LEAKED into the user's payload stream. Because the
+readback path carries no per-instruction metadata, a foreign beat is
+indistinguishable from payload.
+
+FIX (build16): suppress for the DURATION of maintenance —
+`ignore_read_ns = in_maint;` (plus the init pulses). Result: byte totals
+became EXACT (16640/16640) under both drain models, where they were
+16608 before. This defect is independent of the framing question and
+would corrupt legacy reads too whenever maintenance issues >1 read.
+
+## 13. Why the per-record counter cannot work as built (structural)
+
+Attempted a quiescent resync of `rec_sent_r`; it made things worse
+(R1 payload corrupted, Q stalled) and the reason is structural, not a
+tuning error:
+
+  **the expectation only becomes known at the FLUSH, which happens
+  AFTER the record's payload has already been transferred.**
+
+Counting "payload beats since the last trailer" against an expectation
+that arrives at the end is inherently racy, and the residue observed
+(`sent=1466` vs an expectation of 64) is that race, not an accident.
+
+CORRECT DESIGN (for build16 proper): establish the record boundary at
+PROGRAM START, not at its end. `fetch_restart` already pulses at every
+program start (legacy load, stream swap, maintenance entry) and
+`in_maint` distinguishes the origin. On program start: close the
+previous record, zero the per-record counters. During the program:
+accumulate announcements and returns. The record is complete when its
+own announced reads have all returned and its payload has drained —
+all indices per-record, none global.
+
+STATE: leak fix = keep (independent win, byte-exact). Per-record
+counter = revert to inert (harmless) until rebuilt around program-start
+boundaries. Fast drain 8/8 exact; burst backpressure 6/8.
