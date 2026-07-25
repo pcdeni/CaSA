@@ -539,3 +539,43 @@ Concrete plan:
 5. Only then re-open streaming, where pristine has no reference and the
    precondition must be replaced by an explicit contract (origin-tagged
    returns + record boundary at program start).
+
+## 22. GOLDEN REFERENCE BUILT — first diff, three findings
+
+Pristine upstream frontend + pipeline + readback_engine in the SAME
+harness (same DRAM model, IMEM, FIFO, TB, program). Legacy cadence,
+READ mode, 4 x s1_read.hex (8 reads each).
+
+    pristine : c2h = 2176 B  = 4 x (512 payload + 32 trailer)  EXACT
+    ours     : c2h = 618816 B                                  284x
+
+1. **Our user-program payload is byte-identical to pristine.** The
+   streams agree up to byte 513 — i.e. record 0's entire 512-byte
+   payload matches. Execution, addressing and read data are correct;
+   the divergence is entirely in the readback framing/gating.
+
+2. **Maintenance produces ZERO c2h bytes in pristine and ~154 KB per
+   inter-program gap in ours.** Our trailers land at 512, 155232,
+   309952, 464672: record 0 is correctly framed (512+32), then ~154 KB
+   of maintenance-generated traffic precedes each subsequent record. A
+   host expecting one record per program cannot survive that; it is the
+   desync mechanism, measured.
+
+3. **DDR command RATE is identical** (0.018 cmd/cycle both), so
+   maintenance runs the same in both designs. Only the readback
+   treatment of it differs. Our engine is not doing more work — it is
+   failing to discard work that is not the user's.
+
+### Why our maintenance suppression still leaks
+`ignore_read_ns = in_maint` samples the origin AT RETURN TIME, but read
+data returns ~24 cycles after issue: a maintenance program's last reads
+come back AFTER maint_process has dropped, so they are scored as user
+payload. The origin must travel WITH the read, not be sampled when it
+lands — which is exactly the announcement-queue design (push
+{count, origin} on read_seq_incoming, pop as beats return). That design
+was right; sampling a level at return time was not.
+
+### The gate we never had, now available
+"In legacy cadence our engine must produce a c2h stream byte-identical
+to pristine for the same program." Today it produces 284x the bytes.
+That is now a measurable, closeable target rather than an opinion.
