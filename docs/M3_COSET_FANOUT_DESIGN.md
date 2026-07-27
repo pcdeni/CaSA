@@ -1,5 +1,17 @@
 # M3: coset-broadcast operand fan-out — the wcol killer
 
+> ⚠ **SUPERSEDED 2026-07-27 (silicon).** Two forward-looking claims in this
+> doc are now falsified by measurement. **(1)** The **265.8× / ~4× wall**
+> ratios are standalone-harness, wcol-internal numbers — the production
+> `PIM_BCAST_LOAD` deposits into a row the MAJ3 body never reads, contributes
+> nothing (`NODEP` A/B token-identical), and caps below **9%** of the request
+> wall. **(2)** "Rung-1 streaming *inverts the regime* → the instruction cuts
+> become the top lever" is measured **wall-neutral** on build-26 (recv
+> unchanged with streaming on/off; phase-2 send-ahead is the real recv attack).
+> The gate-1 deposit demonstration below is real as a *primitive*; its
+> extrapolation to the request wall is not. Full writeup:
+> `e2e_sim_2026_07_24/M3_UNDERSTANDING_2026_07_26.md` (workspace).
+
 Roadmap #6. After V2_PACK, the production per-request handler is
 ~6.4 ms wcol + ~9.3 ms exec + ~24.7 ms recv. The recv term is attacked by
 SEG_POP (bytes) and ACCUM_XBP (wakes). `wcol` — host-marshalled

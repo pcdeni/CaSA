@@ -79,8 +79,15 @@ design doc that motivates it — the roadmap is itself evidence-first.
    surfaced a silent-skip integrity hazard now fixed with
    `oversize_skips()` observability — read `docs/ROADB_2026_07.md` §6
    before building accum-total systems on this stack.
-6. **M3 coset-broadcast operand fan-out** — **FIRST GATE PASSED
-   2026-07-22, both dies** (`docs/M3_COSET_FANOUT_DESIGN.md` §First
+6. **M3 coset-broadcast operand fan-out** —
+   ⚠ **SUPERSEDED 2026-07-27: production-negative.** The server
+   `PIM_BCAST_LOAD` integration was measured on silicon and contributes
+   nothing — the MAJ3 body recomputes its scratch row, so the deposit is
+   never read; the `NODEP` A/B is token-identical; the ceiling is <9% of the
+   request wall regardless. Kept at default 0, slated for removal. The gate-1
+   numbers below stand only as a *standalone-harness primitive demonstration*
+   and do **not** reach the request wall.
+   **FIRST GATE PASSED 2026-07-22, both dies** (`docs/M3_COSET_FANOUT_DESIGN.md` §First
    gate; tool `app/test_m3_scratch_ab.cpp`, logs `docs/data/m3/`). One
    coset `doubleACT` loads the scratch row(s) byte-exactly from a
    pool-resident source: 20/20 (k=1) + 20/20 (k=2: 1 op → 3 rows) per
@@ -88,8 +95,8 @@ design doc that motivates it — the roadmap is itself evidence-first.
    vs the 3-chunk per-column write. Design finding: the legacy pool is
    an independent set over the coupling graph — deposits must target
    the pool's coupled *shadow* rows; allocator pairs resident↔shadow.
-   Next: server `PIM_BCAST_LOAD` + shadow allocator (after the Rung-1
-   producer loop — one invasive server change at a time).
+   ~~Next: server `PIM_BCAST_LOAD` + shadow allocator~~ — **done 2026-07-26,
+   resolved negative** (see the banner above).
 7. **PIM_PARALLEL_BANKS=1 probe** — DONE 2026-07-21: pack4 provably
    ENGAGED (program-dump signature) yet wall effect 3.3 % ≈ variance —
    the ceiling math for a compute-issue lever on a readout-bound wall.
