@@ -25,6 +25,13 @@ at a language model.
 > for exploit patterns you will find DRAM-disturbance code — that is the
 > computer, not the weapon.
 
+> ▶ **Start here — the plain-language tour:**
+> **<https://pcdeni.github.io/CaSA/explainer/system.html>**
+> — "what we built and how it works" end to end for a reader new to the
+> project: what charge-sharing physically does, how a ternary matmul
+> becomes row operations, why refresh restores charge but not content,
+> and why a bit-exact unit test can still let a full model drift.
+>
 > ▶ **Interactive walkthrough of how it works:**
 > **<https://pcdeni.github.io/CaSA/explainer/>** — 13 stepped scenes
 > from cell to inference loop, every claim sourced to a paper or the
@@ -51,12 +58,7 @@ at a language model.
 > **<https://pcdeni.github.io/CaSA/explainer/dram-internals.html>**
 > — the substrate science: cells and subarrays, the co-activation
 > lattice and its selection law, and the measured hazard→tool ladder.
->
-> ▶ **Plain-language tour:** **<https://pcdeni.github.io/CaSA/explainer/system.html>**
-> — "what we built and how it works" end to end for a reader new to the
-> project: what charge-sharing physically does, how a ternary matmul
-> becomes row operations, why refresh restores charge but not content,
-> and why a bit-exact unit test can still let a full model drift.
+
 >
 > ▶ **Companion:** **<https://pcdeni.github.io/CaSA/explainer/xor-spread.html>**
 > — the `doubleACT` row-spread we found during calibration: a bit-exact
