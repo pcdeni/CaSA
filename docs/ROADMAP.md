@@ -136,10 +136,12 @@ design doc that motivates it — the roadmap is itself evidence-first.
 9. **V2G protocol for streaming/batched shapes** — DONE as protocol
    (wall-neutral), READY as the carrier for any future batched regime.
 10. **xrefresh / accum-knob tuning** — minor; only if a measurement says.
-28. **X-master-clone (activation-side residency + clone)** — ⚠️
-    **IMPLEMENTED 2026-07-27; evidence holds ONLY for the dual-track V2
-    path — CORRUPTS output on the V2S single-track path (2026-07-28).
-    Default-off; do not adopt on single-track until root-caused.**
+28. **X-master-clone (activation-side residency + clone)** — ❌
+    **CLOSED NEGATIVE for production (2026-07-28, root-caused): the
+    RowClone'd x seed sits at charge-shared — not write-driven — levels
+    (in-DRAM x′ ≠ x), and the error compounds with request depth on
+    BOTH tracks. The server now hard-gates X-master off on the
+    single track. Default-off everywhere.**
     On the fused-coset path the 5 activation `wrRow`s (~1,280 slots each)
     rewrite THE SAME `x` plane every round (MAJ3 charge-sharing destroys
     its operand rows each execution). X-master writes each plane's `x`
@@ -157,17 +159,30 @@ design doc that motivates it — the roadmap is itself evidence-first.
     (`PIM_FUSED_COSET=1`, server default 0), so the −9.9% only cashes in
     if fused is adopted. Stays default-off pending a user decision.
     `docs/SESSION_2026_07_27.md` §3.
-    **2026-07-28 CORRECTION (session audit):** the −9.9% A/B above was
-    BitNet dual-track V2 at max-tokens **1**, both arms emitting '1'
-    (the legitimate list-start — a 3-token probe yields '1. '); that is
-    a thin gate. On the production Bonsai **V2S single-track** path,
-    X-master produces degenerate output in every tested config (K=6 and
-    K=8, streaming on and off) on the same server binary — the break is
-    model-path-dependent, not a K or streaming interaction. Suspect:
-    masters clone into `open_rows[1]`/`[4]`, whose role may differ in
-    single-track fused bodies. The V2 numerics oracle does not cover
-    V2S; extending it is the next debugging step. Until then:
-    dual-track-only, default-off.
+    **2026-07-28 RESOLUTION (session audit → root cause → fix):** the
+    −9.9% A/B above was BitNet dual-track V2 at max-tokens **1** (both
+    arms '1', the legitimate list-start) — a gate too thin to carry a
+    "verified". On the production Bonsai **V2S single-track** path,
+    X-master produced degenerate output in every config (K=6/K=8,
+    streaming on/off) on the same binary. Root cause (code-trace +
+    oracle-proven): the row roles and orderings are CORRECT on both
+    tracks — the defect is that the master→body RowClone establishes
+    the x seed at **charge-shared, not write-driven, levels** (x′ ≠ x).
+    The dual track computes both popcount terms in-DRAM against the
+    same x′ (coherent; corr 0.998 shallow) but the error **compounds
+    with depth: corr 0.9575, 0/2048 bit-exact at d_in=2560/40 rounds**
+    vs bit-exact without X-master. The single track reconstructs
+    `y = 2·pc_pos(x′) − Σx` with a host-exact Σx — the seed error
+    doubles, nothing cancels, output decorrelates to garbage. Proven
+    with a new V2S mode of the numerics oracle (live-validated with a
+    negative control): same binary/shape/seed, XM=0 **bit-exact
+    2048/2048**, XM=1 corr 0.951 (4/2048). **Fix shipped:** both
+    server X-master gates now include `&& !single`, so V2S keeps the
+    exact write-driven wrRow seeds — post-fix V2S is bit-exact with
+    `PIM_XMASTER=1` (inert). The −9.9% claim is retracted: at
+    production depth X-master fails the ≥0.98 correlation discipline
+    on both tracks. Only revivable if the seed can be made
+    write-driven-equivalent (charge-sharing physics argues no).
 
 ## C. Characterization / science (learn + enable)
 
