@@ -27,11 +27,20 @@ at a language model.
 
 > ▶ **Interactive walkthrough of how it works:**
 > **<https://pcdeni.github.io/CaSA/explainer/>** — 13 stepped scenes
-> from cell to inference loop (now including the in-DRAM accumulation
-> "merge" and the full 632→47.5 s/tok arc), every claim sourced to a
-> paper or the code in this repo. Reviewed adversarially before
-> publication; the claim-to-source ledger lives next to the page in
+> from cell to inference loop, every claim sourced to a paper or the
+> code in this repo. Refreshed 2026-07-28 against a single correction
+> canon: the second-campaign **−64.7 %** production stack
+> (973.2 → 343.7 s), activation K-quant across three model families,
+> and the honest negatives (M3 coset-deposit, X-master) told as
+> rise-and-fall arcs; the first campaign's 632→47.5 s/tok arc stays as
+> history. Reviewed adversarially before publication; the
+> claim-to-source ledgers live next to the page in
 > [`docs/explainer/`](docs/explainer/).
+>
+> ▶ **The optimization spine:**
+> **<https://pcdeni.github.io/CaSA/explainer/optimization-spine.html>**
+> — every July lever in one deck: what was tried, what it measured,
+> what shipped, and what died — with the numbers that decided each.
 >
 > ▶ **Plain-language tour:** **<https://pcdeni.github.io/CaSA/explainer/system.html>**
 > — "what we built and how it works" end to end for a reader new to the

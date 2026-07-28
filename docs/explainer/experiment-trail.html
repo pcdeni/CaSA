@@ -65,7 +65,7 @@
 <body>
 <div class="wrap">
 
-<p class="kicker">DRAM processing-in-memory campaign · April → July 2026 · written 2026-07-22 · last verified 2026-07-24</p>
+<p class="kicker">DRAM processing-in-memory campaign · April → July 2026 · written 2026-07-22 · last verified 2026-07-28</p>
 <h1>The experiment trail</h1>
 <p class="sub">What we tried, how it went (and why), and what each result pointed to next.</p>
 
@@ -309,18 +309,18 @@
 </div>
 
 <div class="card">
-  <h3>M3 coset-deposit scratch loading, gates 1 &amp; 2 <span class="badge b-win">win</span> <span class="badge b-disc">discovery</span></h3>
+  <h3>M3 coset-deposit scratch loading — gates 1 &amp; 2, then the whole lever <span class="badge b-win">harness win</span> <span class="badge b-neg">production-dead</span></h3>
   <div class="row"><b>Tried</b> Replace the per-column weight write (≈4,500 instructions, 3 programs) with one lattice deposit from a resident row.</div>
-  <div class="row"><b>Result</b> Byte-exact on production pools, both dies, at 17 instructions in 1 program — 265.8× fewer instructions, ~4× wall. Then gate 2: 800-class shadow-pair supply per bank, every offset class byte-exact (including bit-9 where the window allows it), deposits chain (a deposit target is a valid clone source), fan-out to 7 rows per operation is clean, and <b>32 loads packed into one program ran 114× faster than the write path</b>.</div>
-  <div class="row"><b>Why</b> The first tool run also failed beautifully: the production pool contains <i>no coupled pairs at all</i> — it was screened to make writes safe, which excludes exactly the rows deposits need. The coupling the old layout avoided is the load channel.</div>
-  <div class="row"><b>Pointed to</b> A shadow-row allocator (pair each resident row with its coupled shadow), sources enrolled in the existing refresh cadence — and the burst number means this pays <i>before</i> streaming lands, then becomes the top lever after.</div>
-  <p class="codes">codes: <b>M3</b> &middot; <b>lever #6</b> &middot; gates 1–2 &middot; PR #11 &middot; m3_alloc.h &middot; PIM_BCAST_LOAD (next)</p>
+  <div class="row"><b>Result</b> In a standalone harness it looked spectacular: byte-exact on production pools, both dies, at 17 instructions in 1 program — <b>265.8× fewer instructions, ~4× wall</b>; deposits chain (a deposit target is a valid clone source), fan-out to 7 rows per operation is clean, and <b>32 loads packed into one program ran 114× faster than the write path</b>. Then production adoption was measured, and it <b>resolved negative</b> (07-26): the MAJ3 body recomputes its scratch row from the pool, so the deposited shadow is <i>never read</i> — suppressing every deposit (<code>PIM_BCAST_NODEP=1</code> A/B) leaves the token identical. 99.4% of the "deposits" were <code>d=0</code> no-ops; the only live effect is write elision, and 87% of that serves stale masks; the ceiling is &lt;9% of the wall regardless.</div>
+  <div class="row"><b>Why</b> The 265×/114× ratios are real in isolation, but the lever attacks only the ~8.6% column-write slice <i>and</i> its mechanism was never wired to the row that actually gets read. Both facts had to be measured to kill it — an impressive internal number is not a wall win, and a passing token gate is not a numerics proof (the layer-0 gate answered "Paris" with 87% of masks stale).</div>
+  <div class="row"><b>Pointed to</b> Publicly retracted (PR #16, merged 07-28; trailing pointer annotation in PR #18), server machinery excised (<b>−286 lines</b>). The lattice deposit <i>primitive</i> stays bit-exact and real — only the production lever is dead. And the numerics-gate discipline this forced (per-op correlation, never token identity) became the instrument that later killed X-master too (Act VIII).</div>
+  <p class="codes">codes: <b>M3</b> &middot; <b>lever #6</b> &middot; gates 1–2 (harness) &middot; PR #16 retraction (merged 07-28) &middot; memory <b>m3_coset_deposit_negative</b></p>
 </div>
 
 <div class="card">
-  <h3>Rung-1 streaming fetch (bitstream build-9) <span class="badge b-win">in flight</span> <span class="badge b-lesson">two lessons</span></h3>
+  <h3>Rung-1 streaming fetch (bitstream build-9) <span class="badge b-disc">discovery</span> <span class="badge b-lesson">two lessons</span></h3>
   <div class="row"><b>Tried</b> A ping-pong instruction memory: load program N+1 while N executes, so the DRAM command bus stops waiting on the host between programs.</div>
-  <div class="row"><b>Result</b> The simulation gate caught a real silicon hazard before any flash (the bank swap skipped the new program's first word — a one-cycle read-latency seam). The host streaming side is written and unit-proven. The first flashed image reported the <i>old</i> version magic: one file (the version-stamped readback engine) was never pushed to the build box — my staging omission. The ladder still passed on it, which silently validated the risky half (the new frontend). Rebuild is running.</div>
+  <div class="row"><b>Result</b> The simulation gate caught a real silicon hazard before any flash (the bank swap skipped the new program's first word — a one-cycle read-latency seam). The host streaming side is written and unit-proven. The first flashed image reported the <i>old</i> version magic: one file (the version-stamped readback engine) was never pushed to the build box — my staging omission. The ladder still passed on it, which silently validated the risky half (the new frontend). Rebuild ran, and the fetch path landed — but getting it correct on silicon turned into a multi-build saga (Act VII).</div>
   <div class="row"><b>Pointed to</b> Why gates exist, twice over: the simulation catch, and the magic check refusing an image that can't identify itself. Pre-launch checklist now includes md5-ing every staged file and grepping the source set for the new magic.</div>
   <p class="codes">codes: <b>lever A.3</b> &middot; <b>Rung 1</b> of 0–3 &middot; build-9/9b / magic 08 &middot; api patches 0000/0006 &middot; PR #12</p>
 </div>
@@ -337,12 +337,12 @@
 </div>
 
 <div class="card">
-  <h3>The producer loop, finally measured <span class="badge b-win">win</span></h3>
+  <h3>The producer loop, exonerated and measured <span class="badge b-neutral">wall-neutral alone</span> <span class="badge b-disc">discovery</span></h3>
   <div class="row"><b>Tried</b> With streaming exonerated, the same-process gate could actually bless it: replay twins, gate ≈ control to within one element in 345 requests.</div>
-  <div class="row"><b>Result</b> Streaming on: <b>−4% wall</b>, token-identical, shipped default-on. Then the send-ahead pipeline (host builds program N+1 while N's result drains): <b>−29% measured</b> on the full model (1,307 s vs 1,848 s). A resident-constants lever, resurrected because streaming changed its economics, added <b>−31%</b> on its own — they multiply toward roughly 2× on the request wall.</div>
-  <div class="row"><b>Why</b> Streaming already hid the per-program round-trip, so readout time became silicon-execution time — which flipped the whole cost model. Program <i>count</i> stopped being the wall (a K-batching lever, tried honestly, came back +19%); the un-overlapped host build/send became the target the pipeline attacks.</div>
-  <div class="row"><b>Pointed to</b> The controller-native execution regime MVDRAM describes — the command bus as the clock — now built on our card. The remaining request-path levers are constant factors; the class-changer (in-DRAM accumulation) is the next arc.</div>
-  <p class="codes">codes: <b>Rung 1 → phase-2</b> &middot; PIM_STREAM / PIM_STREAM_PIPE &middot; PR #14</p>
+  <div class="row"><b>Result</b> Streaming on is token-identical and cuts per-program fetch — but at the request level it is <b>wall-neutral</b> (−4.0%, reverted default-off, not shipped). The receive is synchronous and dominates (~64% of the wall), so streaming the <i>send</i> cannot overlap it. The real attack on recv is <b>phase-2</b> — issue program N+1's send past N's receive on independent PCIe channels — first projected here in Verilator, but blocked on RTL that would not reach fabric until build-14 (Act VII) and only validated on silicon later (Act VIII, −26.3%).</div>
+  <div class="row"><b>Why</b> Streaming alone does <i>not</i> invert the regime, as first believed: recv is synchronous, so overlapping the send buys nothing. Program <i>count</i> is not the wall either (a K-batching lever, tried honestly, came back +19.3%). The one term left to attack is the un-overlapped receive latency — which only phase-2 pipelining touches.</div>
+  <div class="row"><b>Pointed to</b> The controller-native execution regime MVDRAM describes — the command bus as the clock — but first the streaming fetch path had to actually work on silicon, which turned into the fetch saga (Act VII).</div>
+  <p class="codes">codes: <b>Rung 1 → phase-2</b> &middot; PIM_STREAM / PIM_STREAM_PIPE &middot; memory <b>rung1_streaming_validated</b> &middot; PR #14</p>
 </div>
 
 <h2>Act VII <span class="era">July 24 · the fetch saga</span></h2>
@@ -361,35 +361,84 @@
   <div class="row"><b>Tried</b> Flash build-11. The streaming ladder passed clean — the stall was cured on silicon.</div>
   <div class="row"><b>Result</b> But one arm regressed: streamed branch-loop writes — the exact shape production's fused bodies use — now corrupted, where they had been fine before. The restart strobe un-parks the previous program's re-loop from where a branch used to harmlessly strand it, and that stale state becomes execute-visible. A branch-capable testbench (branches had been tied off) exercised the shape — but <i>still couldn't reproduce the exact failure</i>, because it happens where fetch crosses into the decode/execute side the sim stubs.</div>
   <div class="row"><b>Why</b> An ALL_PASS from a simulation is a statement about the verification boundary, not the design. This fix changed an invariant whose consumers live across that boundary; the moment a fix does that, the sim goes structurally silent on it. It is the same edge the end-to-end memory model has: the model omits exactly the part you're overlooking.</div>
-  <div class="row"><b>Pointed to</b> Build-12: rather than patch symptoms, remove the disease. Fetch <i>parks</i> at end-of-program until the restart strobe — no re-loop, so the whole stale-state hazard class (stale counter, stale branch, post-end junk) cannot exist. Streaming reverted default-off on build-11 meanwhile; legacy paths stay exact, so production is safe at the −4% baseline until build-12's silicon gate.</div>
+  <div class="row"><b>Pointed to</b> Build-12: rather than patch symptoms, remove the disease — fetch <i>parks</i> at end-of-program until a restart strobe, so the whole stale-state hazard class (stale counter, stale branch, post-end junk) cannot exist. A clean idea that flashed correctly — and was <b>NO-GO on silicon</b>, in a way that finally exposed the bug under the whole arc (next card).</div>
   <p class="codes">codes: <b>build-12 / magic 0B</b> &middot; park-at-END (WAIT_RESTART) + branch fence &middot; scenario I &middot; PR #14</p>
+</div>
+
+<div class="card">
+  <h3>The three-line wiring bug under the whole silicon arc <span class="badge b-disc">discovery</span> <span class="badge b-lesson">simulation</span></h3>
+  <div class="row"><b>Tried</b> Flash build-12's park-at-END. Instead of curing the stall it wedged: every program after the first jammed the h2c channel (errno-512).</div>
+  <div class="row"><b>Result</b> A new end-to-end pipeline sim — real decode/execute/regfile/<i>maintenance</i> on the real microcode — reproduced the wedge cycle-exact. Parking fetch at END left the conveyor stuck when the next maintenance event (tPRDI ≈ 1 µs, between every round-trip) arrived, because maintenance flows <i>through</i> fetch, not around it. Chasing that surfaced the real culprit under builds 11, 12 <i>and</i> 13: the QUAD wrapper <code>softmc_core.v</code> <b>never connected <code>fetch_restart</code>/<code>restart</code></b> — a Synth 8-7071 the toolchain had flagged and nobody read — so the silicon ran <code>restart==0</code> and none of the three RTL fixes had ever reached the fabric.</div>
+  <div class="row"><b>Why</b> Every build since 11 had "fixed" the loss window in RTL that was disconnected in the wrapper; the sim always exercised the connected module, so it stayed green while silicon stayed broken. The end-to-end instrument — the one carrying maintenance and the real microcode — is what finally crossed the boundary the keyhole testbenches stubbed.</div>
+  <div class="row"><b>Pointed to</b> Build-14: a <b>3-line wiring fix</b> put the loss-window fix on silicon at last (ladder ALL_PASS, legacy twin gate exact, wedges now self-heal via process restart). That unblocked the streaming fetch path production had been waiting on — and with it, the phase-2 pipeline could finally be validated on real silicon (Act VIII). Current silicon is <b>build-26 (magic 0x15)</b>.</div>
+  <p class="codes">codes: <b>build-14 / magic 0D</b> (3-line fetch_restart wiring) &middot; end-to-end pipeline sim &middot; Synth 8-7071 &middot; memory <b>e2e_sim_and_maint_conveyor</b> &middot; PR #14</p>
+</div>
+
+<h2>Act VIII <span class="era">July 27 – 28 · the second campaign</span></h2>
+
+<div class="card">
+  <h3>Coarser activation quant across three families <span class="badge b-win">win</span></h3>
+  <div class="row"><b>Tried</b> Send fewer activation bitplanes per matvec — the top <i>K</i> instead of all 8 (<code>PIM_ACT_K</code>) — which is fewer round-trips per projection. Client-side only, no bitstream.</div>
+  <div class="row"><b>Result</b> Token-identical and correlation-gated (per-op corr, never token identity — the M3 lesson): <b>K=6</b> for both Bonsai variants (1-bit <b>−21.7%</b>, ternary <b>−22.2%</b> full-model wall) and <b>K=5</b> for BitNet-2B (<b>−32.2%</b>). <code>K=4</code> collapses everywhere — a genuine quant cliff — so the floor tracks the <i>training recipe</i>, not the weight bits; the defaults differ per family and all three shipped 07-28.</div>
+  <div class="row"><b>Pointed to</b> A wall lever that costs nothing on the card and generalizes across the whole model zoo — the first half of the current production stack.</div>
+  <p class="codes">codes: <b>lever #24</b> &middot; PIM_ACT_K &middot; memory <b>bonsai_1bit_act_k6</b> &middot; ROADMAP #30</p>
+</div>
+
+<div class="card">
+  <h3>Phase-2 send-ahead on silicon — the −64.7% stack <span class="badge b-win">win</span></h3>
+  <div class="row"><b>Tried</b> With build-14 finally putting the fetch path right on fabric, run the phase-2 pipeline (send program N+1 past N's receive on independent PCIe channels) as a real silicon A/B on the live build-26.</div>
+  <div class="row"><b>Result</b> <b>−26.3%</b> full-model wall (2529.1 → 1863.1 s), and the number that matters: per-request <b>recv 112 → 57 ms (halved)</b> — the first production lever to cut the receive latency Act IV named as the 65% wall. <b>0 stalls, 0 decay, 0 errors over 11,500 requests</b> (the projected ~1/4k stall never appeared). Stacked with K-quant and fused-coset on the BitNet dimm2 path: K=8 plain <b>973.2 s</b> → K=6 762.3 s → +fused 623.5 s → <b>+phase-2 343.7 s = −64.7% vs the K=8 baseline</b>, still answering "…Paris".</div>
+  <div class="row"><b>Why</b> recv is the round-trip latency term, and it is synchronous — only pipelining sends <i>past</i> receives overlaps it. K-quant removes trips, fused-coset packs the array work, phase-2 attacks the receive itself; the three touch different terms, so they compose cleanly (fused-coset is opt-in, server default 0; the stack enables it explicitly).</div>
+  <div class="row"><b>Pointed to</b> The current frontier number, <b>−64.7%</b> (973.2 → 343.7 s) — it supersedes the first campaign's 632 → 47.5 s / 13.3× and the never-materialized "~2×" as the headline. Made a production default 07-28 (a production-behavior change, user-gated).</div>
+  <p class="codes">codes: <b>lever #3</b> phase-2 &middot; build-26 / magic 0x15 &middot; PIM_STREAM_PIPE &middot; memory <b>rung1_streaming_validated</b> &middot; ROADMAP 3a</p>
+</div>
+
+<div class="card">
+  <h3>X-master-clone — a clean −9.9%, then the discipline earned its keep <span class="badge b-neg">closed negative</span> <span class="badge b-lesson">methodology</span></h3>
+  <div class="row"><b>Tried</b> Write each activation plane's <code>x</code> once as a master row per request, then RowClone master→tuple in the MAJ3 bodies instead of re-writing all ~1,280 slots every round (MAJ3 destroys its operand rows each execution).</div>
+  <div class="row"><b>Result</b> Implemented 07-27; a thin run read <b>−9.9%</b> and was written up as validated. It was not. That gate was <b>max-tokens-1</b> ("1"=="1"), committed minutes after its own coherence probe launched. On the real production V2S path the tokens were garbage — and the first hypotheses ("intrinsic to the lever", "a streaming artifact") were both wrong: K=8 was garbage too, and stream-off in the exact config still babbled, so the axis was the <i>model path</i>. A purpose-built V2S oracle (same binary, shape, seed) found it: the RowClone'd master seeds <code>x</code> at <b>charge-shared, not write-driven, levels</b> (in-DRAM <code>x′ ≠ x</code>). Dual-track stays coherent-shaped but never clears the bar — the corruption is <b>depth-independent (corr ≈0.94–0.97 flat across depths 8–80 rounds at production density, 0/2048 bit-exact)</b>, because masters refill every round so per-round seed errors never accumulate; single-track V2S (<code>y = 2·pc(x′) − Σx</code>, host-exact Σx) doubles the error uncancelled → token garbage. Oracle matrix: V2S XM=0 bit-exact 2048/2048, XM=1 <b>corr 0.951</b>.</div>
+  <div class="row"><b>Why</b> A passing token — even a full-model one — is not a numerics proof, exactly as the layer-0 gate had already shown for M3. The adoption bar is per-op correlation (corr ≥ 0.98) at <i>production depth</i>, never a shallow shape or a token.</div>
+  <div class="row"><b>Pointed to</b> Closed negative and hard-gated (<code>&amp;&amp; !single</code> on both tracks, V2S now inert); the <b>−9.9% retracted</b>. Verified oracle-to-full-model: the whole stack with the X-master flag set now returns "…Paris" at <b>351.0 s</b> (the 343.7 s clean stack — yesterday's garbage arm green). The cleanest demonstration of the project's numerics-gate discipline — and it kills the "resident-constants → ~2×" story that once rode on this lever.</div>
+  <p class="codes">codes: <b>lever #28</b> &middot; v2_oracle --single &middot; memory <b>xmaster_status</b> / <b>pim_numerics_gating_correlation</b> &middot; PR #19</p>
+</div>
+
+<div class="card">
+  <h3>The on-fabric orchestrator — first evidence <span class="badge b-disc">first evidence</span></h3>
+  <div class="row"><b>Tried</b> The end-state that <i>ends</i> the round-trip instead of shrinking it: run the projection loop on the card and hand the host finished integer partials — one trip per projection instead of thousands (Rung-2a).</div>
+  <div class="row"><b>Result</b> A Verilator probe returns <b>27/27 byte-exact</b> integer partials against a CPU oracle (07-27); the G2 sim gate passed with zero regressions and caught two real RTL defects along the way. Build-27 (magic <code>0xDBC0DE16</code>) is staged for the fabric.</div>
+  <div class="row"><b>Pointed to</b> The first concrete evidence that the host-command-free projection loop — the controller-native regime MVDRAM runs in — is feasible on our own fabric. Designed and sim-proven, not yet on silicon; flagged as such, folded into no measured number. The user's JTAG flash is the next gate.</div>
+  <p class="codes">codes: <b>lever/task #45</b> &middot; <b>Rung 2</b> of 0–3 &middot; build-27 / magic 0x16 &middot; ROADMAP 3a3</p>
 </div>
 
 <div class="thread">
   <p class="kicker">The through-line</p>
-  <p><b>The cost model, earned the hard way — then inverted, then re-earned.</b>
-  Three "obvious" walls were attacked and each came back neutral or worse —
+  <p><b>The cost model, earned the hard way — and defended against three levers that looked like wins.</b>
+  Every "obvious" wall was attacked and came back neutral or worse —
   readback bytes (SEG_POP), drain wakes (ACCUM_XBP), instruction count
-  (M3's first gate moved the wall only 4× despite cutting instructions 265×).
-  The one quantity whose reduction always moved the wall was the
-  <b>host↔DRAM round-trip count</b> — until streaming destroyed it, and the
-  regime inverted exactly as predicted: readout became silicon time, program
-  count stopped mattering (K-batching, tried, +19%), and the un-overlapped
-  host path became the target the pipeline cut by 29%. Every neutral and
-  negative verdict was load-bearing. And the deepest lesson wasn't about the
+  (M3's first gate moved the wall only 4× despite cutting instructions 265×,
+  and in the live server never moved it at all). The one quantity whose
+  reduction reliably moved the wall was the <b>host↔DRAM round-trip count</b>,
+  and specifically the <i>receive latency</i> — but streaming the send alone
+  turned out to be <b>wall-neutral</b> (recv is synchronous); only phase-2,
+  pipelining sends past receives, finally cut it, by <b>26.3%</b> on silicon,
+  and K-quant took a second axis, stacking to <b>−64.7%</b>. Program count
+  never was the wall (K-batching, tried, +19.3%). Every neutral and negative
+  verdict was load-bearing — and two of them (M3, X-master) were killed only
+  because the adoption bar had moved from "answers Paris" to <b>per-op
+  correlation at production depth</b>. And the deepest lesson wasn't about the
   wall at all: <b>the two hardest bugs of the month were a structural
   determinism dressed as noise, and a years-latent fault dressed as a rare
   race</b> — both invisible until a control run and a randomized testbench
   forced them into the light. The house rule that nothing is "noise" until an
-  experiment proves randomness paid for itself twice in two days.</p>
+  experiment proves randomness paid for itself again and again.</p>
 </div>
 
 <div class="outro">
   <p class="kicker">Where this points now</p>
   <ul>
-    <li><b>Build-12</b> → flash → the branch-loop gate → streaming back on → the pipeline and constants walls land the measured ~2× on the request wall.</li>
-    <li><b>Then the merge</b> — in-DRAM accumulation, the one lever that changes the <i>complexity class</i> of the wall (what crosses the bus goes from row-count to output-count — a measured 213× on the readout term) rather than a constant factor. Its prerequisites — streaming, the M3 deposit machinery, the shadow allocator — all matured as side effects of the work above.</li>
-    <li><b>Alongside, rolling:</b> the science this campaign produced as exhaust — the selection law, the deposit direction, the determinism map, the complementarity with the field's own PuDGhost characterization — assembled and published as it settles, not held to the end.</li>
+    <li><b>The frontier that stands</b> — the production stack is <b>−64.7%</b> (973.2 → 343.7 s, "…Paris"): coarser activation quant, fused-coset, and phase-2 send-ahead, the last of which is the first lever to cut the receive latency itself. The next silicon step is the on-die orchestrator (Rung-2a, build-27) that would collapse each projection to a single round-trip — 27/27 byte-exact in Verilator, awaiting the flash.</li>
+    <li><b>Then the merge</b> — in-DRAM accumulation, the one lever that changes the <i>complexity class</i> of the wall (what crosses the bus goes from row-count to output-count — a measured 213× on the readout term) rather than a constant factor. Its live prerequisite — a real streaming fetch path — matured as a side effect of the work above (build-14/26); the M3 deposit lever once slated for this role is dead, and the merge does not need it.</li>
+    <li><b>Alongside, rolling:</b> the science this campaign produced as exhaust — the selection law, the deposit direction, the determinism map, the numerics-gate discipline, the complementarity with the field's own PuDGhost characterization — assembled and published as it settles, not held to the end.</li>
   </ul>
   <p class="footnote">Keeping up: <code>LEVERS.md</code> is the live private
   ledger (every lever, dated, with status); <code>docs/ROADMAP.md</code> is

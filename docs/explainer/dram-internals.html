@@ -47,9 +47,9 @@
 <body>
 <header>
   <h1>Mapping the DRAM we compute in — an internals atlas</h1>
-  <div class="sub">What one corrupted weight pool taught us about row decoders, predecoder blocks, and the address lattice inside commodity DDR4 &nbsp;·&nbsp; measurements 2026-05 → 2026-07-22, BCU1525 / DRAM Bender, 4 DIMMs</div>
+  <div class="sub">What one corrupted weight pool taught us about row decoders, predecoder blocks, and the address lattice inside commodity DDR4 &nbsp;·&nbsp; measurements 2026-05 → 2026-07-28, BCU1525 / DRAM Bender, 4 DIMMs</div>
 </header>
-<div class="banner">Companion to <span class="mono">xor-spread.html</span> (the animated single-phenomenon walkthrough). Every claim below carries its measurement artifact and date; raw logs live in the working dirs named per section.</div>
+<div class="banner">Companion to <span class="mono">xor_spread_explainer.html</span> (the animated single-phenomenon walkthrough). Every claim below carries its measurement artifact and date; raw logs live in the working dirs named per section.</div>
 <div class="wrap">
 <nav class="toc">
   <a href="#door">1 · The bug that was a door</a>
@@ -225,7 +225,19 @@ which is why a bitline-charge-only story doesn't cover the data.</p>
 <p>The MAJ3-timing double-activation (<code>t12=0, t23=0</code>) deposits the <em>first</em> row's pattern into open
 rows at specific vulnerable offsets <b>during the operation itself</b> — we call it <b>self-pollution</b>. It
 explains an entire class of "tied" results on our lattice-poor DIMMs, and it is a correctness hazard for any
-compute-in-tuple mapping. We have not seen it documented anywhere, including the SiMRA/PULSAR line.</p>
+compute-in-tuple mapping.</p>
+<h3>The closest published peer — and the direction still ours</h3>
+<p>The nearest published characterization is <b>PuDGhost</b> (Kubo et al., SAFARI / UTokyo, arXiv
+<span class="mono">2606.19119</span>): on <b>96 SK hynix DDR4 chips</b> they show that <em>non-operand</em> data biases
+SiMRA compute outputs — adjacent non-activated rows shift a result by <b>≤10%</b> (monotonic, strictly adjacent),
+and concurrently-computing columns by <b>≤48%</b> at 16-row activation (bitline coupling on opposite-parity, shared
+sense-amp side on same-parity) — with errors that are <em>not</em> column-independent, plus on-chip screening
+mitigations (<b>CS-1 / CS-2</b>). That is direct silicon corroboration of our disturbance axis: it explains our B1
+<b>5/5/5</b> balanced-mask rule (their inter-column class) and residents-amplify (their adjacent-row class), and its
+"errors are correlated across columns" result endorses our correlated-margin treatment. But PuDGhost runs the
+<em>read</em> direction — environment → output, non-operand data disturbing a computed result. Self-pollution above
+runs the <em>write</em> direction — the operation depositing <em>into</em> non-activated rows (op → environment).
+Those are complementary, not the same, and the deposit / write direction is still ours.</p>
 </section>
 
 <section id="ladder">
@@ -251,12 +263,36 @@ compute-in-tuple mapping. We have not seen it documented anywhere, including the
   <li><b>Dies:</b> a 3,941-fault XOR-spread set byte-identical across our two SK hynix modules — different part numbers, one dual-rank, surviving a full rig migration. The invariance follows the die design, not the module SKU; calibration files transfer wholesale.</li>
   <li><b>Parts:</b> each DIMM family has its own member patterns (and our two Micron DIMMs don't obey the hynix-die law at all) — the probes and the law-fitting method are what transfer, not the constants.</li>
 </ul>
+<h3>The boundary the ladder assumes: copy is exact, compute is per-process</h3>
+<p>Everything on the DESIGN rung is a claim about address-lattice <em>copies</em> — RowClone deposits, coset
+broadcasts, member selection. It does <b>not</b> extend to MAJ3 <em>analog compute</em> output. A raw per-operation
+MAJ3 popcount is not bit-exact across two server processes: on DIMM 2 the same op swung by <b>28/459/463/283 of
+512</b> ones between separate <span class="mono">bitnet-proj-server</span> boots — a per-boot operating point (the
+upper-DQ-half margins move with the init MRS/ZQ/VREF class) — while staying deterministic <em>within</em> a process.
+What holds across processes is the <b>correlation</b> (<b>0.997–0.9998</b>); corruption is what collapses it. So the
+exactness gate for anything touching compute is per-op correlation on a <b>same-process A/B</b>
+(<span class="mono">v2_oracle</span> / mm3d-verify), never a cross-process per-op or token compare — those are
+invalid gates by construction. Copy and deposit sit on the DESIGN rung; MAJ3 compute output sits with the margins on
+LOTTERY.</p>
+<p>The physics under that split showed up sharply in a 2026-07-28 experiment (X-master): a RowClone establishes its
+destination at <b>charge-shared, not write-driven, cell levels</b>, so the copied activation is a hair off — in-DRAM
+<code>x′ ≠ x</code>. Read back <em>once</em>, <code>x′</code> matches byte-for-byte and every atlas result above holds.
+But reuse that same cloned row as a repeated <em>compute</em> operand and it never clears the exactness bar: the offset
+is a <b>constant per-operation error rate, not an accumulating one</b> — masters refill every round, so the
+seed-from-clone path sits at <b>corr ≈0.94–0.97, 0/2048 bit-exact, depth-independent across 8–80 rounds</b> at
+production density (while the write-driven production paths stayed bit-exact 2048/2048 at every depth to 80 rounds) and
+was closed negative. This is
+why the "free shadow copy" (§8) is real for storage and single reads, and why persistent-weight refresh (2.6×) stands
+by <em>re-cloning</em> a fresh operand each pass rather than letting one decay — a clone is a copy, not a substitute
+for a write-driven operand under repeated compute.</p>
 </section>
 
 <section id="tools">
 <h2>8 · Turning hazards into tools</h2>
-<p>Everything above started as a corruption bug. Mapped, it became an instrument set — each item below is
-silicon-validated, most in production:</p>
+<p>Everything above started as a corruption bug. Mapped, it became an instrument set — each item below is a
+silicon-validated <em>primitive</em>. Whether a primitive earns a place in production is a separate, measured
+question: several of these do, and one flagship application built on the coset broadcast did not — the honest
+footnote is below the table.</p>
 <table>
   <tr><th>tool</th><th>what the lattice does for us</th><th>measured</th></tr>
   <tr><td><b>Safe-load</b></td><td>choose the clone pair-offset so every law-selected member lands on don't-care rows — RowClone into a live tuple, corruption-free <em>by construction</em></td><td>16/16 fast tuple loads, zero corruption (2026-07-17)</td></tr>
@@ -266,6 +302,14 @@ silicon-validated, most in production:</p>
   <tr><td><b>Fused coset activation</b></td><td>coset-aware operand placement fuses activation updates into the compute sequence</td><td>bit-exact 1.45–1.6×/matmul, 1.63× real-model per-token</td></tr>
   <tr><td><b>Lattice-aware roles</b></td><td>dies whose lattice has no separated generators (our D1/D3) are MAJ3-limited → assign them storage roles instead of compute</td><td>D1/D3 verdicts, 2026-07-17</td></tr>
 </table>
+<div class="verdict"><b>The deposit lever that didn't pay off — M3 coset-deposit</b> (server <code>PIM_BCAST_LOAD</code>,
+resolved negative 2026-07-26, publicly retracted <b>PR #16, merged 07-28</b>; trailing pointer annotation in PR #18;
+server machinery excised, <b>−286 lines</b>). The idea was to use the coset broadcast to pre-deposit a shadow weight
+that the MAJ3 body would read instead of re-cloning. It doesn't: the body recomputes its row from the pool, so the
+shadow is never read — <b>99.4%</b> of the "deposits" were <code>d=0</code> no-ops, and the only live effect was
+write-elision (on ~87% stale content), a ceiling <b>under 9%</b> of the token wall. The lattice deposit
+<b>primitive</b> stays bit-exact, zero-leak, one-op fan-out — the physics in §§3–7 is untouched; only this production
+lever is dead.</div>
 </section>
 
 <section id="transfer">
@@ -295,6 +339,9 @@ cheap.</div>
   <tr><td>07-20/21</td><td>provenance settled with SAFARI (SiMRA co-activation); selection law completed — 1,691/1,691, both dies; cross-die byte-identity (3,941 faults)</td><td>law tables; tracker exchange; <span class="mono">docs/LATTICE_ADDRESSING_2026_07.md</span></td></tr>
   <tr><td>07-21/22</td><td>bank audit: 16/16 banks deposit-identical (banks 1–3 closed in the re-verification pass); fringe classes = margin</td><td><span class="mono">bank_audit_2026_07_21/</span> + RESULT.md</td></tr>
   <tr><td>07-22</td><td>boundary atlas: block-anchored landing row; multi-bit member selection; +768 decisive negative; subarray-transfer = partial</td><td><span class="mono">atlas_d*.log</span>, <span class="mono">subxfer_d*.log</span>, RESULT.md</td></tr>
+  <tr><td>07-23</td><td>cross-process floor: address-lattice copies stay byte-exact, but MAJ3 <i>compute</i> output is per-process (28/459/463/283 of 512), correlation-stable — same-process A/B is the only valid exactness gate</td><td><span class="mono">cross_process_floor</span>, replay_ab.py</td></tr>
+  <tr><td>07-26/28</td><td>M3 coset-deposit (<code>PIM_BCAST_LOAD</code>) resolved negative — body recomputes its row, shadow never read — and publicly retracted (PR #16); the coset-broadcast <i>primitive</i> is intact</td><td><span class="mono">m3_coset_deposit_negative</span>, ROADMAP #6</td></tr>
+  <tr><td>07-28</td><td>X-master clone-seed closed negative: a RowClone'd operand sits at charge-shared (x′≠x) levels, corrupted depth-independently (corr ≈0.94–0.97 flat, 8–80 rounds) — copy is exact, a reused clone-as-operand is not</td><td><span class="mono">xmaster_status</span></td></tr>
 </table>
 </section>
 
@@ -306,7 +353,7 @@ cheap.</div>
   <li><b>Self-pollution scope:</b> vulnerable-offset maps exist for our dies; is it universal to MAJ-timing double-ACTs on other parts?</li>
   <li><b>Predecoder-block size:</b> 512 vs 1024 behavior differs by bit pair on our parts — a finer atlas could pin the full pair→scope map.</li>
 </ul>
-<p class="dim" style="margin-top:26px">Companion: <span class="mono">xor-spread.html</span> (animated walkthrough of the original phenomenon) ·
+<p class="dim" style="margin-top:26px">Companion: <span class="mono">xor_spread_explainer.html</span> (animated walkthrough of the original phenomenon) ·
 staged repo docs: <span class="mono">LATTICE_ADDRESSING_2026_07.md</span>, <span class="mono">BANK_AUDIT_2026_07.md</span>, <span class="mono">CALIBRATION_TRANSFER.md</span> ·
 all raw logs in the workspace dirs named above.</p>
 </section>

@@ -67,9 +67,11 @@ DRAM chip are, and nothing about this project.</p>
 
 <div class="box key"><span class="t">The one-sentence version</span>
 A ternary language model (BitNet b1.58-2B) runs end-to-end with every one of its 210 weight-matrix multiplications
-executed inside commodity DRAM by charge-sharing majority votes — and in one July 2026 campaign the time per token
-fell from 632 s to 47.5 s while the answers got <em>cleaner</em>, because most of what looked like "noise" turned
-out to be bugs and physics with names.</div>
+executed inside commodity DRAM by charge-sharing majority votes — and the current production stack answers "What is
+the capital of France?" in a <b>−64.7%</b>-reduced wall (973.2 → <b>343.7 s</b>, still "…Paris"), the frontier a
+second July 2026 campaign reached after a first had already cut per-token time 13.3× (632 → 47.5 s). The answers got
+<em>cleaner</em> as they got faster, because most of what looked like "noise" turned out to be bugs and physics with
+names.</div>
 
 <h2 id="stop1"><span class="stop">Stop 1</span>The machine on the desk</h2>
 
@@ -144,7 +146,9 @@ arithmetic plausible, because a ternary × integer dot product needs no multipli
 
 <ol>
 <li>Split the weight vector into two bitmasks: <code>pos</code> (where w=+1) and <code>neg</code> (where w=−1).</li>
-<li>Quantize the activation vector to int8 and slice it into 8 <b>bitplanes</b> (all the 1s-bits, all the 2s-bits, …).</li>
+<li>Quantize the activation vector to int8 and slice it into <b>bitplanes</b> (all the 1s-bits, all the 2s-bits, …) —
+up to eight, though the production default now sends only the top <em>K</em> (the K-quant lever, Stop 9): fewer planes
+mean fewer trips per matvec.</li>
 <li>For each (mask, bitplane) pair: AND the mask with the bitplane — <em>that is the MAJ3 in DRAM</em> — and
 <b>popcount</b> the result (count the 1s).</li>
 <li>Recombine on the host: weight each bitplane's count by 2<sup>b</sup> (MSB negative for two's complement),
@@ -154,8 +158,10 @@ subtract neg-counts from pos-counts, apply the model's two scale factors. That i
 <p>Everything the DRAM does is step 3, done 2,048 bit-positions at a time per row. Everything else is bookkeeping.
 A full 2560→2560 projection decomposes into a few thousand MAJ operations spread across four banks; a token
 through all 30 layers is a few hundred thousand. The model's answer is the accumulation of a very large number of
-analog votes, each individually ~99.9%+ reliable on screened columns, with the model's own quantization margins
-absorbing the residue.</p>
+analog votes — reliable only <em>in aggregate</em>. A single raw MAJ3 popcount is not even reproducible across
+processes (the same op swung 28/459/463/283 of 512 ones in one census), so per-vote reliability is a correlation
+property (corr 0.997–0.9998), not a bit-exact one — and the model's own quantization margins absorb the residue.
+This is why validation gates on numerics, never on a token (Stop 7).</p>
 
 <div class="box good"><span class="t">Why this is even worth doing</span>
 A dot product's operands live in memory anyway. Conventional hardware moves them to a processor to multiply;
@@ -181,13 +187,23 @@ tensor. The model never learns where the math happened.</li>
 </ol>
 
 <p>Where does the time go? Not in the DRAM operations — a vote is tens of nanoseconds. It goes into
-<b>round-trips and readout</b>: every program launch costs host↔FPGA latency, and every vote's result is a full
-8 KiB row that crosses PCIe so the host can reduce it to a single count. Measured on this rig: a packed row-read
-costs ~34 µs; the MAJ itself ~2.6 µs. The system is a memory-bandwidth machine being used as a compute engine, and
-its own readout is the bottleneck — which is why the two "readout killer" roads exist (Stop 8), and why per-token
-time is quoted in seconds, not milliseconds. On a real PIM controller without the FPGA round-trip, the same
-command stream would be orders of magnitude faster; that projection is stated as a projection, never blended into
-the measurements.</p>
+<b>round-trips</b>: every program is a host→FPGA→host hop over PCIe, and that hop is <b>latency-bound</b> —
+interrupt-wake-dominated at roughly <b>1.5 ms</b> whether it carries 2 KB or 8 KB, so a bigger read barely costs
+more. With thousands of programs per token, the wall is the <em>count</em> of trips, not the bytes they carry.
+Measured on this rig: a packed row-read costs ~34 µs and the MAJ itself ~2.6 µs, but the request-level profile is
+dominated by the receive <em>latency</em> of getting results back. The corrected wall map for one request:
+<b>103 ms = 62 ms of silicon round-trips + ~41 ms of unoverlapped host send/build</b>; the result-return
+(<code>recv</code>) is ~65% of it, trip-count-bound not byte-bound.</p>
+
+<div class="box warn"><span class="t">The reversal: bytes were never the wall</span>
+The byte-volume thesis dates from when the in-DRAM popcount circuit was expected to shrink the readout: every
+vote's result was a full 8 KiB row crossing PCIe, so counting in-fabric looked like the obvious cure, and we built
+two "readout killer" roads on that hypothesis (Stop 8). Both shipped to silicon, and both falsified it. Collapsing the readout to a handful of bytes (SEG_POP's 4× cut, Road-A's 213× row reduction, the RTL
+accumulator's 2048×) is <b>wall-neutral to slightly net-negative</b> (+8% for the accumulator), because
+<code>recv</code> is bound by the <em>latency</em> of each read, not its size. That result reorganized the whole
+optimization program (Stop 9): the levers that actually move the wall cut the number of round-trips and overlap
+them, not the bytes per trip. On a real PIM controller without the FPGA round-trip, the same command stream would
+be orders of magnitude faster; that projection is stated as a projection, never blended into the measurements.</div>
 
 <h2 id="stop6"><span class="stop">Stop 6</span>The laws: when calibration becomes computation</h2>
 
@@ -210,8 +226,10 @@ either nothing or its <em>entire</em> share of d. Verified member-by-member: <b>
 of two dies, zero exceptions, invariant across all tested timings</b> — and byte-identical between dies, meaning
 it is a property of the chip design, not the specimen. Physically: each predecoder unit is a latch that either
 holds the old pattern or takes the new one whole; it cannot split. The law's scope was itself measured — it lives
-in 1024-row decoder blocks (the 640-row "subarrays" are sense-amp segments, a different partition), and one
-address bit turns out never to deposit at all.</p>
+in 1024-row decoder blocks (the 640-row "subarrays" are sense-amp segments, a different partition). One address
+bit (bit 9) <em>looked</em> like it never deposits — but that was specific to the tuple class first characterized:
+at other subarrays (e.g. sub 45312) bit 9 latches and is allocator-usable, so "never deposits" was a
+position-dependent artifact, not a law.</p>
 
 <h3>The clone-dead law (which rows can feed a tuple)</h3>
 <p>Loading a compute tuple by RowClone fails for ~17% of source rows — the copy lands diluted, because the pair
@@ -258,12 +276,21 @@ test (which fit in the pool with room to spare), destructive at layer 15 of a re
 silently.</li>
 </ul>
 
-<div class="box key"><span class="t">The two rules this bought</span>
-(1) <b>Layer-0 validation cannot see pool-scale bugs</b>: a test that fits comfortably inside the resources it
-shares with production exercises none of the contention that breaks production. Every production change now gets
-one full-model run before it is called validated. (2) <b>Byte-identical wrong output is logic, never noise.</b>
-Analog flake varies run to run; all four bugs reproduced exactly. Refusing to say "silicon noise" until an
-experiment proved randomness is the discipline that found them — and each time, the silicon was exonerated.</div>
+<div class="box key"><span class="t">The two rules this bought — and how they were sharpened since</span>
+(1) <b>A passing token is not a passing model.</b> Layer-0 validation cannot see pool-scale bugs: a test that fits
+comfortably inside the resources it shares with production exercises none of the contention that breaks production.
+But a full-model <em>token</em> run turned out to be just as blind — the layer-0 gate happily answered "Paris" with
+<b>87% of the PIM weight masks stale</b> (only 7 of 210 BitLinears actually execute on DRAM), and a later
+max-tokens-1 gate flattered a dead lever the same way. So the bar is no longer "runs a full model": it is
+<b>per-op correlation</b> — <code>v2_oracle</code> / <code>mm3d-verify</code> at production depth, <b>corr ≥ 0.98</b>,
+never token identity. That instrument is what caught the streaming resident-corruption and later killed two
+production bets (Stop 9). (2) <b>Byte-identical wrong output is logic, never noise</b> — <em>within one process.</em>
+Analog flake varies run to run; all four bugs reproduced exactly. But the boundary has a subtlety measured since:
+across two server processes even <em>correct</em> output is not byte-identical (raw per-op MAJ3 popcounts swung
+28/459/463/283 of 512), so a cross-process byte compare is itself an invalid gate — same-process A/B only. Even the
+oracle has a trap: a deep-shape run must draw from the <code>cloneok</code> pool, or round-wrap onto unscreened rows
+manufactures "corruption" (corr 0.91–0.94) that reproduces on a <em>known-good</em> binary — a harness artifact, not
+silicon.</div>
 
 <h2 id="stop8"><span class="stop">Stop 8</span>Two lanes and two roads — the honesty architecture</h2>
 
@@ -277,17 +304,33 @@ protocol at declared sampled scope (36 DRAM-verified operations inside real gene
 produced its first <em>bit-exact fp32</em> outputs on real Llama-2-7B tensors — while also finding, and stating,
 that the paper's own partial-sum granularity cannot produce exact fp32, and that its performance rests on a
 command-streaming shape our per-program rig deliberately does not fake (a measured ~10⁵ gap, named as the one
-open item). The full story is its own deck (<a href="mvdram.html">the MVDRAM reproduction explainer</a>).</p>
+open item). The full story is its own deck (<a href="mvdram_explainer.html">the MVDRAM reproduction explainer</a>).</p>
 
-<p>Within Lane 1, the same honesty pattern governs the readout bottleneck. <b>Road A</b> kills it <em>in DRAM</em>:
-a carry-save tree of majority-gate full adders reduces K product rows to log₂K result rows before anything
-crosses the bus (faithful to what a real processing-in-memory chip could do; ~99% per-lane exact; 213× fewer
-readout rows at production K — though on <em>this</em> FPGA-round-trip rig, not yet a wall-time win, which is
-stated in the same breath). <b>Road B</b> kills it in the FPGA: a popcount accumulator in the readback path
-returns 4 bytes instead of 8 KiB — bit-exact, 2048×, but it proves nothing about DRAM. The standing decision
-(ADR-005): keep both, label both, publish the comparison, never blend them into one number.</p>
+<p>Within Lane 1, the same honesty pattern governs the two <em>readout-reduction</em> roads. <b>Road A</b> shrinks it
+<em>in DRAM</em>: a carry-save tree of majority-gate full adders reduces K product rows to log₂K result rows before
+anything crosses the bus (faithful to what a real processing-in-memory chip could do; ~99% per-lane exact; 213×
+fewer readout rows at production K — though on <em>this</em> FPGA-round-trip rig, not yet a wall-time win, which is
+stated in the same breath). <b>Road B</b> shrinks it in the FPGA: a popcount accumulator in the readback path
+returns 4 bytes instead of 8 KiB — bit-exact, 2048×, but it proves nothing about DRAM. Both roads have now shipped
+to silicon (SEG_POP build-7, ACCUM_XBP build-8) — and both measured <b>wall-neutral to net-negative</b> (+8% for the
+RTL accumulator). That is not a disappointment; it is the Stop 5 reversal in the ledger: the byte collapse is real,
+but it buys no wall time because <code>recv</code> is bound by round-trip latency, not read size. The standing
+decision (ADR-005): keep both, label both, publish the comparison, never blend them into one number.</p>
+
+<p>Both roads only <em>shrink</em> the round-trip; the real end-state is to <em>end</em> it — run the projection loop
+on the card and hand the host finished integer partials, one trip per projection instead of thousands. That is the
+<b>on-fabric orchestrator</b> (Rung-2a), and it has its first evidence on the bench: a Verilator probe returns
+<b>27/27 byte-exact</b> integer partials against a CPU oracle (07-27), with <b>build-27</b> (magic
+<code>0xDBC0DE16</code>) staged for the fabric. It is designed, not yet run on silicon — flagged as such, not
+folded into any measured number.</p>
 
 <h2 id="stop9"><span class="stop">Stop 9</span>The scoreboard, read honestly</h2>
+
+<p>Two campaigns, read by evidence class so the picture is not rosier than the measurements. The first drove per-token
+time down by removing bugs and calibration debt; the second restacked the wins on a fresh baseline and finally attacked
+the round-trip latency Stop 5 named as the wall.</p>
+
+<h3>First campaign — replacing "noise" with named mechanisms</h3>
 
 <table>
 <tr><th>full-model seconds per token</th><th>what changed</th><th>the answer</th></tr>
@@ -298,23 +341,71 @@ returns 4 bytes instead of 8 KiB — bit-exact, 2048×, but it proves nothing ab
 <tr><td class="n">47.5</td><td>second DIMM actually balanced (the streamed-request path had been hardwired to server #1)</td><td>byte-identical text</td></tr>
 </table>
 
-<p>13.3× in one campaign, with output quality rising — not because speed causes correctness, but because both
-came from the same source: replacing "noise" with named mechanisms. The remaining named levers: the Road-B
-bitstream (in flight), a residency campaign whose economics were measured and found not-yet-worth-it (a decision
-recorded with its numbers, like everything else here), and the streaming execution shape that separates this rig
-from a real PIM part.</p>
+<p>13.3× across that first campaign, with output quality rising — not because speed causes correctness, but because
+both came from the same source: replacing "noise" with named mechanisms. But 47.5 s was not the endpoint, and two of
+the "remaining levers" quoted at the time have since resolved. The <b>readout-killer bitstreams shipped</b> (Road A/B,
+Stop 8) and measured wall-neutral / net-negative — confirming, not refuting, that the wall is round-trip latency, not
+bytes. And the <b>streaming execution shape</b> is now substantially closed on-rig: streaming the <em>send</em> alone
+is wall-neutral (recv is synchronous and dominates, so overlapping the send buys nothing), but pipelining sends
+<em>past</em> receives — <b>phase-2</b> — became the first production lever to cut <code>recv</code> itself.</p>
+
+<h3>Second campaign — activation quant + send-ahead pipelining</h3>
+
+<p>Two levers landed after the scoreboard above and now define the frontier. <b>Activation quant</b>
+(<code>PIM_ACT_K</code>, Stop 4) sends fewer bitplanes per activation — <code>K=6</code> instead of <code>8</code> —
+which is fewer trips per matvec; it is client-side, no bitstream, and token-identical (gated on per-op correlation,
+not token identity — the Stop 7 lesson). It generalizes across all three model families the system now runs — the
+BitNet ternary model plus Bonsai-1.7B in ternary and 1-bit form — measured at <b>−21.7%</b> (Bonsai 1-bit K=6),
+<b>−22.2%</b> (Bonsai ternary K=6), and <b>−32.2%</b> (BitNet-2B K=5); <code>K=4</code> collapses everywhere (a
+genuine quant cliff), so the floor tracks the training recipe, not the weight bits. <b>Phase-2 send-ahead</b> issues
+the next program's send past the current program's receive on independent PCIe channels: silicon-validated on
+build-26 at <b>−26.3%</b> full-model wall (2529.1 → 1863.1 s), <code>recv</code> <b>112 → 57 ms (halved)</b>, 0 stalls
+/ 0 decay over 11,500 requests, and made the production default. Bisected on the BitNet dimm2 path ("capital of
+France?" → "…Paris" at every rung):</p>
+
+<table>
+<tr><th>full-model wall (dimm2 V2 path)</th><th>what it adds</th><th>vs K=8 baseline</th></tr>
+<tr><td class="n">973.2 s</td><td>K=8, plain, no-stream — the before-everything baseline</td><td>—</td></tr>
+<tr><td class="n">762.3 s</td><td>+ K=6 activation quant</td><td class="n">−21.7%</td></tr>
+<tr><td class="n">623.5 s</td><td>+ fused-coset (opt-in; <code>PIM_FUSED_COSET=1</code>)</td><td>—</td></tr>
+<tr><td class="n">343.7 s</td><td>+ phase-2 send-ahead — the coherent production stack</td><td class="n">−64.7%</td></tr>
+</table>
+
+<div class="box key"><span class="t">The current headline: −64.7%</span>
+973.2 → <b>343.7 s</b> (still "…Paris"), and it is a <em>stack</em>, not a single trick: coarser activation quant
+removes trips, fused-coset packs the array work, and phase-2 finally attacks the <code>recv</code> latency that Stop 5
+named as the 65% wall. It supersedes the 632 → 47.5 s / 13.3× first-campaign number as the frontier — a different,
+fresh baseline, not a multiplier stacked on top of it. Fused-coset is a real win but <b>opt-in</b> (server default 0);
+the stack enables it explicitly.</div>
+
+<div class="box warn"><span class="t">Two named bets that closed negative — recorded so no one re-derives them</span>
+The same numerics discipline (Stop 7) that raised the bar also retired two levers that had looked promising.
+<b>M3 coset-broadcast</b> (<code>PIM_BCAST_LOAD</code>) showed 265.8× fewer instructions in a standalone gate — but in
+the live server the deposit target is never read (the MAJ3 body recomputes its own row), suppressing every deposit
+leaves the token identical, and the surviving "write elision" serves 87% stale masks while attacking only an ~8.6%
+slice of the wall. <b>Resolved negative 2026-07-26</b>, publicly retracted (PR #16, merged 07-28), server machinery excised (−286
+lines). <b>X-master-clone</b> wrote each activation-plane once as a master row and RowClone'd it into the compute
+tuples; it briefly read <b>−9.9%</b> — then was root-caused and killed. The RowClone'd master seeds <code>x</code> at
+<em>charge-shared</em>, not write-driven, levels (<code>x′ ≠ x</code>): the dual-track corruption is
+depth-independent (<b>corr ≈0.94–0.97</b> flat across depths 8–80 rounds at production density, 0/2048 bit-exact —
+masters refill every round, so per-round seed errors never accumulate), and single-track V2S doubles the
+error uncancelled → token garbage (oracle, same binary/shape/seed: XM=0 bit-exact 2048/2048, XM=1 <b>corr 0.951</b>).
+The −9.9% was a max-tokens-1 gate, retracted; V2S is hard-gated off. Both primitives stay bit-exact in isolation; only
+their wall applications failed.</div>
 
 <div class="box good"><span class="t">What is real, what is rig-specific, what is next</span>
-<b>Real and portable:</b> ternary LLM arithmetic by charge-sharing majority votes on stock DDR4; the address-algebra
-laws (design-level, cross-die); in-DRAM accumulation as a working mechanism. <b>Rig-specific:</b> every wall-clock
-number (the FPGA round-trip dominates); Road B. <b>Honestly open:</b> streaming-scale execution (~10⁵), exactness
-above ~99.9% without screening or voting, and everything a real controller ASIC would change. Nothing in this
-paragraph is a projection dressed as a measurement.</div>
+<b>Real and portable:</b> ternary (and 1-bit) LLM arithmetic by charge-sharing majority votes on stock DDR4; the
+address-algebra laws (design-level, cross-die); in-DRAM accumulation as a working mechanism; the −64.7% production
+stack and the K-quant / phase-2 levers behind it. <b>Rig-specific:</b> every wall-clock number (the FPGA round-trip
+dominates); Road B; the very fact that byte-reducers land wall-neutral here. <b>Honestly open / next:</b> the on-fabric
+orchestrator (Rung-2a — 27/27 byte-exact in Verilator, build-27 staged) that would collapse each projection to a
+single trip; exactness above ~99.9% without screening or voting; and everything a real controller ASIC would change.
+Nothing in this paragraph is a projection dressed as a measurement.</div>
 
 <div class="foot">
-<p><b>Going deeper, in order:</b> the <a href="index.html">BitNet PIM explainer</a> (mechanism, scene by
-scene, with a claim ledger); the <a href="xor-spread.html">row-spread &amp; laws explainer</a> (the
-address algebra of Stop 6); the <a href="mvdram.html">MVDRAM reproduction explainer</a> (Lane 2
+<p><b>Going deeper, in order:</b> the <a href="pim_explainer.html">BitNet PIM explainer</a> (mechanism, scene by
+scene, with a claim ledger); the <a href="xor_spread_explainer.html">row-spread &amp; laws explainer</a> (the
+address algebra of Stop 6); the <a href="mvdram_explainer.html">MVDRAM reproduction explainer</a> (Lane 2
 end-to-end). Every quantitative claim in those decks carries a ledger row pointing at its measurement file; this
 narrative's claims are grounded in the same ledgers plus <code>publish_ledger_2026_07_20.md</code>. Mechanism
 prior art: SiMRA, FracDRAM, FCDRAM, POPCNT3 (SAFARI et al.); instrument: DRAM Bender. This page describes work on

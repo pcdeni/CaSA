@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Running an LLM inside DRAM — the optimization spine</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f1116; color: #e6e8ee; }
+  a { color: #4f9bff; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  header { padding: 14px 22px; background: #161922; border-bottom: 1px solid #2a2f3d; position: sticky; top: 0; z-index: 10; }
+  header h1 { font-size: 17px; margin: 0; font-weight: 600; color: #ffd479; }
+  header .sub { color: #8a93a8; font-size: 13px; margin-top: 3px; }
+  .banner { padding: 7px 22px; background: #1a1524; border-bottom: 1px solid #3a2d4d; color: #cdb4f0; font-size: 12.5px; }
+  .wrap { display: grid; grid-template-columns: 234px 1fr; gap: 0; max-width: 1180px; margin: 0 auto; }
+  nav.toc { position: sticky; top: 92px; align-self: start; padding: 18px 10px 18px 18px; font-size: 12.5px; max-height: calc(100vh - 100px); overflow-y: auto; }
+  nav.toc a { display: block; color: #8a93a8; padding: 3px 8px; border-left: 2px solid #2a2f3d; }
+  nav.toc a:hover { color: #e6e8ee; text-decoration: none; border-left-color: #4f9bff; }
+  nav.toc .grp { color: #5a6178; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin: 12px 0 4px 8px; }
+  main { padding: 18px 26px 80px 26px; min-width: 0; }
+  section { margin-bottom: 46px; }
+  h2 { font-size: 19px; color: #ffd479; border-bottom: 1px solid #2a2f3d; padding-bottom: 6px; margin: 0 0 14px 0; }
+  h3 { font-size: 15px; color: #22c1c3; margin: 22px 0 8px 0; }
+  p, li { font-size: 14px; line-height: 1.62; color: #c3c9d8; }
+  b, strong { color: #e6e8ee; }
+  .key { color: #ffd479; }
+  code { background: #1f2434; padding: 1px 5px; border-radius: 3px; font-size: 12.5px; color: #ffd479; font-family: ui-monospace, monospace; }
+  .figure { background: #131722; border: 1px solid #2a2f3d; border-radius: 6px; padding: 14px; margin: 16px 0; }
+  .figure svg { display: block; max-width: 100%; height: auto; margin: 0 auto; }
+  .figure .figcap { font-size: 12.5px; color: #8a93a8; margin-top: 10px; line-height: 1.5; }
+  .figure .figcap b { color: #ffd479; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 13px; }
+  th, td { border: 1px solid #2a2f3d; padding: 6px 9px; text-align: left; color: #c3c9d8; vertical-align: top; }
+  th { background: #1a1f2c; color: #ffd479; font-weight: 600; }
+  td b { color: #22c1c3; }
+  /* the three places */
+  .host { color: #4f9bff; } .fpga { color: #b98cff; } .dram { color: #34d399; }
+  .chip { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 10px; font-family: ui-monospace, monospace; }
+  .chip.host { background: #10233f; color: #6fb0ff; border: 1px solid #24446e; }
+  .chip.fpga { background: #221a34; color: #c3a0ff; border: 1px solid #45356a; }
+  .chip.dram { background: #0f2a20; color: #52e0a8; border: 1px solid #1f5b42; }
+  /* evidence classes */
+  .ev { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 3px; font-family: ui-monospace, monospace; white-space: nowrap; }
+  .ev.meas { background: #12291b; color: #9ae6b4; border: 1px solid #1f5b3a; }
+  .ev.cav  { background: #2c2410; color: #ffd479; border: 1px solid #5c4a1a; }
+  .ev.dead { background: #2c1410; color: #f6a58a; border: 1px solid #7a2f1c; }
+  .ev.dsgn { background: #101f2c; color: #7cc4e6; border: 1px solid #234a63; }
+  .callout { background: #131722; border-left: 3px solid #3a4258; padding: 10px 14px; margin: 14px 0; font-size: 13.5px; color: #c3c9d8; }
+  .callout.wall { border-left-color: #c2410c; }
+  .callout.wall b { color: #f6a58a; }
+  .eq { background: #1a1f2c; border: 1px solid #3a4258; border-radius: 6px; padding: 12px 18px; margin: 14px 0; font-family: ui-monospace, monospace; font-size: 13.5px; color: #e6e8ee; line-height: 1.7; overflow-x: auto; }
+  .eq .c { color: #8a93a8; }
+  .mono { font-family: ui-monospace, monospace; font-size: 12.5px; }
+  .dim { color: #5a6178; }
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 10px 0; font-size: 12.5px; align-items: center; }
+  ul.tight { margin: 6px 0; } ul.tight li { margin: 3px 0; }
+  @media (max-width: 860px) { .wrap { grid-template-columns: 1fr; } nav.toc { position: static; display: flex; flex-wrap: wrap; gap: 2px; max-height: none; } nav.toc .grp { width: 100%; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Running an LLM inside DRAM — the optimization spine</h1>
+  <div class="sub">What a token actually requires · how it is done in memory · what each optimization adds and what it costs &nbsp;·&nbsp; BitNet · Bonsai (1-bit &amp; ternary) · MVDRAM · BCU1525 / DRAM&nbsp;Bender, 4 DIMMs · 2026-07-28</div>
+</header>
+<div class="banner">Every optimization below is tagged with its evidence class: <span class="ev meas">✓ measured</span> on silicon &nbsp; <span class="ev cav">⚠ caveat / contested</span> &nbsp; <span class="ev dead">✗ dead</span> (proven not to work) &nbsp; <span class="ev dsgn">▢ designed</span> (built on paper, not yet run). Nothing here is a projection presented as a result.</div>
+<div class="wrap">
+<nav class="toc">
+  <div class="grp">The theory</div>
+  <a href="#places">1 · The three places</a>
+  <a href="#token">2 · What a token requires</a>
+  <div class="grp">In memory</div>
+  <a href="#primitives">3 · Three DRAM primitives</a>
+  <a href="#matvec">4 · One matvec, in memory</a>
+  <a href="#walls">5 · The two walls</a>
+  <div class="grp">The optimizations</div>
+  <a href="#ladder">6 · The optimization ladder</a>
+  <a href="#throughput">7 · The measured ladder</a>
+  <a href="#dead">8 · Dead ends</a>
+  <div class="grp">Breadth</div>
+  <a href="#families">9 · The four model families</a>
+  <a href="#mvdram">10 · MVDRAM, the peer</a>
+  <a href="#stands">11 · Where the work stands</a>
+</nav>
+<main>
+
+<section id="places">
+<h2>1 · The three places</h2>
+<p>Everything in this document happens in one of three places. Keeping them straight is the
+whole game, because the fast operations and the slow operations live in different places, and
+the cost of a design is mostly the cost of <em>moving between them</em>.</p>
+<div class="figure">
+<svg viewBox="0 0 720 190" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, BlinkMacSystemFont, sans-serif">
+  <!-- host -->
+  <rect x="12" y="20" width="205" height="150" rx="8" fill="#10233f" stroke="#24446e"/>
+  <text x="114" y="44" fill="#6fb0ff" font-size="14" font-weight="700" text-anchor="middle">HOST · CPU</text>
+  <text x="114" y="66" fill="#9ec7f5" font-size="11" text-anchor="middle">orchestrates everything</text>
+  <text x="24" y="92" fill="#c3c9d8" font-size="10.5">· quantizes weights + activations</text>
+  <text x="24" y="110" fill="#c3c9d8" font-size="10.5">· builds DRAM-command programs</text>
+  <text x="24" y="128" fill="#c3c9d8" font-size="10.5">· sends them, reads results back</text>
+  <text x="24" y="146" fill="#c3c9d8" font-size="10.5">· final sum + sampling of the token</text>
+  <!-- fpga -->
+  <rect x="258" y="20" width="205" height="150" rx="8" fill="#221a34" stroke="#45356a"/>
+  <text x="360" y="44" fill="#c3a0ff" font-size="14" font-weight="700" text-anchor="middle">FPGA · card</text>
+  <text x="360" y="66" fill="#c9b0f5" font-size="11" text-anchor="middle">the DRAM-Bender controller</text>
+  <text x="270" y="92" fill="#c3c9d8" font-size="10.5">· runs command programs on the</text>
+  <text x="282" y="106" fill="#c3c9d8" font-size="10.5">  DIMMs (ACT / PRE / RD / WR)</text>
+  <text x="270" y="128" fill="#c3c9d8" font-size="10.5">· can count / accumulate in fabric</text>
+  <text x="282" y="142" fill="#c3c9d8" font-size="10.5">  (SEG_POP, Road-B) before return</text>
+  <!-- dram -->
+  <rect x="504" y="20" width="204" height="150" rx="8" fill="#0f2a20" stroke="#1f5b42"/>
+  <text x="606" y="44" fill="#52e0a8" font-size="14" font-weight="700" text-anchor="middle">DRAM · 4 DIMMs</text>
+  <text x="606" y="66" fill="#7fe9bf" font-size="11" text-anchor="middle">where data lives AND computes</text>
+  <text x="516" y="92" fill="#c3c9d8" font-size="10.5">· rows of cells hold the weights</text>
+  <text x="516" y="110" fill="#c3c9d8" font-size="10.5">· mistimed row activation makes</text>
+  <text x="528" y="124" fill="#c3c9d8" font-size="10.5">  the array itself do AND / copy</text>
+  <text x="516" y="146" fill="#c3c9d8" font-size="10.5">· the compute is nearly free here</text>
+  <!-- arrows -->
+  <text x="237" y="106" fill="#8a93a8" font-size="15" text-anchor="middle">⇄</text>
+  <text x="237" y="126" fill="#f6a58a" font-size="8.5" text-anchor="middle">PCIe</text>
+  <text x="237" y="137" fill="#f6a58a" font-size="8.5" text-anchor="middle">1.5ms</text>
+  <text x="483" y="106" fill="#8a93a8" font-size="15" text-anchor="middle">⇄</text>
+  <text x="483" y="126" fill="#7fe9bf" font-size="8.5" text-anchor="middle">DDR</text>
+  <text x="483" y="137" fill="#7fe9bf" font-size="8.5" text-anchor="middle">~ns</text>
+</svg>
+<div class="figcap"><b>The asymmetry that shapes every decision:</b> compute inside <span class="dram">DRAM</span> costs
+nanoseconds; the <span class="host">host</span>↔<span class="fpga">FPGA</span> hop over PCIe costs about
+<b>1.5&nbsp;ms</b> — a million times more. We are <b>host-orchestrated</b>: the CPU drives each step, so the
+cost of a design is dominated by how many of those hops it takes.</div>
+</div>
+</section>
+
+<section id="token">
+<h2>2 · What a token actually requires</h2>
+<p>Generating one token from a decoder-transformer is a fixed pipeline of arithmetic. Concretely, for
+BitNet b1.58 (hidden size <code>d = 2560</code>, <code>30</code> layers), producing one token runs:</p>
+<div class="figure">
+<svg viewBox="0 0 720 234" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, sans-serif">
+  <text x="10" y="18" fill="#8a93a8" font-size="11" font-family="ui-monospace, monospace">embedding lookup → [ 30 layers ] → final norm → LM head → sample</text>
+  <!-- layer box -->
+  <rect x="10" y="30" width="700" height="150" rx="6" fill="#131722" stroke="#2a2f3d"/>
+  <text x="20" y="48" fill="#ffd479" font-size="11" font-weight="700">one layer (×30)</text>
+  <!-- attention block -->
+  <rect x="22" y="58" width="330" height="110" rx="5" fill="#0f1a2c" stroke="#24446e"/>
+  <text x="30" y="74" fill="#6fb0ff" font-size="10.5" font-weight="700">attention</text>
+  <rect x="30" y="82" width="46" height="24" rx="3" fill="#10233f" stroke="#3a6ea5"/><text x="53" y="98" fill="#9ec7f5" font-size="10" text-anchor="middle" font-family="ui-monospace, monospace">Q</text>
+  <rect x="80" y="82" width="46" height="24" rx="3" fill="#10233f" stroke="#3a6ea5"/><text x="103" y="98" fill="#9ec7f5" font-size="10" text-anchor="middle" font-family="ui-monospace, monospace">K</text>
+  <rect x="130" y="82" width="46" height="24" rx="3" fill="#10233f" stroke="#3a6ea5"/><text x="153" y="98" fill="#9ec7f5" font-size="10" text-anchor="middle" font-family="ui-monospace, monospace">V</text>
+  <rect x="80" y="112" width="96" height="22" rx="3" fill="#161d29" stroke="#3a4258"/><text x="128" y="127" fill="#8a93a8" font-size="9.5" text-anchor="middle">QKᵀ · softmax · V</text>
+  <rect x="30" y="140" width="146" height="22" rx="3" fill="#10233f" stroke="#3a6ea5"/><text x="103" y="155" fill="#9ec7f5" font-size="10" text-anchor="middle" font-family="ui-monospace, monospace">O projection</text>
+  <text x="240" y="98" fill="#8a93a8" font-size="9" text-anchor="middle">Q,K,V,O are</text>
+  <text x="240" y="110" fill="#8a93a8" font-size="9" text-anchor="middle">matrix×vector</text>
+  <text x="240" y="122" fill="#8a93a8" font-size="9" text-anchor="middle">(K,V→640: GQA)</text>
+  <!-- ffn block -->
+  <rect x="366" y="58" width="330" height="110" rx="5" fill="#0f1a2c" stroke="#24446e"/>
+  <text x="374" y="74" fill="#6fb0ff" font-size="10.5" font-weight="700">feed-forward (FFN)</text>
+  <rect x="374" y="82" width="70" height="24" rx="3" fill="#10233f" stroke="#3a6ea5"/><text x="409" y="98" fill="#9ec7f5" font-size="10" text-anchor="middle" font-family="ui-monospace, monospace">gate</text>
+  <rect x="452" y="82" width="70" height="24" rx="3" fill="#10233f" stroke="#3a6ea5"/><text x="487" y="98" fill="#9ec7f5" font-size="10" text-anchor="middle" font-family="ui-monospace, monospace">up</text>
+  <rect x="374" y="112" width="148" height="22" rx="3" fill="#161d29" stroke="#3a4258"/><text x="448" y="127" fill="#8a93a8" font-size="9.5" text-anchor="middle">SwiGLU activation (6912 wide)</text>
+  <rect x="374" y="140" width="148" height="22" rx="3" fill="#10233f" stroke="#3a6ea5"/><text x="448" y="155" fill="#9ec7f5" font-size="10" text-anchor="middle" font-family="ui-monospace, monospace">down projection</text>
+  <text x="600" y="104" fill="#8a93a8" font-size="9" text-anchor="middle">gate,up,down are</text>
+  <text x="600" y="116" fill="#8a93a8" font-size="9" text-anchor="middle">matrix×vector</text>
+  <!-- footer -->
+  <text x="360" y="204" fill="#e6e8ee" font-size="12" text-anchor="middle">7 matrix×vector products per layer &nbsp;×&nbsp; 30 layers &nbsp;=&nbsp; <tspan fill="#ffd479" font-weight="700">210 matvecs / token</tspan></text>
+  <text x="360" y="222" fill="#8a93a8" font-size="10.5" text-anchor="middle">the blue boxes are &gt;99.9% of the ~2.4 billion multiply-adds; the grey boxes (softmax, RoPE, norms) are negligible at batch-1 decode</text>
+</svg>
+<div class="figcap"><b>The one thing to take away:</b> running the model <em>is</em> doing matrix×vector products
+(the <span class="host">blue</span> boxes). Everything else — attention scores, softmax, normalization — is
+rounding error in the compute budget for single-token decode. <b>So "run an LLM in memory" reduces to
+"do a matvec in memory, 210 times per token."</b></div>
+</div>
+<p>The seven per-layer matvecs are the query/key/value/output projections and the FFN gate/up/down
+projections. A matvec is <code>y_m = Σ_j W_{m,j} · x_j</code>: each output element <code>y_m</code> is a
+dot product of one weight-matrix row with the activation vector <code>x</code>. For BitNet the weights
+<code>W</code> are <b>ternary</b> — every entry is <code>−1</code>, <code>0</code>, or <code>+1</code>.
+That ternary structure is what makes an in-DRAM implementation possible at all, and it is where §4 begins.</p>
+</section>
+
+<section id="primitives">
+<h2>3 · Three DRAM primitives (defined before we use them)</h2>
+<p>A DRAM array is rows of capacitor cells sharing bitlines and sense amplifiers. Activating a row copies
+its charge onto the bitlines. If you <em>break the timing rules</em> — activate in ways the standard forbids —
+the analog behavior of the bitlines gives you three operations for free, without moving data off the chip.</p>
+
+<h3>Primitive A — Row copy (RowClone)</h3>
+<p>Activate a source row, then a destination row before the bitlines settle. The destination is overwritten
+with the source's bits. <b>One row is duplicated into another, entirely inside the array.</b> We use it to
+place operands where a compute step needs them.</p>
+
+<h3>Primitive B — MAJ<sub>3</sub>, the in-DRAM AND</h3>
+<p>Activate <em>three</em> rows at once (again, mistimed). Each bitline resolves to the <b>majority</b> of the
+three cells: <code>MAJ3(A,B,C)</code> is <code>1</code> where at least two of <code>A,B,C</code> are
+<code>1</code>. Now tie the third row to <b>all-zeros</b>: the majority of <code>{A, B, 0}</code> is
+<code>1</code> exactly when <em>both</em> <code>A</code> and <code>B</code> are <code>1</code>. So</p>
+<div class="eq">MAJ3(A, B, <span class="c">0</span>)  =  A <span class="key">AND</span> B</div>
+<p>That bitwise AND, done by the sense amplifiers on 2048 bits at once, is the multiply step of the whole
+system. <span class="dram">It happens in DRAM and costs a handful of DDR commands.</span></p>
+
+<h3>Primitive C — popcount</h3>
+<p>After the AND, we need to know <em>how many</em> bit positions came out <code>1</code> — that count is the
+partial dot product. Counting the ones in a row is <b>popcount</b>. It can run on the <span class="host">host</span>
+(read the row back, count in the CPU) or in the <span class="fpga">FPGA</span> fabric (count on the card, return
+only the total). <em>Where</em> popcount happens is one of the two walls in §5.</p>
+
+<div class="callout"><b>A fourth, harder primitive — MAJ<sub>5</sub>.</b> Majority of <em>five</em> rows is the
+sum bit of a full adder (carry is a MAJ3), so a MAJ5/MAJ3 pair adds numbers <em>inside</em> the array. This is
+how you accumulate without reading anything out — the basis of "in-DRAM accumulation" (Road-B, §6, and
+MVDRAM's adder, §10). On our SK-hynix dies MAJ5 is measurably harder than MAJ3: at 16 co-activated rows MAJ3
+yields hundreds of whole-row-perfect tuples while MAJ5 yields <b>zero</b> (its per-cell stability tops out at
+99.98–99.99%, a thin replication margin), so faithful MAJ5 needs per-column screening to become bit-exact.
+MAJ3 is the workhorse; MAJ5 is the frontier.</div>
+</section>
+
+<section id="matvec">
+<h2>4 · One matvec, in memory</h2>
+<p>Take a single output element of the query projection, <code>y_m = Σ_{j=0}^{2559} W_{m,j} · x_j</code>.
+Two facts make it fit the primitives above.</p>
+<p><b>(1) Split the ternary weight into two 1-bit masks.</b> Let <code>W₊</code> mark the <code>+1</code>
+positions and <code>W₋</code> mark the <code>−1</code> positions. Then
+<code>Σ_j W_{m,j} x_j = Σ_{W=+1} x_j − Σ_{W=−1} x_j</code>.</p>
+<p><b>(2) Split the activation into bitplanes.</b> Write each integer <code>x_j = Σ_b 2^b · x_j^{(b)}</code>
+with each <code>x_j^{(b)} ∈ {0,1}</code>. A sum of selected <code>x_j</code> becomes a place-value-weighted sum
+of <em>bit counts</em>. Putting both together:</p>
+<div class="eq">y_m  =  Σ<sub>b</sub> 2<sup>b</sup> · [ <span class="key">popcount</span>( W₊<sub>m</sub> <span class="key">AND</span> x<sup>(b)</sup> )  −  <span class="key">popcount</span>( W₋<sub>m</sub> <span class="key">AND</span> x<sup>(b)</sup> ) ]
+<div class="c" style="margin-top:8px">each AND = one MAJ3 in DRAM · each popcount = count the 1s · then scale by 2ᵇ and subtract</div></div>
+<p>Every term is now a primitive from §3. Here is the same computation as work spread across the three places —
+this is the "what happens where and when" picture:</p>
+<div class="figure">
+<svg viewBox="0 0 720 250" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, sans-serif">
+  <!-- lanes -->
+  <rect x="0" y="24" width="720" height="66" fill="#0d1626"/>
+  <rect x="0" y="92" width="720" height="66" fill="#150f22"/>
+  <rect x="0" y="160" width="720" height="66" fill="#0a1c15"/>
+  <text x="8" y="20" fill="#6fb0ff" font-size="11" font-weight="700">HOST</text>
+  <text x="8" y="88" fill="#c3a0ff" font-size="11" font-weight="700">FPGA</text>
+  <text x="8" y="156" fill="#52e0a8" font-size="11" font-weight="700">DRAM</text>
+  <!-- step 1 host -->
+  <rect x="60" y="38" width="120" height="40" rx="4" fill="#10233f" stroke="#3a6ea5"/>
+  <text x="120" y="54" fill="#9ec7f5" font-size="10" text-anchor="middle">quantize x → bitplanes</text>
+  <text x="120" y="68" fill="#9ec7f5" font-size="10" text-anchor="middle">build write program</text>
+  <!-- arrow down to dram (write masks) -->
+  <line x1="180" y1="70" x2="250" y2="188" stroke="#f6a58a" stroke-width="1.5" marker-end="url(#a)"/>
+  <text x="196" y="132" fill="#f6a58a" font-size="9" transform="rotate(58 196 132)">trip ①</text>
+  <!-- dram: rows -->
+  <rect x="240" y="176" width="150" height="40" rx="4" fill="#0f2a20" stroke="#1f5b42"/>
+  <text x="315" y="192" fill="#7fe9bf" font-size="10" text-anchor="middle">W₊, W₋, x⁽ᵇ⁾ in rows</text>
+  <text x="315" y="206" fill="#7fe9bf" font-size="10" text-anchor="middle">MAJ3 → AND result row</text>
+  <!-- fpga issues -->
+  <rect x="240" y="106" width="150" height="40" rx="4" fill="#221a34" stroke="#45356a"/>
+  <text x="315" y="122" fill="#c9b0f5" font-size="10" text-anchor="middle">issue ACT/PRE/RD</text>
+  <text x="315" y="136" fill="#c9b0f5" font-size="10" text-anchor="middle">for the MAJ3</text>
+  <line x1="315" y1="146" x2="315" y2="176" stroke="#7f6ba8" stroke-width="1.3" marker-end="url(#a)"/>
+  <!-- read back result -->
+  <rect x="430" y="106" width="150" height="40" rx="4" fill="#221a34" stroke="#45356a"/>
+  <text x="505" y="122" fill="#c9b0f5" font-size="10" text-anchor="middle">read AND-result row</text>
+  <text x="505" y="136" fill="#c9b0f5" font-size="10" text-anchor="middle">(full row of bits)</text>
+  <line x1="390" y1="196" x2="430" y2="146" stroke="#7f6ba8" stroke-width="1.3" marker-end="url(#a)"/>
+  <!-- trip 2 up to host -->
+  <line x1="505" y1="106" x2="560" y2="78" stroke="#f6a58a" stroke-width="1.5" marker-end="url(#a)"/>
+  <text x="520" y="94" fill="#f6a58a" font-size="9" transform="rotate(-27 520 94)">trip ②</text>
+  <!-- host popcount+accumulate -->
+  <rect x="560" y="38" width="140" height="40" rx="4" fill="#10233f" stroke="#3a6ea5"/>
+  <text x="630" y="54" fill="#9ec7f5" font-size="10" text-anchor="middle">popcount, ×2ᵇ,</text>
+  <text x="630" y="68" fill="#9ec7f5" font-size="10" text-anchor="middle">subtract, accumulate</text>
+  <!-- loop note -->
+  <text x="360" y="242" fill="#8a93a8" font-size="10" text-anchor="middle">repeat for every bitplane b and both signs (±) — then move to the next output element, the next matvec, the next of 210</text>
+  <defs><marker id="a" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#f6a58a"/></marker></defs>
+</svg>
+<div class="figcap"><b>The compute is cheap; the trips are not.</b> The MAJ3 and its result live in
+<span class="dram">DRAM</span>; the <span class="fpga">FPGA</span> issues the commands. But the two red arrows —
+writing operands in, reading the row back out — are PCIe round-trips at ~1.5&nbsp;ms each, and a full token does
+<em>thousands</em> of them. That is the naive baseline. Every optimization in §6 attacks one of those two arrows.</div>
+</div>
+<p><b>The 1-bit case is cheaper still.</b> Bonsai-1bit has weights in <code>{−1,+1}</code> (no zero). With
+only two values, <code>Σ_j W_j x_j = 2·Σ_{W=+1} x_j − Σ_j x_j</code>: you compute <em>one</em> mask's popcount
+and recover the rest arithmetically, because <code>Σ_j x_j</code> is a constant you already have. This is the
+<b>single-track</b> protocol (internally <code>V2S</code>): one mask instead of two halves the operand data
+crossing PCIe. It is why 1-bit ends up <em>faster</em> than ternary despite being "more quantized" (§7).</p>
+</section>
+
+<section id="walls">
+<h2>5 · The two walls</h2>
+<p>The naive matvec above is correct but slow, and it is slow for two specific, measured reasons.</p>
+
+<h3>Wall 1 — Readout</h3>
+<p>To get one popcount, the naive path reads a whole result row back to the host. Across a real model that is
+about <b>16 bits moved per weight</b> versus the 2 bits a weight actually is — an <b>8.0× readout
+amplification</b> (<code>new/exp0_readout_floor.py</code>). At DDR4-2400 the readout alone is ~217&nbsp;ms
+against a same-channel CPU's ~27–29&nbsp;ms: <b>7.5× slower on readout before any compute</b>. A host-accumulation
+shape cannot beat the CPU — which is exactly why counting and summing have to move onto the card or into the
+array (Road-B, in-DRAM adders).</p>
+
+<h3>Wall 2 — Round-trip</h3>
+<p>Each program is a host→FPGA→host hop over PCIe, and that hop is <b>latency-bound at ~1.5&nbsp;ms</b>
+(interrupt-wake dominated; a bigger read barely costs more, so "fewer, larger reads" is the lever, not "less
+data"). With thousands of programs per token, the trips dominate. Measured request profile
+(<code>srv-prof</code>, production shape):</p>
+<div class="figure">
+<svg viewBox="0 0 720 96" xmlns="http://www.w3.org/2000/svg" font-family="ui-monospace, monospace">
+  <text x="10" y="18" fill="#8a93a8" font-size="11">one request = 178.4 ms, split by where the time goes:</text>
+  <!-- bar to scale: total width 700 for 178.4ms -->
+  <rect x="10" y="30" width="456.6" height="34" fill="#7a2f1c"/>
+  <rect x="466.6" y="30" width="130.6" height="34" fill="#5c4a1a"/>
+  <rect x="597.2" y="30" width="60.0" height="34" fill="#234a63"/>
+  <rect x="657.2" y="30" width="52.6" height="34" fill="#2a2f3d"/>
+  <text x="238" y="52" fill="#ffd8c8" font-size="12" text-anchor="middle" font-weight="700">recv 116.4 ms · 65%</text>
+  <text x="531" y="52" fill="#ffe6a8" font-size="11" text-anchor="middle">exec 33.3 · 19%</text>
+  <text x="627" y="52" fill="#a8d4ec" font-size="9.5" text-anchor="middle">wcol 8.6%</text>
+  <text x="683" y="52" fill="#9aa3b8" font-size="9" text-anchor="middle">other</text>
+  <text x="10" y="84" fill="#8a93a8" font-size="10">recv = reading results back · exec = running programs (includes the round-trip, not pure DRAM) · wcol = writing weight columns in</text>
+</svg>
+<div class="figcap"><b>recv is 65% of the wall</b> — the <em>latency</em> of getting results back, trip-count-bound not
+byte-bound (a bigger read barely costs more). <code>exec</code> at 19%
+<em>includes</em> the round-trip and so is mostly trip time too, not DRAM compute. Note the consequence:
+<span class="dram">the actual in-DRAM arithmetic is a sliver.</span> An optimization only matters if it shrinks
+<code>recv</code> or removes trips — improving the compute the array already does for free buys nothing.</div>
+</div>
+<div class="callout wall"><b>This split is the ranking function for every lever.</b> A change that cuts
+<code>wcol</code> from 8.6% to zero is capped at an 8.6% win no matter how impressive its internal ratio looks.
+A change that halves <code>recv</code> is worth 32%. Several plausible-sounding optimizations died on exactly
+this arithmetic (§8), and one — M3 — looked like a 265× win internally while attacking the 8.6% slice (§6, §8).</div>
+<div class="figure">
+<svg viewBox="0 0 720 258" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, BlinkMacSystemFont, sans-serif">
+  <text x="120" y="15" fill="#8a93a8" font-size="10.5" text-anchor="middle" font-weight="700">THE COST</text>
+  <text x="360" y="15" fill="#8a93a8" font-size="10.5" text-anchor="middle" font-weight="700">ATTACK TODAY (host / FPGA)</text>
+  <text x="600" y="15" fill="#8a93a8" font-size="10.5" text-anchor="middle" font-weight="700">ATTACK IN SILICON</text>
+  <!-- Row A: latency -->
+  <rect x="8" y="26" width="224" height="72" rx="6" fill="#2c1410" stroke="#7a2f1c"/>
+  <text x="20" y="48" fill="#f6a58a" font-size="12" font-weight="700">LATENCY — the 65%</text>
+  <text x="20" y="66" fill="#e6c3b8" font-size="10">PCIe round-trips: count × ~1.5 ms wake</text>
+  <text x="20" y="81" fill="#e6c3b8" font-size="10">— a function of trips, not bytes</text>
+  <text x="240" y="67" fill="#8a93a8" font-size="16" text-anchor="middle">→</text>
+  <rect x="248" y="26" width="224" height="72" rx="6" fill="#131722" stroke="#2a2f3d"/>
+  <text x="260" y="52" fill="#c3c9d8" font-size="10.5">batch (fewer, bigger trips)</text>
+  <text x="260" y="72" fill="#c3c9d8" font-size="10.5">stream + phase-2 <tspan fill="#9ae6b4">(−26.3%)</tspan></text>
+  <text x="480" y="67" fill="#8a93a8" font-size="16" text-anchor="middle">→</text>
+  <rect x="488" y="26" width="224" height="72" rx="6" fill="#10233f" stroke="#24446e"/>
+  <text x="500" y="48" fill="#6fb0ff" font-size="11.5" font-weight="700">on-die SEQUENCER</text>
+  <text x="500" y="66" fill="#9ec7f5" font-size="10">host sends x → receives y,</text>
+  <text x="500" y="81" fill="#9ec7f5" font-size="10">1 trip per projection</text>
+  <!-- Row B: bandwidth -->
+  <rect x="8" y="106" width="224" height="72" rx="6" fill="#0f2a20" stroke="#1f5b42"/>
+  <text x="20" y="128" fill="#52e0a8" font-size="12" font-weight="700">BANDWIDTH — readout 8×</text>
+  <text x="20" y="146" fill="#a8e0c8" font-size="10">16 bits/weight off the DDR bus</text>
+  <text x="20" y="161" fill="#a8e0c8" font-size="10">— hidden behind latency today</text>
+  <text x="240" y="147" fill="#8a93a8" font-size="16" text-anchor="middle">→</text>
+  <rect x="248" y="106" width="224" height="72" rx="6" fill="#131722" stroke="#2a2f3d"/>
+  <text x="260" y="132" fill="#c3c9d8" font-size="10.5">SEG_POP · Road-B</text>
+  <text x="260" y="152" fill="#c3c9d8" font-size="10.5">FPGA counts, returns totals</text>
+  <text x="480" y="147" fill="#8a93a8" font-size="16" text-anchor="middle">→</text>
+  <rect x="488" y="106" width="224" height="72" rx="6" fill="#221a34" stroke="#45356a"/>
+  <text x="500" y="128" fill="#c3a0ff" font-size="11.5" font-weight="700">in-die POPCOUNT + MAJ5</text>
+  <text x="500" y="146" fill="#c9b0f5" font-size="10">count / accumulate before</text>
+  <text x="500" y="161" fill="#c9b0f5" font-size="10">crossing any bus</text>
+  <!-- footer -->
+  <rect x="8" y="188" width="704" height="58" rx="6" fill="#1a1f2c" stroke="#3a4258"/>
+  <text x="20" y="210" fill="#ffd479" font-size="10.5" font-weight="700">Order: fix LATENCY first — a byte-reducer is wall-neutral until the trips are cut.</text>
+  <text x="20" y="230" fill="#c3c9d8" font-size="10">Both rows need multi-row activation to work at all, so the sense amp decides whether any of it runs: conventional SAs enable it; offset-cancel (OCSA) likely kills it.</text>
+</svg>
+<div class="figcap"><b>Two costs, not one.</b> The 65% you feel is <span style="color:#f6a58a">latency</span> (trip count) —
+attacked today by orchestration, and in silicon by an on-die sequencer that ends the round-trip (first
+evidence is now on the bench: a Rung-2a orchestrator probe returns <b>27/27 byte-exact</b> integer partials
+against a CPU oracle in Verilator, with build-27 in flight). The 8× readout
+amplification is <span class="dram">bandwidth</span> (bytes) — real, but <em>hidden behind latency</em> until the
+trips are cut, then attacked by in-die popcount / MAJ5. Neither row runs unless the sense amp permits multi-row
+activation — the SA-vs-OCSA question that decides whether this is mass-producible at all.</div>
+</div>
+</section>
+
+<section id="ladder">
+<h2>6 · The optimization ladder</h2>
+<p>Each lever is grouped by <em>which wall it attacks</em>, with what it exploits, what it costs, and its
+evidence class. This is the spine: the naive matvec of §4 climbs from correct-but-slow toward the CPU
+by removing trips and readout, never by making the free part freer.</p>
+
+<h3>Attacking Wall 1 — readout (move counting and summing off the host)</h3>
+<table>
+<tr><th style="width:24%">Lever</th><th style="width:40%">What it exploits</th><th style="width:18%">Effect</th><th style="width:18%">Status</th></tr>
+<tr><td><b>SEG_POP</b> readback</td><td>The <span class="fpga">FPGA</span> counts each segment's ones and returns the <em>totals</em>, not the raw rows — collapsing the bytes crossing PCIe.</td><td>Byte collapse; <b>wall-neutral alone</b> (recv is latency-bound, not byte-bound), so it banks the bytes until batching makes recv byte-bound.</td><td><span class="ev meas">✓ measured</span> build-7, production, token-identical</td></tr>
+<tr><td><b>Road-B</b> in-DRAM / in-fabric accumulation</td><td>A carry-save tree of dual-track adders sums the per-segment popcounts <em>in the fabric</em> across the bitplane loop — the place-value sum <code>Σ 2ᵇ·pc</code> never returns as rows.</td><td><b>213× fewer readout bytes</b> at BitNet K=2560; lane-exact 98.6–99.7%. Like SEG_POP this is a <em>byte</em> cut, not yet a wall-time cut — recv is latency-bound and the in-fabric adder tree adds its own array time — so it banks the readout until batching makes recv byte-bound.</td><td><span class="ev meas">✓ measured</span> silicon 2026-07-17 (popcount-indram)</td></tr>
+<tr><td><b>Fused per-MAJ / fused-coset</b></td><td>Fuse the per-output MAJ3 bodies so one program does more array work between trips.</td><td><b>1.63× real-model per-token</b> (BitNet), bit-exact, "Paris" both arms. A real win, but <b>opt-in</b>: the server default is 0.</td><td><span class="ev meas">✓ measured</span> <code>PIM_FUSED_COSET=1</code> (default OFF)</td></tr>
+<tr><td><b>Persistent weights</b> (residency)</td><td>Keep a weight row resident and refresh it with one clone instead of re-writing it every use.</td><td><b>2.6–2.7× per product</b>, bit-exact. Trade: clone flake + retention (refresh cadence).</td><td><span class="ev meas">✓ measured</span> LANE2_WRES</td></tr>
+<tr><td><b>ACCUM_XBP</b> (RTL cross-plane accumulator)</td><td>Same idea as Road-B, as a bitstream accumulator that drains once per group.</td><td>Collapses drains (recv 24.8→6.9 ms) but <b>exec inflates</b> — net <b>+8%</b>. Confirmed the cost model: per-execute trips bind, not drains.</td><td><span class="ev cav">⚠ net-negative</span> (cost-model confirmation)</td></tr>
+</table>
+
+<h3>Attacking Wall 2 — round-trip (fewer, bigger, overlapped trips)</h3>
+<table>
+<tr><th style="width:24%">Lever</th><th style="width:40%">What it exploits</th><th style="width:18%">Effect</th><th style="width:18%">Status</th></tr>
+<tr><td><b>V2GS</b> request batching</td><td>One grouped request per weight-slice instead of ~16 — and, structurally, the server now sees a whole slice, which unlocks packing below.</td><td>+3.2% directly; the <em>structural</em> unlock is the real value.</td><td><span class="ev meas">✓ measured</span> <code>PIM_REQ_BATCH=1</code></td></tr>
+<tr><td><b>V2_PACK</b> cross-round packing</td><td>Fuse a round's ~12 column-write programs into ~3, writing weights immediately before the exec that uses them (locality preserved).</td><td><b>−12.7%</b> wall (8-tok 267→233 s). The genuine round-trip cut. Default ON.</td><td><span class="ev meas">✓ measured</span> <code>PIM_V2_PACK=1</code></td></tr>
+<tr><td><b>Rung-1 streaming</b> (queued fetch)</td><td>The command bus fetches the next program while the current one executes, so the host stops gating each program on the <em>send</em> side.</td><td>Per-program read/SEG_POP is <b>2.5–3× faster</b> (build-9b). <b>But at the request level it is wall-neutral</b> — silicon A/B, build-26: recv stays ~64% with streaming on or off, because the receive is synchronous and dominates, so streaming the send cannot overlap it. Token stays correct. The wall win needs <b>phase-2</b> (send past receive), below.</td><td><span class="ev cav">⚠ token-correct, wall-neutral</span> (silicon A/B, build-26); production default OFF</td></tr>
+<tr><td><b>Phase-2 pipeline</b> (send-ahead)</td><td>Issue the next program's send past the current program's receive (independent PCIe channels).</td><td><b>−26.3% full-model wall</b> (2529.1 → 1863.1 s); <b>recv 112 → 57 ms (halved)</b>. The one production win to date that actually cuts <code>recv</code>.</td><td><span class="ev meas">✓ measured</span> silicon build-26 (07-27), 0 stalls / 0 decay over 11,500 req; made production default 07-28</td></tr>
+</table>
+
+<h3>Attacking weight/operand movement (the wcol / instruction slice)</h3>
+<table>
+<tr><th style="width:24%">Lever</th><th style="width:40%">What it exploits</th><th style="width:18%">Effect</th><th style="width:18%">Status</th></tr>
+<tr><td><b>X-master-clone</b></td><td>Write each activation-plane's <code>x</code> once as a master row per request; the MAJ3 bodies RowClone master→tuple (~40 slots) instead of re-writing all 1,280 slots every round (MAJ3 destroys its operand rows each execution).</td><td>Implemented 07-27, briefly read <b>−9.9%</b> — then <b>root-caused and killed</b>. The RowClone'd master lands the seed at <b>charge-shared, not write-driven, levels</b>, so the in-DRAM <code>x′ ≠ x</code>. Dual-track stays coherent-shaped but never clears the bar: the corruption is <b>depth-independent</b> — masters refill every round, so per-round seed errors never accumulate — and density-dependent, <b>corr ≈0.94–0.97 flat across all depths 8–80 rounds</b> at production mask density (n_real=2048, 0/2048 bit-exact); the 07-27 "corr 0.998 shallow" point reproduced only at low density (25% real rows) — a harness artifact on top of the max-tokens-1 gate. Single-track V2S (<code>y = 2·pc(x′) − Σx</code>, host-exact Σx) doubles the error uncancelled → token garbage. Oracle, same binary/shape/seed: V2S XM=0 bit-exact <b>2048/2048</b>, XM=1 corr 0.951. The −9.9% was a max-tokens-1 gate, retracted.</td><td><span class="ev dead">✗ dead</span> — closed negative 2026-07-28; V2S hard-gated (<code>&amp;&amp; !single</code>)</td></tr>
+<tr><td><b>M3 coset-broadcast</b> (<code>PIM_BCAST_LOAD</code>)</td><td>Load a mask once into a backup row, then one doubleACT deposits it into the scratch row the MAJ3 body reads — replacing a ~1.5K-instruction column write with tens of instructions.</td><td>Standalone gate showed <b>265.8× fewer instructions</b>. <b>But in the production server the deposit target is never read</b> (the body recomputes its row); suppressing every deposit leaves the token identical; the surviving "write elision" serves 87% stale masks. And it attacks only the 8.6% <code>wcol</code> slice.</td><td><span class="ev dead">✗ dead</span> — resolved negative 2026-07-26; server machinery excised (−286 lines), publicly retracted (PR #16, merged 07-28)</td></tr>
+</table>
+<div class="callout"><b>Why M3 is on the ladder at all.</b> It is the cleanest illustration of the §5 ranking rule.
+Its internal ratio (265×) is real in isolation, but in the live dataflow it targets the smallest slice
+<em>and</em> its mechanism was never actually wired to the row that gets read. Both facts had to be measured to
+kill it — an impressive internal number is not a wall win, and a passing token gate is not a numerics proof
+(the layer-0 gate passed with 87% of masks stale; a max-tokens-1 gate later flattered X-master the same way).
+The adoption bar we settled on is <b>per-op correlation (corr ≥ 0.98) at production depth</b> — never token
+identity or a shallow shape — and that instrument is what killed both M3 and X-master. It stays here as the
+worked example of that lesson.</div>
+</section>
+
+<section id="throughput">
+<h2>7 · The measured throughput ladder</h2>
+<p>On the Bonsai-1.7B family, the production levers stack to a measured end-to-end speedup. Each rung is a
+silicon A/B, token-identical to the rung below it:</p>
+<div class="figure">
+<svg viewBox="0 0 720 150" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, sans-serif">
+  <!-- baseline -->
+  <rect x="40" y="24" width="150" height="30" rx="4" fill="#2a2f3d" stroke="#3a4258"/>
+  <text x="115" y="44" fill="#c3c9d8" font-size="11" text-anchor="middle">single-DIMM · 100 s/tok</text>
+  <text x="205" y="44" fill="#8a93a8" font-size="13">→</text>
+  <rect x="222" y="24" width="150" height="30" rx="4" fill="#0f2a20" stroke="#1f5b42"/>
+  <text x="297" y="44" fill="#7fe9bf" font-size="11" text-anchor="middle">dual-DIMM · 51.2 s</text>
+  <text x="270" y="72" fill="#9ae6b4" font-size="10" text-anchor="middle">×1.95</text>
+  <text x="387" y="44" fill="#8a93a8" font-size="13">→</text>
+  <rect x="404" y="24" width="150" height="30" rx="4" fill="#0f2a20" stroke="#1f5b42"/>
+  <text x="479" y="44" fill="#7fe9bf" font-size="11" text-anchor="middle">+ fused-coset · 33.7 s</text>
+  <text x="452" y="72" fill="#9ae6b4" font-size="10" text-anchor="middle">×1.52</text>
+  <text x="569" y="44" fill="#8a93a8" font-size="13">→</text>
+  <rect x="562" y="24" width="150" height="30" rx="4" fill="#12291b" stroke="#2f7a4f"/>
+  <text x="637" y="44" fill="#9ae6b4" font-size="11" text-anchor="middle" font-weight="700">+ 1-bit V2S · 18.7 s</text>
+  <text x="637" y="72" fill="#9ae6b4" font-size="10" text-anchor="middle">×1.81</text>
+  <text x="360" y="108" fill="#ffd479" font-size="14" text-anchor="middle" font-weight="700">100 → 18.7 s/tok  =  5.36× stacked, all token-identical</text>
+  <text x="360" y="130" fill="#8a93a8" font-size="10.5" text-anchor="middle">the 1-bit single-track rung (§4) makes 1-bit faster than ternary — halved operand data beats the extra precision</text>
+</svg>
+<div class="figcap"><b>Reading the ladder:</b> dual-DIMM spreads the matvec across two memories (parallel trips);
+fused-coset packs more array work per trip; 1-bit single-track halves the operand bytes. Each is a different
+attack on the two walls, and they compose because they touch different terms.</div>
+</div>
+
+<h3>The second campaign — activation quant + phase-2 (the current production stack)</h3>
+<p>Two levers landed after the ladder above and now define the frontier. <b>Activation quant</b>
+(<code>PIM_ACT_K</code>) sends fewer bitplanes per activation — <code>K=6</code> instead of <code>8</code> —
+which is fewer trips per matvec; it is <b>client-side, no bitstream, and token-identical</b> (gated on per-op
+correlation, not token identity — the §6 lesson). <b>Phase-2 send-ahead</b> (§6) is the first lever to cut <code>recv</code>. Bisected on
+the BitNet dimm2 full-model path ("capital of France?" → "…Paris" at every rung):</p>
+<table>
+<tr><th style="width:52%">Production stack (full-model wall, dimm2 V2 path)</th><th style="width:24%">Wall</th><th style="width:24%">vs K=8 baseline</th></tr>
+<tr><td>K=8, plain, no-stream <span class="dim">— the before-everything baseline</span></td><td>973.2 s</td><td>—</td></tr>
+<tr><td>+ K=6 activation quant</td><td>762.3 s</td><td><b>−21.7%</b></td></tr>
+<tr><td>+ fused-coset</td><td>623.5 s</td><td>—</td></tr>
+<tr><td><b>+ phase-2 send-ahead</b> <span class="dim">— the coherent production stack</span></td><td><b>343.7 s</b></td><td><b>−64.7%</b></td></tr>
+</table>
+<div class="callout"><b>The current headline is −64.7%</b> (973.2 → 343.7 s, still "…Paris"), and it is a <em>stack</em>,
+not a single trick: coarser activation quant removes trips, fused-coset packs the array work, and phase-2 finally
+attacks the <code>recv</code> latency that §5 named as the 65% wall. The composition is clean — enabling X-master
+on top now returns the same "…Paris" at 351.0 s (its former garbage arm fixed by the §8 hard-gate). This is the
+current frontier number, and it supersedes the never-materialized "~2×" that X-master was once projected to
+reach.</div>
+</section>
+
+<section id="dead">
+<h2>8 · Dead ends (measured, so no one re-derives them)</h2>
+<table>
+<tr><th style="width:28%">Idea</th><th>Why it failed (measured)</th></tr>
+<tr><td><b>M3 coset-broadcast</b> in the server</td><td>Deposit target never read; deposits contribute nothing (NODEP A/B token-identical); write-elision 87% stale; ceiling &lt;9% regardless. Machinery excised (−286 lines), publicly retracted (PR #16, merged 07-28). §6.</td></tr>
+<tr><td><b>X-master-clone</b> on the production path</td><td>The RowClone'd master seeds <code>x</code> at charge-shared, not write-driven, levels (<code>x′ ≠ x</code>): the dual-track corruption is depth-independent, corr ≈0.94–0.97 flat across depths 8–80 rounds at production density (0/2048 bit-exact); single-track V2S doubles the error → token garbage. The brief <b>−9.9%</b> was a max-tokens-1 gate, retracted; V2S hard-gated. §6.</td></tr>
+<tr><td><b>K-batching</b> (K bitplanes/program)</td><td><b>+19.3%</b> wall. Fewer programs did not cut recv (recv is latency/round-trip-bound, not program-count-bound), and program finalization is superlinear. Correctness passed; throughput lost.</td></tr>
+<tr><td><b>Sparsity skip</b> at 32-elem-word grain</td><td>Only <b>1.3%</b> of words are all-zero at ~50% plane density — the skip almost never fires. (MVDRAM's per-element gating is a different, live idea: 2.5× on real activations.)</td></tr>
+<tr><td><b>Threshold-sweep</b> popcount reduction (BitNet)</td><td>Refuted: high activation bitplanes carry factor 64/128, so a ±1 popcount error is a ±64/±128 accumulator error. Tolerable error rate &lt;0.1% ≪ the calibration floor (~3%).</td></tr>
+<tr><td><b>MAJ5 ZERO+2 <em>conditioning</em> chain</b> vs SiMRA ONE+3</td><td>Honest negative at chain scale: <b>99.51 vs 99.90%</b> — SiMRA's frac'd-ONE reference policy stays the chain-scale convention, so reference-<em>policy</em> conditioning is the dead lever. Faithful MAJ5 itself is <em>not</em> dead: screening + temporal VOTE3 already give bit-exact MAJ5 accumulation (524,288/524,288 partials exact). That line is reopened, not closed (§11).</td></tr>
+<tr><td><b>PIM_INLINE_BITPLANES=4</b></td><td>Net loss (171.6 vs 150.0 s/2tok): V2S requests already carry ~1 program, so inlining adds no amortization.</td></tr>
+<tr><td><b>xdma poll_mode=1</b></td><td>This driver build returns EIO on the validation ladder; rolled back to interrupt mode. The recv-wake tax stands; the real attack is streaming.</td></tr>
+</table>
+</section>
+
+<section id="families">
+<h2>9 · The four model families</h2>
+<p>The same spine runs four different models. The quantization differs; the in-memory machinery is shared.</p>
+<table>
+<tr><th style="width:20%">Family</th><th style="width:16%">Weights</th><th style="width:30%">Shape</th><th style="width:20%">In-memory path</th><th style="width:14%">Status</th></tr>
+<tr><td><b>BitNet b1.58 2B4T</b></td><td>ternary {−1,0,+1}</td><td>hidden 2560, FFN 6912, 30 layers, GQA (20 Q / 5 KV → K,V project to 640), vocab 128256</td><td>two masks (W₊/W₋), 8 bitplanes; the reference dual-track path</td><td><span class="ev meas">✓ "Paris"</span> production</td></tr>
+<tr><td><b>Bonsai-1.7B ternary</b></td><td>ternary, g128 grouped</td><td>Qwen3 architecture, group-128 quantization</td><td>same two-mask path; per-group scales handled host-side</td><td><span class="ev meas">✓ token-exact</span></td></tr>
+<tr><td><b>Bonsai-1.7B 1-bit</b></td><td>binary {−1,+1}</td><td>Qwen3 architecture</td><td><b>single-track</b> (V2S): one mask, <code>y = 2·y₊ − Σx</code> — half the operand data</td><td><span class="ev meas">✓ 18.7 s/tok</span> fastest</td></tr>
+<tr><td><b>MVDRAM's models</b> (reproduction lane, §10)</td><td>2-bit &amp; 4-bit matrices</td><td><b>four models: Llama2-7B, Llama2-13B, Llama3-8B, Phi-4</b>, evaluated end-to-end at 2/4-bit; plus GeMV kernels (e.g. 32000×4096)</td><td>their dataflow (selective-RowClone products + in-DRAM MAJ-adders), rebuilt <em>from the paper alone</em> — no source released</td><td><span class="ev meas">✓ mechanism reproduced</span> bit-exact; GeMV validated on real Llama-2-7B tensors</td></tr>
+</table>
+<p><b>A second, orthogonal quant axis — the activation.</b> On top of the weight quant above, each family ships a
+coarser <em>activation</em>-plane default (<code>PIM_ACT_K</code>) that sends fewer bitplanes per activation —
+client-side, no bitstream, correlation-gated token-identical: <b>K=6</b> for both Bonsai variants (1-bit
+<b>−21.7%</b>, ternary <b>−22.2%</b> full-model wall) and <b>K=5</b> for BitNet-2B (<b>−32.2%</b>). The floor
+tracks the <em>training recipe</em>, not the weight bits — <code>K=4</code> collapses everywhere (a genuine quant
+cliff), which is why the default differs per family.</p>
+<div class="callout"><b>What MVDRAM evaluates:</b> <b>four models end to end — Llama2-7B, Llama2-13B, Llama3-8B,
+Phi-4</b> — at 2-bit and 4-bit, on llama.cpp with the matmul replaced (256 tokens × 10 runs), plus GeMV kernel
+benchmarks (e.g. 32000×4096). Two facts to state plainly: the paper releases <b>no source code</b>, and it
+carries <b>no accuracy or perplexity evaluation</b> — reported correctness rests entirely on screening reliable
+DRAM columns. <b>What we reproduced:</b> their mechanisms bit-exact, from the paper alone, and the GeMV validated
+to exact FP32 against a CPU reference on a real Llama-2-7B tensor — not the full four-model throughput benchmark
+(multi-day per model on one rig; we ran a sampled end-to-end instead).</div>
+</section>
+
+<section id="mvdram">
+<h2>10 · MVDRAM — the peer system, and where we can go past it</h2>
+<p>MVDRAM (arXiv 2503.23817, Kubo et al., UTokyo + MSR) is the closest published system: low-bit LLM GeMV in
+<em>unmodified</em> DDR4 on DRAM Bender, which the paper <em>reports</em> as faster than the CPU end-to-end (no
+source released, and no accuracy or perplexity evaluation — see §9). It uses the same primitives, composed
+differently. Three mechanisms, as the paper describes them:</p>
+<ul class="tight">
+<li><b>On-the-fly vector encoding.</b> A partial product is a <em>selective</em> RowClone: for activation bit
+<code>a</code>, copy the weight row iff <code>a=1</code> (else copy a zero row, or skip on sparsity). Weights are
+only ever <em>sources</em>, so they are restored for free and <b>never reloaded</b>.</li>
+<li><b>Horizontal matrix layout.</b> The matrix stays row-major; many output columns compute in parallel across
+~60k columns; outputs read out row-wise with no bit-transposition.</li>
+<li><b>In-DRAM accumulation.</b> MAJ-based full adders (carry = MAJ3, sum = MAJ5) sum inside the array; only the
+<code>q×r</code> output rows are ever read back.</li>
+</ul>
+<h3>Improving on it, beyond reproduction</h3>
+<ul class="tight">
+<li><b>Adopt selective-RowClone products for ternary.</b> Their <code>q=2</code> case is exactly our
+pos/neg masks, and it removes the per-MAJ3 weight reload that dominates our cost. <b>Now validated on our
+silicon:</b> <code>LANE2_ENCODE=clone</code> gives <b>3.2× end-to-end at 4096²</b> with 5× fewer per-column
+writes, weights resident / restored-free / never reloaded — their core sidestep of our per-MAJ3 reload cost.
+The remaining piece is reduction (we cannot run their MAJ5 tree natively) — a per-column FPGA accumulator in the
+readback path fills it.</li>
+<li><b>Our column-screening rescues their MAJ5.</b> On our dies MAJ5 is 99.98% stable — only ~0.4–2 flaky
+columns per 2048. Bit-exact MAJ5 accumulation <em>does</em> exist here (524,288/524,288 partials exact on real
+<code>blk.0.attn_q</code>) — but <b>a static clean-column permutation alone is not the closer</b>: the residual is
+transient-dominated (chained screening bought only +0.4%), so the working route is screening plus <b>temporal
+VOTE3</b>, not permutation by itself.</li>
+<li><b>Their error model is blind to our XOR-spread.</b> MVDRAM screens columns statically; it cannot see the
+<em>row-geometry-dependent</em> deterministic corruption we characterized (a multi-row activation deposits one
+operand's bits into predictable neighbor rows). On chips with that fingerprint, their millions of RowClones with
+weight rows as sources would corrupt in patterns per-column profiling cannot predict. That characterization is a
+genuine addition, not a reproduction.</li>
+</ul>
+</section>
+
+<section id="stands">
+<h2>11 · Where the work actually stands (2026-07-28)</h2>
+<p>Stated honestly, by evidence class, so the picture is not rosier than the measurements:</p>
+<ul class="tight">
+<li><span class="ev meas">✓ production, measured</span> — <b>phase-2 send-ahead (−26.3%, recv 112 → 57 ms), now the
+production default</b>; K-quant across all three families (−21.7% / −22.2% / −32.2%, token-identical); V2_PACK
+(−12.7%), SEG_POP (byte collapse), dual-DIMM (1.95×), 1-bit single-track (18.7 s/tok), Road-B in-fabric
+accumulation (213× readout cut). Fused-coset (1.63×) is a real win but opt-in (default OFF). The current
+production stack is <b>K6 + fused + phase-2 = −64.7%</b> vs the K=8 baseline (973.2 → <b>343.7 s</b>, "…Paris"),
+and the Bonsai weight-quant ladder is <b>5.36× stacked</b>, all token-identical.</li>
+<li><span class="ev cav">⚠ measured wall-neutral (alone)</span> — <b>Rung-1 streaming</b> produces correct tokens
+but does <em>not</em> move the wall by itself: recv is synchronous, so streaming the <em>send</em> cannot overlap
+it. It is the enabler, not the win — the win is phase-2 (above), which pipelines sends past recvs and did land.</li>
+<li><span class="ev dead">✗ dead</span> — M3 coset-broadcast in the server (excised, retracted), <b>X-master-clone
+(charge-shared seed, closed negative, V2S hard-gated)</b>, K-batching, word-grain sparsity skip, threshold-sweep
+reduction. Recorded so they are not re-attempted.</li>
+<li><span class="ev dsgn">▢ designed / first evidence</span> — the <b>on-die orchestrator (Rung-2a)</b> that would
+end the round-trip entirely: a probe already returns <b>27/27 byte-exact</b> integer partials against a CPU
+oracle in Verilator (07-27), with <b>build-27</b> (magic <code>0xDBC0DE16</code>) in flight to the fabric.</li>
+</ul>
+<div class="callout wall"><b>The honest headline.</b> <code>recv</code> — the <em>latency</em> of the round-trips that
+carry results back, not their byte volume — was ~65% of the wall, and for months every production win only
+trimmed the other 35%. That story is now over: <b>phase-2 send-ahead is the first production win to cut
+<code>recv</code> itself</b> (halved, and now the default), K-quant took another axis, and the two compose into
+the −64.7% stack. The compute inside DRAM was never the problem, and making it freer never was the answer.
+<b>What's next</b> is the round-trip <em>count</em>, not the byte volume: the Rung-2a on-die orchestrator
+(build-27) to collapse each projection to a single trip; the reopened faithful-MAJ5 line (bit-exact via
+screening + temporal VOTE3, §8/§10); and the phase-B / phase-P consolidation — benchmarking and publishing the
+stack that now stands.</div>
+</section>
+
+</main>
+</div>
+</body>
+</html>
