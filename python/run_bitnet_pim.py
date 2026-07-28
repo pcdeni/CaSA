@@ -156,7 +156,19 @@ def main():
     # ~1.45× speedup over V2 baseline at d_in=2048; max_err vs numpy
     # ~2394 (cleaner than V2's ~4828, because each bank's pool footprint
     # shrinks 4×). Override: PIM_USE_LOAD_WEIGHTS=0 → V2 fallback.
+    # BITSTREAM_IMEM is guarded authoritatively in pim_linear.PimServer
+    # (proc_env.setdefault) so EVERY runner gets it, not just this one.
     os.environ.setdefault('PIM_USE_LOAD_WEIGHTS', '1')
+    # PIM_STREAM default ON (2026-07-28): phase-2 send-ahead pipeline is
+    # silicon-VALIDATED on build-26 (magic 0x15): full-model −26.3% wall,
+    # recv halved, 0 stalls/decay/errors over 11,500 requests, token-exact
+    # (LEVERS ⚑ 07-27). The old build-11/12 branch-loop wedge (E14) was
+    # fixed by the build-14 fetch_restart wiring; the flashed tower build is
+    # streaming-capable (confirmed 07-28: PIM_STREAM=1 v2_oracle bit-exact
+    # on b2). setdefault means an explicit env value still wins (clean
+    # A/B baselines can force PIM_STREAM=0). Only unsafe on pre-build-9
+    # flashes (magic < 0x08) — not this tower since 07-22.
+    os.environ.setdefault('PIM_STREAM', '1')
     # Multi-DIMM passes pool layout per-server (extra_env); don't set a
     # global default that would shadow it. Single-DIMM keeps the env path.
     if not dimm_configs:
@@ -184,6 +196,12 @@ def main():
 
     weight_spec_fn = None
     if args.model == "bitnet":
+        # K=5 activation quant is the BitNet-2B default (CPU + silicon
+        # validated 2026-07-28, token-identical, −32.2% wall; LEVERS #24).
+        # BitNet-2B was QAT-trained with native int8 acts, so its safe floor
+        # is K=5 — one bit lower than the Bonsai family (K=6). setdefault →
+        # explicit PIM_ACT_K still wins.
+        os.environ.setdefault("PIM_ACT_K", "5")
         print(f"[bnet] loading {MODEL} (cache={CACHE})", flush=True)
         t0 = time.time()
         tok = AutoTokenizer.from_pretrained(MODEL, cache_dir=CACHE)
@@ -210,6 +228,12 @@ def main():
         weight_spec_fn = make_bonsai_spec_fn(spec["extract_dir"])
         print(f"[bnet] bonsai weight specs from {spec['extract_dir']} "
               f"(codes + g128 group_scales + sparse residuals)", flush=True)
+        # K=6 activation quant is the default for BOTH Bonsai families
+        # (CPU + silicon validated 2026-07-28, token-identical: 1bit −21.7%,
+        # ternary −22.2%; LEVERS #24). The safe floor tracks the training
+        # recipe, not weight bits — both Bonsai (post-quantized Qwen3) models
+        # cliff at K5→K4, so K=6. setdefault → explicit PIM_ACT_K still wins.
+        os.environ.setdefault("PIM_ACT_K", "6")
         if args.model == "bonsai_1bit":
             single_on = os.environ.get("PIM_1BIT_SINGLE", "0") == "1"
             print("[bnet] bonsai_1bit maps to DUAL-TRACK with an empty "

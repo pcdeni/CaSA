@@ -136,8 +136,10 @@ design doc that motivates it — the roadmap is itself evidence-first.
 9. **V2G protocol for streaming/batched shapes** — DONE as protocol
    (wall-neutral), READY as the carrier for any future batched regime.
 10. **xrefresh / accum-knob tuning** — minor; only if a measurement says.
-28. **X-master-clone (activation-side residency + clone)** — ✅
-    **IMPLEMENTED + VERIFIED 2026-07-27, default-off, full-model −9.9%.**
+28. **X-master-clone (activation-side residency + clone)** — ⚠️
+    **IMPLEMENTED 2026-07-27; evidence holds ONLY for the dual-track V2
+    path — CORRUPTS output on the V2S single-track path (2026-07-28).
+    Default-off; do not adopt on single-track until root-caused.**
     On the fused-coset path the 5 activation `wrRow`s (~1,280 slots each)
     rewrite THE SAME `x` plane every round (MAJ3 charge-sharing destroys
     its operand rows each execution). X-master writes each plane's `x`
@@ -155,6 +157,17 @@ design doc that motivates it — the roadmap is itself evidence-first.
     (`PIM_FUSED_COSET=1`, server default 0), so the −9.9% only cashes in
     if fused is adopted. Stays default-off pending a user decision.
     `docs/SESSION_2026_07_27.md` §3.
+    **2026-07-28 CORRECTION (session audit):** the −9.9% A/B above was
+    BitNet dual-track V2 at max-tokens **1**, both arms emitting '1'
+    (the legitimate list-start — a 3-token probe yields '1. '); that is
+    a thin gate. On the production Bonsai **V2S single-track** path,
+    X-master produces degenerate output in every tested config (K=6 and
+    K=8, streaming on and off) on the same server binary — the break is
+    model-path-dependent, not a K or streaming interaction. Suspect:
+    masters clone into `open_rows[1]`/`[4]`, whose role may differ in
+    single-track fused bodies. The V2 numerics oracle does not cover
+    V2S; extending it is the next debugging step. Until then:
+    dual-track-only, default-off.
 
 ## C. Characterization / science (learn + enable)
 
@@ -206,6 +219,21 @@ design doc that motivates it — the roadmap is itself evidence-first.
 
 ## D. Model / application levers
 
+30. **Coarser activation quant (`PIM_ACT_K`)** — ✅ **SHIPPED + SILICON-
+    VALIDATED 2026-07-28, across the whole model zoo, token-identical.**
+    The activation is decomposed into K bit-planes = K MAJ3 bodies = K
+    `platform.execute` round-trips (1/plane at the production
+    `PIM_INLINE_BITPLANES=1`). Dropping K cuts the *binding recv wall*
+    proportionally, with no accuracy loss down to a model-specific floor
+    (which tracks the training recipe, not weight bits). Client-only, NO
+    bitstream. Measured full-model A/B (V2 path + phase-2), each vs its own
+    K=8: **Bonsai-1bit K=6 −21.7%, Bonsai-ternary K=6 −22.2%, BitNet-2B
+    K=5 −32.2%** — all token-identical, numerics gate corr 0.99995. K=4
+    (int4) collapses on all Bonsai; BitNet-2B tolerates K=4 (QAT native-A8)
+    but K=5 is the safe floor. Production defaults set per model
+    (1bit/ternary=6, bitnet=5); `setdefault` so explicit `PIM_ACT_K` wins.
+    Composes orthogonally with fused/streaming (acts on the execute COUNT,
+    they act on per-execute body time).
 16. **Bonsai/BitNet batched-token shapes** — IDEA; V2G-ready carrier.
 17. **More g128 model families** — READY anytime (weight-spec path is
     generic); value = generality story, not throughput.
