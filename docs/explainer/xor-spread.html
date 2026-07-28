@@ -59,8 +59,8 @@
 <header>
   <h1>The SiMRA doubleACT row-spread</h1>
   <span class="sub">A cross-DIMM characterization + the MAJ3 self-pollution it causes</span>
-  <a href="index.html">← BitNet PIM explainer</a>
-  <a href="mvdram.html" style="margin-left:16px">The MVDRAM reproduction →</a>
+  <a href="pim_explainer.html">← BitNet PIM explainer</a>
+  <a href="mvdram_explainer.html" style="margin-left:16px">The MVDRAM reproduction →</a>
 </header>
 <div class="banner"><b>Update, July 2026:</b> a SiMRA co-author confirmed the mechanism — the spread is Multi-RowCopy's co-activation lattice seen from the source side (latched predecoders), and assessed our XOR address-algebra as new; nearest prior art is FracDRAM (MICRO'22). We verified the mapping on our own data: all 696 production tuples are exact (R<sub>F</sub>,R<sub>S</sub>) lattices; 3,941/3,941 fault records contained. Scene 2's "source-specific" property is reinterpreted as pair algebra. Exchange: <a href="https://github.com/CMU-SAFARI/DRAM-Bender/issues/12">DRAM-Bender#12</a> · <a href="https://github.com/CMU-SAFARI/SiMRA-DRAM/issues/1">our verification + open questions</a>.</div>
 <nav id="nav"></nav>
@@ -154,7 +154,7 @@ const s2={ title:'Scene 2 — Five properties', steps:5, render(step){
    ['2. Tuple-conditional','spread only fires when the doubleACT targets a row in a calibrated open-rows tuple'],
    ['3. Timing-independent','identical fault-edge set at RowClone (t₁ long), Broadcast, and MAJ3 timings'],
    ['4. Pair-determined','every fault lands inside the XOR-lattice of the (src,dst) address pair — 3941/3941 recorded faults'],
-   ['5. Bank-invariant','same calibrated tuple → byte-identical fault set across all 4 banks (matching MD5)'],
+   ['5. Bank- & die-invariant','byte-identical fault set across all 16 banks AND both dies — calibration transfers by copy + byte-verify'],
   ];
   const x0=110,y0=90,dy=88;
   for(let i=0;i<props.length;i++){
@@ -168,8 +168,8 @@ caption(step){return[
  `<b>Bit-exact.</b> The sibling row is a perfect copy of the source — 2048/2048 32-bit segments. This rules out a charge-coupling disturbance (which would be a noisy distribution) and points to a wordline-level event.`,
  `<b>Tuple-conditional.</b> The spread only occurs when the doubleACT's destination is a member of a SiMRA-calibrated open-rows tuple. doubleACT to an arbitrary far row → no spread.`,
  `<b>Timing-independent.</b> The same set of (source → sibling) fault edges appears at all three SiMRA timings — RowClone, Broadcast, MAJ3. The vulnerable-bit set doesn't depend on (t₁, t₂).`,
- `<b>Pair-determined.</b> Re-analysis after the SiMRA authors' reply: every recorded fault (3,941/3,941) lies inside the XOR-lattice of the (source, destination) address pair — what looked \"source-specific\" was pair algebra with our fixed destination. The graph stays irregular (which lattice points fire is only partially predicted; bit 8 never fires on this die), so independent-set placement stays necessary.`,
- `<b>Bank-invariant.</b> Run the same calibrated tuple on all 4 banks of a DIMM → the fault-edge set is byte-identical (matching MD5). This proves the spread is a property of the row-decoder hardware × tuple, not of per-bank cell physics.`,
+ `<b>Pair-determined.</b> Re-analysis after the SiMRA authors' reply: every recorded fault (3,941/3,941) lies inside the XOR-lattice of the (source, destination) address pair — what looked \"source-specific\" was pair algebra with our fixed destination. The graph stays irregular (which lattice points fire is only partially predicted; bit 8 never fires on this part — the same gap on both hynix dies, Scene 4), so independent-set placement stays necessary.`,
+ `<b>Bank- and die-invariant.</b> Run the same calibrated tuple on any bank of a DIMM → the fault-edge set is byte-identical (matching MD5), and it holds across all 16 banks — including <em>virgin</em> banks on first PIM contact (banks 4–7 classification-identical, 350/350 rows; the selection law of Scene 5 reproduces 1691/1691 with zero exceptions on virgin bank 9). It is byte-identical across the two dies as well. So the spread is a property of the row-decoder hardware × tuple, not of per-bank cell physics — and calibration transfers by copy + byte-verify, making 16-bank scale-out a configuration exercise (margin re-screens only), not a re-characterization.`,
 ][step];},
 codeRef(step){return `<span class="src">measured, one DIMM, 624 sources</span>
 <span class="hl">~1066 single-bit fault edges</span>
@@ -179,9 +179,12 @@ popcount distribution of XOR distances:
   3 bits : 23%
   4+ bits: 19%
 
-<span class="src">bank-invariance check</span>
-md5(bank0 faults) == md5(bank1) ==
-md5(bank2) == md5(bank3)   <span class="hl">✓</span>`;}};
+<span class="src">bank- & die-invariance check</span>
+md5(bank0 faults) == md5(bank1) == ...
+  == md5(bank15)   <span class="hl">✓ 16/16</span>
+md5(die0 faults) == md5(die1)  <span class="hl">✓</span>
+<span class="cm">virgin banks 4-7: 350/350 identical;</span>
+<span class="cm">calib transfers by copy + byte-verify.</span>`;}};
 
 // SCENE 3 — mechanism (provenance settled July 2026: Multi-RowCopy co-activation)
 const s3={ title:'Scene 3 — The mechanism: Multi-RowCopy seen from the source side', steps:4, render(step){
@@ -229,22 +232,23 @@ codeRef(){return `<span class="src">provenance — settled (July 2026)</span>
 <span class="cm">contained in the pair lattice.</span>
 
 <span class="src">supporting evidence</span>
-<span class="cm">- per-die "gap bit" differs (next scene)</span>
+<span class="cm">- part-level "gap bit" fingerprint (next scene;</span>
+<span class="cm">  byte-identical across same-part dies)</span>
 <span class="cm">- bank-invariant (decoder, not cells)</span>
 <span class="cm">- timing-independent (wordline, not charge)</span>`;}};
 
-// SCENE 4 — cross-DIMM
-const s4={ title:'Scene 4 — Universal across DIMMs, chip-specific bits', steps:4, render(step){
+// SCENE 4 — cross-DIMM: the fingerprint tracks the PART, not the die (per-die signature FALSIFIED 2026-07)
+const s4={ title:'Scene 4 — Universal across DIMMs; the fingerprint tracks the part, not the die', steps:4, render(step){
   clearScene();
-  sceneRoot.appendChild(text(500,30,'measured on 4 DDR4 DIMMs — same phenomenon, different vulnerable-bit fingerprint','label hl'));
-  // grid: bits 0..9 per DIMM
-  const dimms=[['DIMM A',[1,1,1,1,1,1,1,1,1,0]],['DIMM B',[1,1,1,1,1,1,1,1,0,1]]];
-  const x0=180,y0=120,cw=58,ch=40;
-  sceneRoot.appendChild(text(x0-60,y0-20,'bit:','label dim'));
-  for(let b=0;b<10;b++) sceneRoot.appendChild(text(x0+b*cw+cw/2,y0-20,`${b}`,'label dim'));
+  sceneRoot.appendChild(text(500,28,'measured on 4 DDR4 DIMMs — same phenomenon; the vulnerable-bit fingerprint is a PART property','label hl'));
+  // grid: bits 0..9 for the two SK hynix dies on our rig — byte-identical
+  const dimms=[['SK hynix — bender 0',[1,1,1,1,1,1,1,1,0,1]],['SK hynix — bender 2',[1,1,1,1,1,1,1,1,0,1]]];
+  const x0=250,y0=70,cw=52,ch=34;
+  sceneRoot.appendChild(text(x0-80,y0-18,'bit:','label dim'));
+  for(let b=0;b<10;b++) sceneRoot.appendChild(text(x0+b*cw+cw/2,y0-18,`${b}`,'label dim'));
   for(let d=0;d<dimms.length;d++){
-    const [name,bits]=dimms[d]; const y=y0+d*(ch+18);
-    sceneRoot.appendChild(text(x0-60,y+ch/2,name,'label hl'));
+    const [name,bits]=dimms[d]; const y=y0+d*(ch+14);
+    sceneRoot.appendChild(text(x0-80,y+ch/2,name,'label hl'));
     for(let b=0;b<10;b++){const x=x0+b*cw;
       const couples=bits[b]===1;
       const show=step>=1;
@@ -252,33 +256,43 @@ const s4={ title:'Scene 4 — Universal across DIMMs, chip-specific bits', steps
       if(show) sceneRoot.appendChild(text(x+(cw-6)/2,y+ch/2,couples?'×2^'+b:'gap',couples?'label orange':'label cyan'));
     }
   }
+  if(step>=1) sceneRoot.appendChild(text(500,y0+2*(ch+14)+2,'both SK hynix dies (benders 0, 2): the SAME coupled bits, bit 8 the gap — byte-identical, not just similar','label cyan'));
   if(step>=2){
-    sceneRoot.appendChild(text(500,300,'every DIMM has a single "gap bit" that does NOT couple — at a DIFFERENT position','label hl'));
-    sceneRoot.appendChild(text(500,324,'DIMM A: bit 9 is the gap.   DIMM B: bit 8 is the gap.','label orange'));
+    sceneRoot.appendChild(rect(110,196,780,80,'',{fill:'#2a1a1a',stroke:'#7f1d1d','stroke-width':1.5,rx:5}));
+    sceneRoot.appendChild(text(500,218,'what we first concluded (2026-04): a per-DIE gap-bit signature','label orange'));
+    sceneRoot.appendChild(text(500,240,'one campaign read DIMM 0 as "narrow (⊕8)" and DIMM 2 as "wide" — two hynix dies,','label'));
+    sceneRoot.appendChild(text(500,260,'apparently different fingerprints — so we tagged the gap-bit position as die-level physics','label'));
   }
   if(step>=3){
-    sceneRoot.appendChild(text(500,380,'the gap-bit position is a die-level signature — exactly what the','label dim'));
-    sceneRoot.appendChild(text(500,402,'latched-predecoder model predicts (one predecoder gates a','label dim'));
-    sceneRoot.appendChild(text(500,424,'wordline but does not couple the write, or vice-versa)','label dim'));
-    sceneRoot.appendChild(text(500,470,'exhaustive sweep (DIMM B): 1066 single-bit edges, ~3933 disturbed rows / 624 sources','label cyan'));
+    sceneRoot.appendChild(rect(110,290,780,168,'',{fill:'#10241a',stroke:'#22c1c3','stroke-width':1.5,rx:5}));
+    sceneRoot.appendChild(text(500,312,'what falsified it (2026-07 tower bring-up): the April-exact sweep, re-run','label cyan'));
+    sceneRoot.appendChild(text(500,334,'on BOTH hynix dies → the same 3,941-fault set, BYTE-IDENTICAL,','label'));
+    sceneRoot.appendChild(text(500,354,'across two physical dies AND a full rig change (host, kernel 7.0→6.11, slot ×4→×8, 2.5 mo)','label'));
+    sceneRoot.appendChild(text(500,378,'the "narrow vs wide" contrast was a REGION artifact — different calib subarrays were probed','label dim'));
+    sceneRoot.appendChild(text(500,400,'the co-activation lattice is MODEL-level digital structure; the fingerprint varies by','label'));
+    sceneRoot.appendChild(text(500,420,'part-level, not die-level — on our n=2 same-part sample (hypothesis, not law)','label orange'));
+    sceneRoot.appendChild(text(500,442,'only the ANALOG tail stays die-specific: flaky cells, stability-screen yield, MAJ success','label dim'));
+    sceneRoot.appendChild(text(500,486,'exhaustive hynix sweep: 1066 single-bit edges, ~3933 disturbed rows / 624 sources — identical on both dies','label cyan'));
   }
 },
 caption(step){return[
- `<b>Four DIMMs, same rig.</b> We ran the single-bit fault sweep on four DDR4 DIMMs behind the same FPGA. All four exhibit the spread — bit-exact, deterministic, tuple-conditional.`,
- `<b>The vulnerable-bit set is chip-specific.</b> Each chip couples a different subset of address bits. <span class="ex">EXAMPLE: DIMM A couples bits 0-8; DIMM B couples bits 0-7 and 9.</span>`,
- `<b>Every chip has a "gap bit"</b> that doesn't couple — but at a <em>different</em> position per die. DIMM A's gap is bit 9; DIMM B's is bit 8. This is the diagnostic feature.`,
- `<b>The gap is a die signature.</b> It's exactly what predecoder coupling predicts: one predecoder gates a wordline without coupling the write. On the one DIMM we swept exhaustively, the coupling is dense: 1066 single-bit fault edges and ~3933 disturbed rows across 624 sources. The phenomenon generalises across all four DIMMs; only the vulnerable-bit fingerprint varies.`,
+ `<b>Four DIMMs, same rig.</b> We ran the single-bit fault sweep on four DDR4 DIMMs behind the same FPGA — two SK hynix (benders 0, 2) and two Micron (benders 1, 3). All four exhibit the spread: bit-exact, deterministic, tuple-conditional.`,
+ `<b>The vulnerable-bit set is a PART-level fingerprint.</b> Both hynix dies couple the same address bits — ⊕{1,2,4,8,16,32,64,128,512} but not 256, so bit 8 is the "gap" on both. Byte-identical, not merely similar. The Micron pair carries a different fingerprint; the axis of variation is manufacturer/part.`,
+ `<b>What we first concluded — and it was wrong.</b> In April 2026 we read the gap-bit position as a per-<em>die</em> signature: one campaign made DIMM 0 look "narrow (⊕8)" and DIMM 2 "wide," and we filed that contrast as die-level physics (one predecoder gating a wordline without coupling the write). Two same-part hynix dies, apparently distinct fingerprints.`,
+ `<b>What falsified it.</b> During the July tower bring-up we re-ran the April-exact sweep on <em>both</em> hynix dies. The result came back byte-identical — the same 3,941 (src, target, XOR) fault tuples, zero differences — across two physical dies AND a full rig change (different host, kernel 7.0→6.11, PCIe slot ×4→×8, 2.5 months). The "narrow vs wide" contrast had been a <b>region artifact</b>: different calibration subarrays were probed on each. On our sample the co-activation lattice is model-level digital structure, identical across our two same-part dies and all 16 banks; the fingerprint varied only by <b>manufacturer/part</b> (hynix vs Micron), never between our two same-part hynix dies. <b>The honest scope:</b> two same-part dies (plus two different-part Microns) is far too small a sample to establish a part-level law either way — what the data <em>falsifies</em> is the specific per-die-signature claim for this pair; "the fingerprint tracks part, not die" is the standing hypothesis, awaiting more dies. What stays die-specific on our units is only the <em>analog tail</em> — flaky cells, stability-screen yield, MAJ success distributions. A chip flagged "worse for PuD" has worse cells or yield, not a different lattice. On the exhaustive hynix sweep: 1066 single-bit edges, ~3933 disturbed rows across 624 sources — identical on both dies.`,
 ][step];},
-codeRef(){return `<span class="src">cross-DIMM (single-bit XOR sweep)</span>
-<span class="cm">DIMM A: bits 0..8 couple, bit 9 gap</span>
-<span class="cm">DIMM B: bits 0..7,9 couple, bit 8 gap</span>
-<span class="cm">DIMM B full sweep: 1066 single-bit edges,</span>
-<span class="cm">  3933 total disturbed rows, 624 sources</span>
+codeRef(){return `<span class="src">cross-die re-run (2026-07 tower bring-up)</span>
+<span class="cm">April-exact sweep (s72 calib, dst 45340,</span>
+<span class="cm">bank 0, 624 src) on BOTH hynix dies:</span>
+<span class="hl">3,941/3,941 fault tuples byte-identical</span>
+<span class="cm">across 2 dies AND a rig change</span>
+<span class="cm">(host, kernel 7.0→6.11, slot ×4→×8, 2.5 mo)</span>
 
-<span class="src">implication</span>
-<span class="cm">a "less reliable for PuD" chip may just</span>
-<span class="cm">have a different coupling fingerprint —</span>
-<span class="cm">not worse cells.</span>`;}};
+<span class="src">what varies vs what does not</span>
+<span class="cm">lattice + gap-bit fingerprint: by part /</span>
+<span class="cm">  manufacturer (hynix vs Micron) — digital</span>
+<span class="cm">analog tail only: flaky cells, yield, MAJ</span>
+<span class="hl">→ the gap bit is NOT a die signature</span>`;}};
 
 // SCENE 4b — the selection law (NEW, July 2026)
 const s4b={ title:'Scene 5 — The selection law: which lattice members fire', steps:5, render(step){
@@ -365,9 +379,9 @@ const s4b={ title:'Scene 5 — The selection law: which lattice members fire', s
 },
 caption(step){return[
  `<b>The question Scene 1 left open.</b> For an APA pair (A, A⊕d), the lattice predicts 2^k candidate rows <code>{A⊕S : S⊆bits(d)}</code> — but on any given pair only a subset of members actually receives the deposit. Which subset? Until July 2026 we answered this empirically, screening member by member.`,
- `<b>The law.</b> The subarray-local address bits fall into predecoder units — on our modules the pairs <code>{1,2} {3,4} {5,6} {7,8}</code>, with bits 0 and 9 alone. Member A⊕S fires <b>iff every unit g contributes S∩g ∈ {∅, d∩g}</b>: nothing, or exactly d's whole in-group pattern. <span class="ex">d={1,2,5}: unit {1,2} is wholly inside d, unit {5,6} contributes bit 5 → exactly A⊕{5}, A⊕{1,2}, A⊕{1,2,5} fire. Subsets that split a unit never fire.</span>`,
+ `<b>The law.</b> The subarray-local address bits fall into predecoder units — on our modules the pairs <code>{1,2} {3,4} {5,6} {7,8}</code>, with bits 0 and 9 alone. Member A⊕S fires <b>if and only if every unit g contributes S∩g ∈ {∅, d∩g}</b>: nothing, or exactly d's whole in-group pattern. <span class="ex">d={1,2,5}: unit {1,2} is wholly inside d, unit {5,6} contributes bit 5 → exactly A⊕{5}, A⊕{1,2}, A⊕{1,2,5} fire. Subsets that split a unit never fire.</span>`,
  `<b>Zero exceptions, two dies, timing-invariant.</b> The reproducer writes a marker to A, zeros every other predicted member, fires the doubleACT, reads every member back. The law explains <b>1691/1691 member-observations on each of two dies</b> — zero exceptions, zero mixed rows. The firing set is identical at all 8 timing combos (t₁₂∈{5,10,20,30} × t₂₃∈{1,2}), and the member CSVs are byte-identical across the dies.`,
- `<b>Consequences.</b> The fired count is 2^(number of units d touches), so the decay of full-lattice pairs with k is combinatorial, not stochastic: the full 2^k set fires iff d contains no complete pair-unit. Measured full-set rate by k on this module (4 pairs each): <b>100 / 100 / 75 / 25 / 0%</b> for k=1..5 — the counting prediction exactly. And screening stops being a sweep: whether a placement offset is safe is now a predicate you <em>compute</em> from d.`,
+ `<b>Consequences.</b> The fired count is 2^(number of units d touches), so the decay of full-lattice pairs with k is combinatorial, not stochastic: the full 2^k set fires if and only if d contains no complete pair-unit. Measured full-set rate by k on this module (4 pairs each): <b>100 / 100 / 75 / 25 / 0%</b> for k=1..5 — the counting prediction exactly. And screening stops being a sweep: whether a placement offset is safe is now a predicate you <em>compute</em> from d.`,
  `<b>Scope, measured — not assumed.</b> (1) "Subarray-local" turned out to mean <b>low-10-bit-local within a 1024-row predecoder block</b>: the 640-row units are sense-amp segments only, and a same-block coset deposits membership-exact ACROSS the 640 boundary (8- and 16-row cosets verified row-by-row, both directions), while cross-block pairs deposit no coset at all. Allocators must plan block-scoped. (2) <b>Bit 9 is a dead deposit generator</b> on this tuple class (d=512/513 → 0.00% vs 100.00% for d=1/16/17) — only bits {0,4} give clean single-bit scratch offsets there, and the production pair's 16-row (not 32-row) tuple is retro-explained. (3) The clean law is a <b>full-PUD-die property</b>: on the two partial dies, single-bit deposits work but multi-bit selection fits no partition better than 61%/42% and weakly depends on timing — an independent, third corroboration that those dies differ structurally.`,
 ][step];},
 codeRef(step){return `<span class="src">reproducer (app/test_selection_timing.cpp)</span>
@@ -429,7 +443,7 @@ const sCloneLaw={ title:'Scene 6 — The clone-dead law: which rows can feed a t
     const rules=[
       ['u ≤ 3','clone OK — zero exceptions anywhere (6,128/6,128 observations)','#10241a','#22c1c3'],
       ['u ≥ 5','clone DEAD — the 2⁶-row co-activation dilutes the source charge below threshold','#2a1a1a','#7f1d1d'],
-      ['u = 4 special case','DEAD iff bit0 AND bit9 set AND touched units exactly {G1,G2,G3} — all 27 such classes dead; the 81 siblings with another unit untouched all OK','#3a2a1a','#f97316'],
+      ['u = 4 special case','DEAD exactly when bit0 AND bit9 set AND touched units exactly {G1,G2,G3} — all 27 such classes dead; the 81 siblings with another unit untouched all OK','#3a2a1a','#f97316'],
     ];
     const y0=110,dy=100;
     for(let i=0;i<rules.length;i++){const y=y0+i*dy;
@@ -727,7 +741,7 @@ overlap=1 : n= 896  mean 13.5%  max 71.9%
 <span class="cm">Rfirst copies already present. For K=4: 2.</span>`;}};
 
 // SCENE 7 (now Scene 10) — why it matters
-const s7={ title:'Scene 10 — Why it matters for PuD characterization', steps:3, render(step){
+const s7={ title:'Scene 10 — Why it matters for PuD characterization', steps:4, render(step){
   clearScene();
   sceneRoot.appendChild(text(500,40,'the reported MAJX success rate conflates two different things','label hl'));
   const boxes=[
@@ -739,18 +753,42 @@ const s7={ title:'Scene 10 — Why it matters for PuD characterization', steps:3
     sceneRoot.appendChild(rect(180,y,640,90,'',{fill:'#1d2230',stroke:c,'stroke-width':2,rx:5,opacity:show?1:0.4}));
     sceneRoot.appendChild(text(200,y+28,t,'label hl','start'));
     sceneRoot.appendChild(text(200,y+58,d,'label','start'));}
-  if(step>=2){
+  if(step===2){
     sceneRoot.appendChild(text(500,400,'the pollution is deterministic + geometry-dependent → it does NOT average out','label hl'));
     sceneRoot.appendChild(text(500,428,'a chip flagged "worse at MAJX" may just have a tuple population with more shadow overlap','label orange'));
     sceneRoot.appendChild(text(500,470,'the fix: stratify reported success rate by shadow-overlap → the two effects separate','label cyan'));
+  }
+  if(step>=3){
+    sceneRoot.appendChild(rect(120,352,760,210,'',{fill:'#1d2230',stroke:'#22c1c3','stroke-width':1.5,rx:5}));
+    sceneRoot.appendChild(text(500,376,'the field\'s own silicon validated the disturbance axis: PuDGhost (arXiv 2606.19119, SAFARI/UTokyo)','label cyan'));
+    sceneRoot.appendChild(text(500,400,'96 SK hynix DDR4 chips: adjacent non-operand rows bias SiMRA outputs ≤10%;','label'));
+    sceneRoot.appendChild(text(500,420,'concurrently-computing columns ≤48% at 16-row activation — measured on real silicon','label'));
+    sceneRoot.appendChild(text(500,444,'their CS-1/CS-2 mitigations (screen + isolation rows): 125×/91× CBR/BER, GEMV NMSE 413×','label'));
+    sceneRoot.appendChild(text(500,464,'= exactly this scene\'s "stratify / screen by coupling" recommendation, validated on-chip','label hl'));
+    sceneRoot.appendChild(text(500,496,'complementary AXIS: PuDGhost is environment→output (non-operand data corrupts the result)','label dim'));
+    sceneRoot.appendChild(text(500,516,'our spread / self-pollution / selection-law line is the deposit direction, op→env','label orange'));
+    sceneRoot.appendChild(text(500,536,'(the op writes INTO non-operand rows) — not covered by PuDGhost, still ours','label orange'));
   }
 },
 caption(step){return[
  `<b>A standard MAJX characterization measures a polluted operation</b> on any tuple whose geometry has shadow overlap. The reported per-tuple success rate mixes (1) the chip's intrinsic MAJ reliability and (2) the operand corruption from the doubleACT's own spread.`,
  `<b>The pollution doesn't average out.</b> It's deterministic and depends only on tuple geometry, so it systematically depresses the reported success rate for the affected subset of tuples — and more severely as fanout shrinks (the K/2 tie boundary is reached with fewer corrupted operands).`,
  `<b>The two effects are separable.</b> Stratify the reported MAJX success rate by shadow-overlap count. The pollution component appears as a distinct degradation at the overlap value that crosses K/2; the rest reflects true cell quality. Without this, a chip with unlucky tuple geometry looks like a chip with worse cells.`,
+ `<b>The field's own silicon confirms the axis — from the other direction.</b> PuDGhost (arXiv 2606.19119, SAFARI/UTokyo; Kubo a co-author) characterizes exactly this disturbance on <b>96 SK hynix DDR4 chips</b>: adjacent non-operand rows bias SiMRA outputs by ≤10%, and concurrently-computing columns by ≤48% at 16-row activation — then ships on-chip mitigations (CS-1/CS-2: screen under adjacent patterns, add isolation rows) worth <b>125×/91×</b> CBR/BER and <b>413×</b> GEMV NMSE. That is this scene's "stratify and screen by coupling" recommendation, independently validated in hardware, and it also explains our own 5/5/5 balanced-mask rule and residents-amplify observation (Scenes 8–9). The axes are complementary: PuDGhost measures <b>environment→output</b> (non-operand data corrupting the result); our XOR-spread / self-pollution / selection-law line is the <b>deposit/write direction, op→env</b> (the operation writing <em>into</em> non-operand rows) — not covered by PuDGhost, and still ours. Two directions of one co-activation physics.`,
 ][step];},
-codeRef(){return `<span class="src">recommendation</span>
+codeRef(step){if(step>=3)return `<span class="src">PuDGhost — arXiv 2606.19119 (SAFARI/UTokyo)</span>
+<span class="cm">96 SK hynix DDR4 chips, on silicon:</span>
+<span class="cm">  adjacent non-operand rows bias ≤10%</span>
+<span class="cm">  concurrent columns ≤48% @ 16-row ACT</span>
+<span class="hl">CS-1/CS-2 mitigations: 125×/91× CBR/BER,</span>
+<span class="hl">  GEMV NMSE 413×  (= stratify + screen)</span>
+
+<span class="src">axis map</span>
+<span class="cm">PuDGhost:  environment → output</span>
+<span class="cm">ours (spread/self-pollution/selection):</span>
+<span class="hl">  deposit/write direction, op → env</span>
+<span class="cm">  — not covered by them, still novel</span>`;
+return `<span class="src">recommendation</span>
 <span class="cm">report MAJX success rate stratified by</span>
 <span class="cm">shadow_overlap = #(open rows that equal</span>
 <span class="cm">  Rfirst ⊕ (1&lt;&lt;b) for a vulnerable bit b)</span>
@@ -759,13 +797,14 @@ codeRef(){return `<span class="src">recommendation</span>
 <span class="cm">the overlap crossing K/2; the residual is</span>
 <span class="cm">the chip's real MAJX capability.</span>`;}};
 
-// SCENE 8 (now Scene 11) — two responses; "use it" updated July 2026 with shipped results
-const s8={ title:'Scene 11 — Two responses: avoid it, or use it', steps:4, render(step){
+// SCENE 8 (now Scene 11) — two responses; "use it" reworked 2026-07-28: primitive real, two production bets closed negative
+const s8={ title:'Scene 11 — Two responses: avoid it, or use it', steps:5, render(step){
   clearScene();
-  const heads=['once characterized, the spread is a tool — not just a hazard',
+  const heads=['once characterized, the spread is both a hazard and a tool — kept with an honest ledger',
                'avoid it: independent-set row pools (the production path since May 2026)',
-               'use it: the lattice as an addressing system (shipped July 2026)',
-               'what the levers bought on silicon (July 2026, measured)'];
+               'use it: the lattice as an addressing system — the primitive is real and bit-exact',
+               'the microbenchmarks it powered — valid, but not the current wall frontier',
+               'the two production bets that rode the lattice — and closed negative'];
   sceneRoot.appendChild(text(500,36,heads[step],'label hl'));
   if(step===1){
     sceneRoot.appendChild(rect(280,90,440,190,'',{fill:'#10241a',stroke:'#22c1c3',rx:5}));
@@ -779,45 +818,64 @@ const s8={ title:'Scene 11 — Two responses: avoid it, or use it', steps:4, ren
   }
   if(step===2){
     sceneRoot.appendChild(rect(150,80,700,210,'',{fill:'#3a2a1a',stroke:'#f97316',rx:5}));
-    sceneRoot.appendChild(text(500,108,'USE IT — placement by construction','label orange'));
+    sceneRoot.appendChild(text(500,108,'USE IT — placement by construction (the PRIMITIVE)','label orange'));
     sceneRoot.appendChild(text(175,140,'corruption of a co-activated group during a RowClone is a function of','label','start'));
     sceneRoot.appendChild(text(175,160,'the PAIR OFFSET src⊕dst (Scenes 3+5)','label','start'));
     sceneRoot.appendChild(text(175,190,'→ pick offsets free of generator subsets: the load is tuple-clean','label hl','start'));
     sceneRoot.appendChild(text(175,210,'   BY CONSTRUCTION — no screening, no retries','label hl','start'));
     sceneRoot.appendChild(text(175,240,'measured: 20/20 clean loads · full 16-row tuple loaded with','label cyan','start'));
     sceneRoot.appendChild(text(175,260,'8 doubleACTs, 16/16 correct (June, wrong source-model: 5/16)','label cyan','start'));
-    sceneRoot.appendChild(text(500,330,'the same discipline re-ran MVDRAM\'s faithful computation-rows dataflow:','label'));
-    sceneRoot.appendChild(text(500,354,'June 6.1% end-to-end → July 99.98% — same DAG, only the placement changed','label hl'));
+    sceneRoot.appendChild(text(500,326,'the same discipline re-ran MVDRAM\'s faithful computation-rows dataflow:','label'));
+    sceneRoot.appendChild(text(500,350,'June 6.1% end-to-end → July 99.98% — same DAG, only the placement changed','label hl'));
+    sceneRoot.appendChild(text(500,380,'these are validated, bit-exact primitives — they stay real regardless of what follows','label dim'));
   }
   if(step===3){
     const cards=[
       ['fused per-MAJ (tool A/B, iters=100)','0.357 → 0.089 ms/MAJ = 3.99× (die A)','0.556 → 0.085 ms/MAJ = 6.53× (die B) · bit-exact 0/204,800 per die'],
-      ['production server (PIM_FUSED_COSET=1)','1.45–1.6× per matmul, bit-exact','real model, 8 tokens: 117.2 → 71.8 s = 1.63× — both arms answer "Paris"'],
+      ['production server (PIM_FUSED_COSET=1, opt-in — server default 0)','1.45–1.6× per matmul, bit-exact','real model, 8 tokens: 117.2 → 71.8 s = 1.63× — both arms answer "Paris"'],
       ['MVDRAM fastpath kernel (18-MAJ3 gate)','1.585/1.574 → 0.683/0.705 ms/gate','= 2.32×/2.23× (die A/B) · fast loading costs ~0.17% end-to-end'],
     ];
-    for(let i=0;i<3;i++){const y=80+i*100;
-      sceneRoot.appendChild(rect(120,y,760,88,'',{fill:'#1d2230',stroke:'#f97316','stroke-width':2,rx:5}));
-      sceneRoot.appendChild(text(140,y+22,cards[i][0],'label orange','start'));
-      sceneRoot.appendChild(text(140,y+46,cards[i][1],'label hl','start'));
-      sceneRoot.appendChild(text(140,y+68,cards[i][2],'label','start'));}
-    sceneRoot.appendChild(text(500,420,'"Using something in the way it was not intended is not a security risk —','label hl'));
-    sceneRoot.appendChild(text(500,446,'it is creativity."','label hl'));
-    sceneRoot.appendChild(text(500,490,'The same co-activation that makes the hazard makes the tool.','label dim'));
+    for(let i=0;i<3;i++){const y=74+i*84;
+      sceneRoot.appendChild(rect(120,y,760,74,'',{fill:'#1d2230',stroke:'#f97316','stroke-width':2,rx:5}));
+      sceneRoot.appendChild(text(140,y+20,cards[i][0],'label orange','start'));
+      sceneRoot.appendChild(text(140,y+42,cards[i][1],'label hl','start'));
+      sceneRoot.appendChild(text(140,y+62,cards[i][2],'label','start'));}
+    sceneRoot.appendChild(text(500,344,'valid 07-17 microbenchmarks — but PIM_FUSED_COSET is opt-in (default 0), not "the production default"','label dim'));
+    sceneRoot.appendChild(text(500,370,'and the CURRENT wall frontier is ORTHOGONAL to the spread: phase-2 send-ahead −26.3%,','label'));
+    sceneRoot.appendChild(text(500,390,'K-quant, and the K6+fused+phase-2 stack = −64.7% (973.2→343.7 s, "…Paris")','label cyan'));
+  }
+  if(step===4){
+    const cards=[
+      ['M3 coset-deposit (PIM_BCAST_LOAD) — production-DEAD','the fused body recomputes its row from the pool, so the deposited shadow is NEVER read; 99.4% of "deposits" were d=0 no-ops; suppressing every deposit leaves the token identical. The only live effect was write-elision (87% served stale masks); ceiling <9% of the wall.','resolved negative 07-26 · retracted PR #16 (merged 07-28; trailing pointer PR #18) · machinery excised −286 lines'],
+      ['X-master-clone (PIM_XMASTER) — closed NEGATIVE','RowClone the activation master into the fused-body op rows instead of re-writing every slot. But a RowClone establishes the seed at CHARGE-SHARED, not write-driven, levels → in-DRAM x′ ≠ x. The 07-27 "corr 0.998 shallow" reading was a low-density harness artifact (25% real rows); at production mask density the corruption is depth-independent — corr ≈0.94–0.97 flat across depths 8–80 rounds, 0/2048 bit-exact. Single-track V2S doubles the error uncancelled → token garbage.','the brief −9.9% was a max-tokens-1 gate, retracted · V2S hard-gated · closed negative 07-28'],
+    ];
+    for(let i=0;i<2;i++){const y=68+i*148;
+      sceneRoot.appendChild(rect(90,y,820,136,'',{fill:'#2a1a1a',stroke:'#7f1d1d','stroke-width':1.5,rx:5}));
+      sceneRoot.appendChild(text(110,y+22,cards[i][0],'label orange','start'));
+      const words=cards[i][1].split(' ');const q=Math.ceil(words.length/3);
+      sceneRoot.appendChild(text(110,y+46,words.slice(0,q).join(' '),'label','start'));
+      sceneRoot.appendChild(text(110,y+66,words.slice(q,2*q).join(' '),'label','start'));
+      sceneRoot.appendChild(text(110,y+86,words.slice(2*q).join(' '),'label','start'));
+      sceneRoot.appendChild(text(110,y+112,cards[i][2],'label cyan','start'));}
+    sceneRoot.appendChild(text(500,382,'the lattice deposit PRIMITIVE stays bit-exact and real (step 2 above) — only these two production levers died','label hl'));
+    sceneRoot.appendChild(text(500,410,'"Using something in the way it was not intended is not a security risk — it is creativity."','label hl'));
+    sceneRoot.appendChild(text(500,436,'The honest ledger — validated primitives, real microbenchmarks, and two bets that closed negative — is the point.','label dim'));
   }
 },
 caption(step){return[
- `<b>Two ways to respond</b> to a deterministic, characterized side-effect: design around it, or turn it into a feature. As of July 2026 both responses are shipped and measured.`,
+ `<b>Two ways to respond</b> to a deterministic, characterized side-effect: design around it, or turn it into a feature. The honest 2026 ledger has all three kinds of outcome — a shipped avoidance path, validated bit-exact primitives, and two production bets that rode the lattice and closed <em>negative</em>. Negatives included, because they were load-bearing.`,
  `<b>Engineer around it.</b> Treat the (source → sibling) edges as a conflict graph and take a maximum independent set — a pool of rows where writing any one never corrupts another. <span class="ex">EXAMPLE: 276 of 624 rows on one DIMM, 294 on another.</span> This is the fault-free persistent-weight pool that lets the in-DRAM LLM run correctly. <b>July 2026 amendment:</b> fault-freedom alone anti-selects clone health (Scene 6) — the current pools are built with BOTH filters: independent-set discipline AND the clone-law predicate (197 clone-ok rows on the production die).`,
- `<b>Use it — placement by construction.</b> The pair lattice (Scene 3) plus the selection law (Scene 5) turn the spread into an addressing system. Corruption during a RowClone into a co-activated group is a function of the pair offset src⊕dst; choose an offset free of generator subsets and the load is tuple-clean <em>by construction</em>. Measured: <b>20/20</b> clean loads; the fast tuple load fills all 16 rows with 8 doubleACTs, <b>16/16</b> correct (June's source-model attempt managed 5/16). The same discipline re-ran MVDRAM's faithful computation-rows dataflow at <b>99.98%</b> end-to-end — reversing June's 6.1% verdict.`,
- `<b>What the levers bought.</b> Persistent weights + the coset activation update, fused into one per-MAJ program: <b>0.357→0.089 ms/MAJ (3.99×, die A)</b> and 0.556→0.085 (6.53×, die B), bit-exact over 100 iterations (0/204,800 bad segments per die). In the production server (<code>PIM_FUSED_COSET=1</code>): <b>1.45–1.6× per matmul</b>, bit-exact — and <b>1.63×</b> on the real model (117.2→71.8 s for 8 tokens with layer 0's seven projections in DRAM; both arms answer "Paris"). The MVDRAM fastpath kernel runs <b>2.2–2.3×</b> faster per gate than the host-write shape.`,
+ `<b>Use it — placement by construction (the primitive).</b> The pair lattice (Scene 3) plus the selection law (Scene 5) turn the spread into an addressing system. Corruption during a RowClone into a co-activated group is a function of the pair offset src⊕dst; choose an offset free of generator subsets and the load is tuple-clean <em>by construction</em>. Measured: <b>20/20</b> clean loads; the fast tuple load fills all 16 rows with 8 doubleACTs, <b>16/16</b> correct (June's source-model attempt managed 5/16). The same discipline re-ran MVDRAM's faithful computation-rows dataflow at <b>99.98%</b> end-to-end — reversing June's 6.1% verdict. These are validated, bit-exact primitives; they stay real no matter what rides on them next.`,
+ `<b>The microbenchmarks it powered.</b> Persistent weights + the coset activation update, fused into one per-MAJ program: <b>0.357→0.089 ms/MAJ (3.99×, die A)</b> and 0.556→0.085 (6.53×, die B), bit-exact over 100 iterations (0/204,800 bad segments per die). In the production server (<code>PIM_FUSED_COSET=1</code>): <b>1.45–1.6× per matmul</b>, and <b>1.63×</b> on the real model (both arms answer "Paris"); the MVDRAM fastpath kernel runs <b>2.2–2.3×</b> faster per gate. All valid 07-17 microbenchmarks — but honestly scoped: fused-coset is <em>opt-in</em> (server default 0), not the production default, and the current wall frontier is <b>orthogonal to the spread</b> — phase-2 send-ahead −26.3%, K-quant, and the K6+fused+phase-2 stack at <b>−64.7%</b> (973.2→343.7 s).`,
+ `<b>The two bets that closed negative.</b> Both rode the co-activation lattice as a production lever; both failed, for instructive reasons. <b>M3 coset-deposit</b> (<code>PIM_BCAST_LOAD</code>): the fused body recomputes its row from the pool, so the deposited shadow is <em>never read</em> — 99.4% of "deposits" were d=0 no-ops, and suppressing every deposit leaves the token identical. Only write-elision was real, and it served 87% stale masks; ceiling <9% of the wall. Resolved negative 07-26, publicly retracted (PR #16, merged 07-28; trailing pointer annotation in PR #18), machinery excised (−286 lines). <b>X-master-clone</b> (<code>PIM_XMASTER</code>): the interesting lattice-physics finding — a RowClone establishes its destination at <b>charge-shared, not write-driven, levels</b>, so the in-DRAM seed is x′ ≠ x. A single readback is exact, but reused as a repeated compute operand it stays corrupted at every depth — the error is depth-independent (masters refill each round, so per-round seed errors never accumulate), corr ≈0.94–0.97 flat across depths 8–80 rounds at production density, 0/2048 bit-exact; single-track V2S doubles the error uncancelled → token garbage. The brief −9.9% was a max-tokens-1 gate, retracted; V2S is now hard-gated. <b>The primitive stays bit-exact and real (step 2) — only these two production levers died.</b> "Using something in the way it was not intended is not a security risk — it is creativity" — and the honest ledger of what that creativity bought, and what it didn't, is the point.`,
 ][step];},
 codeRef(step){if(step<=1)return `<span class="src">engineer-around: independent-set pool</span>
 build undirected conflict graph from the
 fault edges → greedy max-IS → pool rows
 with zero pairwise spread.
 <span class="cm">verified: 0 conflict violations in the IS.</span>
-
-<span class="src">use-it results: steps 3–4 of this scene</span>`;
+<span class="cm">now ALSO clone-law-filtered (Scene 6):</span>
+<span class="cm">197 clone-ok rows on the production die.</span>`;
 if(step===2)return `<span class="src">reproducer (app/test_safe_load.cpp)</span>
 <span class="cm">phase 1: safe external RowClones —</span>
 <span class="cm">  20/20 targets clean (only dst written)</span>
@@ -829,21 +887,30 @@ if(step===2)return `<span class="src">reproducer (app/test_safe_load.cpp)</span>
 <span class="src">reproducer (app/test_mvdram_compute_rows_safe.cpp)</span>
 <span class="cm">same DAG as June, safe placement only:</span>
 <span class="hl">99.98% e2e (June: 6.1%)</span>
-<span class="cm">see docs/MVDRAM_REPRODUCTION.md §8</span>`;
-return `<span class="src">app/test_fused_maj.cpp (iters=100)</span>
+<span class="cm">bit-exact primitive — stays real.</span>`;
+if(step===3)return `<span class="src">app/test_fused_maj.cpp (iters=100)</span>
 <span class="hl">A 0.357/0.556 → B2 0.089/0.085 ms/MAJ</span>
 <span class="cm">3.99× / 6.53× · 0/204,800 bad per die</span>
 
-<span class="src">app/test_bitnet_server.cpp + python/ab_fused_server.py</span>
-<span class="cm">PIM_FUSED_COSET=1: 9.7–9.8→6.4–6.9 ms/matmul</span>
-<span class="cm">(bank 0), 9.5–9.7→6.1 (4-bank) = 1.45–1.6×</span>
-<span class="cm">real model (BitNet b1.58-2B, layer-0×7,</span>
-<span class="cm">4-bank, 8 tok): 117.2→71.8 s = 1.63×</span>
+<span class="src">app/test_bitnet_server.cpp (PIM_FUSED_COSET=1, opt-in)</span>
+<span class="cm">1.45–1.6×/matmul · real model 1.63× "Paris"</span>
+<span class="cm">app/test_mvdram_fastpath_ab.cpp: 2.32×/2.23×</span>
 
-<span class="src">app/test_mvdram_fastpath_ab.cpp</span>
-<span class="cm">logs: docs/data/mvdram-repro/fastpath_ab_b*.log</span>
-<span class="cm">write-load 1.585/1.574 → fused clone-load</span>
-<span class="cm">0.683/0.705 ms/gate = 2.32×/2.23×</span>`;}};
+<span class="src">scope (valid microbenchmarks, not the frontier)</span>
+<span class="cm">fused-coset opt-in (server default 0);</span>
+<span class="cm">current wall wins are orthogonal to the</span>
+<span class="hl">spread: phase-2 −26.3%, stack −64.7%</span>`;
+return `<span class="src">closed negative — the honest ledger</span>
+<span class="cm">M3 coset-deposit (PIM_BCAST_LOAD):</span>
+<span class="cm">  shadow never read; NODEP A/B token-</span>
+<span class="cm">  identical; write-elision 87% stale;</span>
+<span class="hl">  retracted PR #16 (merged 07-28), −286 lines</span>
+<span class="cm">  memory: m3_coset_deposit_negative</span>
+
+<span class="cm">X-master (PIM_XMASTER): RowClone seed is</span>
+<span class="hl">  charge-shared, x′≠x; corr ≈0.94–0.97 depth-flat</span>
+<span class="cm">  V2S garbage → hard-gated; −9.9% retracted</span>
+<span class="cm">  memory: xmaster_status</span>`;}};
 
 const SCENES=[s1,s2,s3,s4,s4b,sCloneLaw,sDrift,s5,s6,s7,s8];
 let curScene=0,curStep=0,playTimer=null;

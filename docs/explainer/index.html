@@ -102,9 +102,8 @@
 <header>
   <h1>BitNet PIM — DRAM as the compute substrate</h1>
   <span class="sub">Mechanism grounded in SiMRA, FracDRAM, FCDRAM, POPCNT3 + our project's server code</span>
-  <a href="xor-spread.html">The doubleACT row-spread →</a>
-  <a href="mvdram.html" style="margin-left:16px">The MVDRAM reproduction →</a>
-  <a href="dram-internals.html" style="margin-left:16px">The DRAM internals atlas →</a>
+  <a href="xor_spread_explainer.html">The doubleACT row-spread →</a>
+  <a href="mvdram_explainer.html" style="margin-left:16px">The MVDRAM reproduction →</a>
 </header>
 
 <nav id="nav"></nav>
@@ -614,7 +613,7 @@ const scene6 = {
         const x = x0 + i*dx;
         sceneRoot.appendChild(rect(x-7, 353, 14, 14, MAJ[i] ? 'cap' : 'cap empty'));
       }
-      sceneRoot.appendChild(text(500, 420, 'V_BL ≈ (n_ones / K) · V_DD  (negligible-bitline-cap limit)  →  sense amp → 1 iff majority', 'label hl'));
+      sceneRoot.appendChild(text(500, 420, 'V_BL ≈ (n_ones / K) · V_DD  (negligible-bitline-cap limit)  →  sense amp → 1 exactly when majority held 1', 'label hl'));
       sceneRoot.appendChild(text(500, 450, 'this is the textbook (Ambit-style) MAJ3', 'label dim'));
       sceneRoot.appendChild(text(500, 480, 'on real COTS chips, K=3 alone often gives unreliable resolution under process variation', 'label dim'));
     }
@@ -741,7 +740,7 @@ const scene6 = {
   },
   caption(step) {
     const c = [
-      `<b>Textbook MAJ-of-K.</b> Open K rows simultaneously → K cells per bitline share charge → V_BL ≈ (n_ones/K)·V_DD → sense amp resolves to 1 iff majority of cells held 1. <b>This is the substrate.</b>`,
+      `<b>Textbook MAJ-of-K.</b> Open K rows simultaneously → K cells per bitline share charge → V_BL ≈ (n_ones/K)·V_DD → sense amp resolves to 1 if and only if a majority of cells held 1. <b>This is the substrate.</b>`,
       `<b>Tight K (say K=4) is fragile.</b> Bitline perturbation away from V_DD/2 is small — only 1 of K cells imbalances the bitline. Sense amps have process-variation in their threshold, so this small perturbation may not cross reliably.`,
       `<b>Replicate each input across many rows.</b> SiMRA's central result: replicating each input N/X times for MAJ-of-X gives much bigger bitline perturbation, which crosses the sense amp threshold reliably even under variation. <span class="ex">EXAMPLE: SiMRA reports 32-row vs 4-row → +159% perturbation (SPICE) → MAJ3 success ~99% vs ~68% on tested chips.</span>`,
       `<b>Neutral rows.</b> When N is not divisible by X, the leftover rows must contribute nothing to the bitline. Solution: FracDRAM's Frac primitive sets cells to V_DD/2 by interrupting the activation before the sense amp resolves. A V_DD/2 cell perturbs the bitline by ≈ 0.`,
@@ -865,7 +864,7 @@ const scene7 = {
   caption(step) {
     const c = [
       `<b>Ternary weight w ∈ {−1, 0, +1}.</b> Storing one ternary value needs 2 bits.`,
-      `<b>Split into two masks.</b> <code>pos_mask</code> (1 iff w=+1), <code>neg_mask</code> (1 iff w=−1). Each MAJ-based AND operates on one of the two masks. Final result = pos_count − neg_count.`,
+      `<b>Split into two masks.</b> <code>pos_mask</code> (1 exactly when w=+1), <code>neg_mask</code> (1 exactly when w=−1). Each MAJ-based AND operates on one of the two masks. Final result = pos_count − neg_count.`,
       `<b>Activations are int8</b> (after BitNet's input quantizer). Stored as int8 in PyTorch.`,
       `<b>Decompose int8 into 8 bitplanes.</b> Each MAJ operates on a single bit. Bitplane b's contribution is multiplied by 2^b on host. The MSB factor is <em>negative</em> (−128), giving correct two's-complement sign handling natively.`,
       `<b>Host accumulates.</b> Sum bitplane popcounts with 2^b weights, subtract neg from pos → int32. Multiply by bf16 weight scale, <em>divide</em> by input scale → bf16 (input was quantised as x_int8 = round(x · input_scale), so reverse it by dividing). Hand back to PyTorch.`,
@@ -974,7 +973,7 @@ const scene8 = {
   caption(step) {
     const c = [
       `<b>Step 1 — prep.</b> Prompt → tokenizer → embed → first layer's input. All CPU.`,
-      `<b>Step 2 — N transformer layers.</b> Each layer: RMSNorm → attention (q/k/v/o ternary linears) → attention compute → residual → RMSNorm → MLP (gate, up, SwiGLU, down). The 7 ternary linears go to PIM. Everything else stays on CPU/GPU.`,
+      `<b>Step 2 — N transformer layers.</b> Each layer: RMSNorm → attention (q/k/v/o ternary linears) → attention compute → residual → RMSNorm → MLP (gate, up, SwiGLU, down). The 7 ternary linears go to PIM. Everything else stays on CPU/GPU. <b>This same 7-linear offload now runs three validated model families</b> — BitNet b1.58-2B (ternary) and Bonsai-1.7B (Qwen3, group-128) in both ternary and 1-bit form, token-exact on silicon since 07-20. The 1-bit variant takes a <em>single-track</em> path (one mask, not two), and Bonsai is the production model for most post-0720 throughput work (Scene 11).`,
       `<b>Step 3 — what's inside one PIM linear.</b> 2 · 8 · (d_in/32) · d_out MAJs. The total per token = (7 ternary linears per layer) × (N_layers). For BitNet b1.58-2B-4T the distinct projection sizes are <b>{640, 2560, 6912}</b>: q/o do 2560→2560, k/v do 2560→640 (5 KV heads × 128 head_dim), gate/up do 2560→6912, down does 6912→2560.`,
       `<b>Step 4 — sample.</b> Final hidden state → unembed → softmax → sample one token.`,
       `<b>Step 5 — loop.</b> Append the new token, run the stack again, until EOS or max_tokens.`,
@@ -1064,9 +1063,9 @@ const scene9 = {
       sceneRoot.appendChild(text(900, 200, 'POPCNT', 'label hl'));
 
       sceneRoot.appendChild(text(500, 300, 'per token: 7 ternary linears × N_layers × 2·8·(d_in/32)·d_out  →  many MAJs', 'label'));
-      sceneRoot.appendChild(text(500, 325, '→ many full-row transfers + many host-side popcounts', 'label hl'));
-      sceneRoot.appendChild(text(500, 355, 'the data-bus + host-popcount path becomes the dominant cost', 'label hl cyan'));
-      sceneRoot.appendChild(text(500, 380, 'even though the in-DRAM phase is much faster than equivalent CPU/GPU MAC ops', 'label dim'));
+      sceneRoot.appendChild(text(500, 325, '→ many host↔FPGA round-trips — one program dispatched and drained per MAJ batch', 'label hl'));
+      sceneRoot.appendChild(text(500, 355, 'the round-trip COUNT is the dominant cost — latency (~1.5 ms/read wake), not the bytes per row', 'label hl cyan'));
+      sceneRoot.appendChild(text(500, 380, 'a bigger read barely costs more; the in-DRAM phase is a sliver either way', 'label dim'));
     }
     else if (step === 3) {
       // Frame the POPCNT3 paper insight
@@ -1089,8 +1088,8 @@ const scene9 = {
       sceneRoot.appendChild(text(500, 80, 'so where to optimise?', 'label hl'));
       const items = [
         ['the in-DRAM phases', 'already much faster than CPU MAC — diminishing return on further speedup'],
-        ['the DDR/XDMA transfer per MAJ', 'biggest leverage: shrink the per-MAJ payload (POPCNT inside DRAM)'],
-        ['the host popcount', 'eliminated entirely if the DRAM returns a scalar instead of a row'],
+        ['the host↔FPGA round-trip COUNT', 'BIGGEST leverage: fewer + overlapped trips (batching, streaming, phase-2 send-ahead) — this is the latency wall'],
+        ['the per-MAJ byte payload', 'shrinking it (in-DRAM POPCNT / SEG_POP) is banked but WALL-NEUTRAL until the trips are cut — bytes hide behind latency'],
         ['the set-up phases (RowCopy, Frac, writes)', 'amortise via persistent weights and broadcast-once-per-many-MAJs (we do this already)'],
       ];
       const x0 = 130, y0 = 150, dy = 70;
@@ -1137,7 +1136,7 @@ const scene9 = {
     }
     else if (step === 6) {
       // July 2026: production server + real-model numbers
-      sceneRoot.appendChild(text(500, 25, 'July 2026: the same levers in the production server (PIM_FUSED_COSET=1)', 'label hl'));
+      sceneRoot.appendChild(text(500, 25, 'July 2026: the same levers, opt-in in the server (PIM_FUSED_COSET=1, default OFF)', 'label hl'));
       sceneRoot.appendChild(rect(110, 70, 780, 120, '', { fill: '#1d2230', stroke: '#22c1c3', 'stroke-width': 2, rx: 4 }));
       sceneRoot.appendChild(text(130, 94, 'per matmul (bitnet-proj-server, synthetic A/B, byte-identical requests)', 'label hl', 'start'));
       sceneRoot.appendChild(text(130, 122, 'bank 0:   9.7–9.8  →  6.4–6.9 ms/matmul', 'label', 'start'));
@@ -1155,19 +1154,19 @@ const scene9 = {
         sceneRoot.appendChild(text(bx + w + 12, y + bh / 2, `${bars[i][1]} s wall`, 'label hl', 'start'));
       }
       sceneRoot.appendChild(text(500, by0 + 2 * (bh + 16) + 16, '1.63× wall (PIM request time 112.5 → 70.2 s) — both arms answer "Paris"', 'label hl cyan'));
-      sceneRoot.appendChild(text(500, 460, 'the write-side phases shrank; the READ + bus + host-popcount path is untouched', 'label'));
-      sceneRoot.appendChild(text(500, 484, 'so the accumulation bottleneck (steps 3-5 of this scene) now weighs even more', 'label dim'));
+      sceneRoot.appendChild(text(500, 460, 'the write-side (wcol) phases shrank — a small slice; the round-trip COUNT is untouched here', 'label'));
+      sceneRoot.appendChild(text(500, 484, 'so the remaining wall is the per-execute round-trip latency — the target of phase-2 (Scene 11)', 'label dim'));
     }
   },
   caption(step) {
     const c = [
       `<b>Per MAJ, eight phases run in sequence</b> in the production pipeline as of May 2026: setup (RowCopy, Multi-RowCopy, per-row writes, Frac) → the MAJ itself → result transfer (READ row, XDMA, host popcount). Phases 1-5 stay inside DRAM; 6-8 leave DRAM. (Steps 6-7 of this scene: what changed in July 2026.)`,
       `<b>The two regimes have very different cost.</b> Inside DRAM, the MAJ is parallel across thousands of bitlines in the subarray. Outside, the path is serial: one row of bits leaves through the DDR bus per MAJ, then the host runs popcount.`,
-      `<b>The result-transfer phase dominates at scale.</b> Each MAJ returns a full DRAM row (e.g., 8 KiB on DDR4) that the host then collapses to one integer via popcount. Multiplied across the many MAJs a single transformer layer needs, this dominates wall time.`,
-      `<b>External confirmation.</b> The POPCNT3 paper independently identifies this as the binding constraint on PuD for accumulation workloads, and proposes computing the popcount inside DRAM. They report 27×–348× throughput vs an A100 GPU on bulk bitwise accumulation (348× at the smallest tested kernel, 27× at the largest). Their setup parallelises across 256 banks (4 DIMMs × 64); our project today uses ~4 banks on one DIMM, so absolute speedups don't translate directly.`,
-      `<b>Where to optimise.</b> The biggest leverage is shrinking what crosses the DRAM bus per MAJ. The setup phases are already amortised in our pipeline. The host popcount disappears if the chip returns a scalar.`,
-      `<b>July 2026: two levers landed</b> — both on the write-side phases (1-3 of the May breakdown), both enabled by the co-activation-lattice addressing characterized in the <a href="xor-spread.html">companion explainer</a>. (1) <b>Persistent weights</b>: W stays resident, and the per-MAJ weight reload (per-column write, 3 host round-trips) becomes one in-DRAM clone from a backup row at a safe pair offset. (2) <b>Coset activation update</b>: the 10 activation wrRows (5×x + 5×zero) collapse to 4 wrRows + 2 in-tuple coset doubleACTs with the same 5/5/5 vote balance — the balance is a hard rule (the unbalanced 7W/4x/4z variant returns 99.7%/97.9% bad segments). Fused into one per-MAJ program: <b>0.357→0.089 ms/MAJ (3.99×, die A)</b>, 0.556→0.085 (6.53×, die B), verified bit-exact every iteration (0/204,800 bad segments per die, iters=100).`,
-      `<b>July 2026 in production.</b> The same two levers behind <code>PIM_FUSED_COSET=1</code> in the long-running server: <b>9.7–9.8→6.4–6.9 ms/matmul</b> (bank 0) and 9.5–9.7→6.1 (4-bank) = <b>1.45–1.6×</b>, with every returned result bit-exact against the host reference. On the real model (BitNet b1.58-2B, layer 0's seven projections in DRAM, 4-bank, 8 tokens): <b>117.2→71.8 s wall = 1.63×</b> (PIM request time 112.5→70.2 s); both arms answer "Paris". The read-side path (READ, bus, host popcount) is untouched — the May bottleneck analysis still stands, with even more of the remaining time now on the bus.`,
+      `<b>The round-trip dominates at scale.</b> Each MAJ batch is one host↔FPGA program: a full DRAM row (e.g., 8 KiB) comes back and the host popcounts it. But the cost that binds is the <em>latency</em> of that round-trip — XDMA interrupt-wake bound at ~1.5 ms per read, so a bigger read barely costs more. It is the <em>count</em> of round-trips, not the byte volume, that dominates wall time across the many programs a layer needs.`,
+      `<b>External confirmation — with a caveat for our rig.</b> The POPCNT3 paper computes the popcount inside DRAM and returns one integer, reporting 27×–348× throughput vs an A100 GPU on bulk bitwise accumulation (348× at the smallest tested kernel, 27× at the largest). Those numbers stand. But on our host-orchestrated rig that byte drop is <em>wall-neutral</em>: we shipped it (SEG_POP, 8 KiB → 2048 B, token-identical) and the wall did not move — because recv is latency-bound, not byte-bound. POPCNT3's bandwidth win needs their controller-native, 256-bank regime (4 DIMMs × 64) to become a wall win; our project today uses ~4 banks on one DIMM.`,
+      `<b>Where to optimise.</b> The biggest leverage is the <em>round-trip count</em>: fewer, larger, overlapped host↔FPGA programs (batching, streaming, and phase-2 send-ahead). Shrinking the per-MAJ byte payload — in-DRAM POPCNT, returning a scalar instead of a row — is real but <em>wall-neutral until the trips are cut</em>, because recv is latency-bound. The setup phases are already amortised. This is the ranking rule the rest of the arc follows.`,
+      `<b>July 2026: two levers landed</b> — both on the write-side phases (1-3 of the May breakdown), both enabled by the co-activation-lattice addressing characterized in the <a href="xor_spread_explainer.html">companion explainer</a>. (1) <b>Persistent weights</b>: W stays resident, and the per-MAJ weight reload (per-column write, 3 host round-trips) becomes one in-DRAM clone from a backup row at a safe pair offset. (2) <b>Coset activation update</b>: the 10 activation wrRows (5×x + 5×zero) collapse to 4 wrRows + 2 in-tuple coset doubleACTs with the same 5/5/5 vote balance — the balance is a hard rule (the unbalanced 7W/4x/4z variant returns 99.7%/97.9% bad segments). Fused into one per-MAJ program: <b>0.357→0.089 ms/MAJ (3.99×, die A)</b>, 0.556→0.085 (6.53×, die B), verified bit-exact every iteration (0/204,800 bad segments per die, iters=100).`,
+      `<b>July 2026, opt-in in the server.</b> The same two levers behind <code>PIM_FUSED_COSET=1</code> — a real win, but <b>opt-in: the server default is 0</b>, and BitNet production runs it OFF: <b>9.7–9.8→6.4–6.9 ms/matmul</b> (bank 0) and 9.5–9.7→6.1 (4-bank) = <b>1.45–1.6×</b>, every returned result bit-exact against the host reference. On the real model (BitNet b1.58-2B, layer 0's seven projections in DRAM, 4-bank, 8 tokens): <b>117.2→71.8 s wall = 1.63×</b> (PIM request time 112.5→70.2 s); both arms answer "Paris". These are write-side (wcol) wins against a small slice; the read-side path is untouched — and the binding wall is not "bytes on the bus" but the per-execute round-trip <em>latency</em>, which only phase-2 (Scene 11) finally attacks.`,
     ];
     return c[step];
   },
@@ -1186,6 +1185,7 @@ const scene9 = {
 <span class="src">code: app/test_bitnet_server.cpp (PIM_FUSED_COSET)</span>
 <span class="cm">coset activation update in the MAJ3 body;</span>
 <span class="cm">x on {1,5,9,13}+{4}, zeros on {2,6,10,14}+{8}</span>
+<span class="cm">opt-in — server default 0 (BitNet prod: OFF)</span>
 
 <span class="src">code: python/ab_fused_server.py</span>
 <span class="cm">same --seed → byte-identical requests;</span>
@@ -1221,19 +1221,19 @@ segment_popcount(row_buf, out, n);
 // SCENE 10 — The merge: killing the readout wall (NEW July 2026)
 // =============================================================
 const sceneMerge = {
-  title: 'Scene 10 — Killing the readout wall: in-DRAM accumulation (the merge)',
+  title: 'Scene 10 — The merge: in-DRAM accumulation, and why readout bytes are not the wall',
   steps: 5,
   render(step) {
     clearScene();
     if (step === 0) {
-      sceneRoot.appendChild(text(500, 25, 'the wall, restated: every popcount input crosses the bus as a full row', 'label hl'));
+      sceneRoot.appendChild(text(500, 25, 'the byte hypothesis: every popcount input crosses the bus as a full row — so collapse the bytes?', 'label hl'));
       sceneRoot.appendChild(rect(120, 90, 760, 120, '', { fill: '#1d2230', stroke: '#ffd479', rx: 4 }));
       sceneRoot.appendChild(text(500, 118, 'one BitNet output lane at d_in = 2560 needs K = 2560 product rows popcounted', 'label'));
       sceneRoot.appendChild(text(500, 146, 'host-popcount path: 2560 × 8 KiB row reads per lane batch', 'label hl'));
-      sceneRoot.appendChild(text(500, 174, '(Scene 9: the READ + XDMA + host-POPCNT phases dominate wall time)', 'label dim'));
+      sceneRoot.appendChild(text(500, 174, '(Scene 9 named TWO costs: the readout byte volume AND the round-trip latency)', 'label dim'));
       sceneRoot.appendChild(text(500, 260, 'July 2026: the MVDRAM-reproduction machinery (companion explainer) was turned on', 'label'));
-      sceneRoot.appendChild(text(500, 284, 'our own ternary LLM\'s bottleneck — the two project tracks MERGED', 'label hl cyan'));
-      sceneRoot.appendChild(text(500, 330, 'two independent roads kill the wall; both were built and measured', 'label hl'));
+      sceneRoot.appendChild(text(500, 284, 'our own ternary LLM\'s readout — the two project tracks MERGED', 'label hl cyan'));
+      sceneRoot.appendChild(text(500, 330, 'two independent roads collapse those bytes; both built + measured — the wall\'s response is the finding', 'label hl'));
       sceneRoot.appendChild(text(320, 380, 'Road A — sum IN DRAM', 'label hl'));
       sceneRoot.appendChild(text(320, 402, '(faithful to a real PIM substrate)', 'label dim'));
       sceneRoot.appendChild(text(680, 380, 'Road B — sum in FPGA logic', 'label hl'));
@@ -1283,29 +1283,30 @@ const sceneMerge = {
       }
     }
     else if (step === 3) {
-      sceneRoot.appendChild(text(500, 25, 'Road B: an FPGA-side popcount accumulator (popcount_accum HDL)', 'label hl'));
+      sceneRoot.appendChild(text(500, 25, 'Road B: an FPGA-side popcount accumulator (ACCUM_XBP, build-8b bitstream)', 'label hl'));
       sceneRoot.appendChild(rect(140, 80, 720, 150, '', { fill: '#1d2230', stroke: '#22c1c3', rx: 4 }));
       sceneRoot.appendChild(text(500, 108, 'the readback engine popcounts the row AS IT STREAMS BY and drains one 32-bit total', 'label'));
-      sceneRoot.appendChild(text(500, 136, '8 KiB per matmul readback  →  4 B   =   2048×, and bit-EXACT', 'label hl'));
-      sceneRoot.appendChild(text(500, 164, 'Verilator-validated 5/5 incl. the 4096-input BitNet shape; needs a bitstream rebuild', 'label dim'));
+      sceneRoot.appendChild(text(500, 136, '8 KiB per matmul readback  →  4 B   =   2048×, bit-EXACT — FLASHED + silicon-validated both dies (07-22)', 'label hl'));
+      sceneRoot.appendChild(text(500, 164, 'validated on both hynix dies (b2 + b0): 0/2048 exact; ladder + DIFF suites clean', 'label dim'));
       sceneRoot.appendChild(text(500, 192, '(co-resident fix: the stock pop_count4.v undercounts nibble 0xE — found in HDL review, fixed)', 'label dim'));
-      sceneRoot.appendChild(text(500, 280, 'silicon status (July 2026 bitstream campaign):', 'label hl'));
-      sceneRoot.appendChild(text(500, 310, 'compute datapath PROVEN on silicon — exact totals observed, incl. the 0xE fix firing', 'label'));
-      sceneRoot.appendChild(text(500, 336, 'flush accounting fixed (build3); drain-capture timing races the frontend flush pipe', 'label'));
-      sceneRoot.appendChild(text(500, 362, '→ build4 moves the capture to the quiet-cycle edge; 53/53 Verilator checks; Vivado build in flight', 'label'));
-      sceneRoot.appendChild(text(500, 410, 'until build4 lands, Road-B per-token numbers are NOT quoted — READ_MODE (the production path) is bit-identical throughout', 'label dim'));
+      sceneRoot.appendChild(text(500, 280, 'production A/B verdict (the point of building it):', 'label hl'));
+      sceneRoot.appendChild(text(500, 310, 'recv collapses 24.8 → 6.9 ms/req (~3.6×) — REAL and measured', 'label'));
+      sceneRoot.appendChild(text(500, 336, 'but exec inflates 8.6 → 40 ms (each execute still spawns a receiver + XDMA wake): net +8% wall', 'label'));
+      sceneRoot.appendChild(text(500, 362, '→ NET-NEGATIVE in production — the per-EXECUTE round-trip is the binding term, not the drained bytes', 'label hl cyan'));
+      sceneRoot.appendChild(text(500, 410, 'so Road B is the cleanest proof of the Scene-9 thesis: collapsing readout bytes does NOT move the wall on a host-round-trip rig', 'label dim'));
     }
     else if (step === 4) {
       sceneRoot.appendChild(text(500, 25, 'the decision (ADR-005): keep BOTH roads, publish the comparison, never blend', 'label hl'));
       const cols = [
-        ['', 'Road A — in-DRAM adder', 'Road B — popcount_accum HDL'],
+        ['', 'Road A — in-DRAM adder', 'Road B — ACCUM_XBP (build-8b)'],
         ['mechanism', 'CSA tree of dual-track adders in DRAM', 'FPGA-side popcount aggregator'],
-        ['readout reduction', '213× (K=2560)', '2048× (8 KiB → 4 B)'],
-        ['exactness', '98.6–99.7% lane (MAJ5 error)', 'bit-EXACT'],
-        ['bitstream', 'none needed (runs today)', 'rebuild (build4 in flight)'],
-        ['what it shows', 'faithful MVDRAM-style in-DRAM accumulation', 'rig-specific systems acceleration'],
+        ['readout reduction', '213× rows (K=2560)', '2048× bytes (8 KiB → 4 B)'],
+        ['exactness', '98.6–99.7% lane (MAJ5 error)', 'bit-EXACT, both dies'],
+        ['bitstream', 'none needed (runs today)', 'flashed build-8b (validated)'],
+        ['production A/B', '≈par, needs a streaming substrate', 'NET-NEGATIVE (+8% wall)'],
+        ['what it shows', 'faithful MVDRAM-style in-DRAM accumulation', 'readout bytes are NOT the wall'],
       ];
-      const tx = 80, ty = 70, cw = [180, 330, 330], rh = 40;
+      const tx = 80, ty = 60, cw = [180, 330, 330], rh = 36;
       for (let r = 0; r < cols.length; r++) {
         let x = tx;
         for (let c = 0; c < 3; c++) {
@@ -1314,18 +1315,19 @@ const sceneMerge = {
           x += cw[c];
         }
       }
-      sceneRoot.appendChild(text(500, ty + cols.length*rh + 36, 'a real DRAM-PIM ASIC has no FPGA popcount logic → the reproduction claim rides Road A only', 'label'));
-      sceneRoot.appendChild(text(500, ty + cols.length*rh + 62, 'the deployed ternary LLM on THIS rig takes Road B once its bitstream lands — labelled as such', 'label'));
-      sceneRoot.appendChild(text(500, ty + cols.length*rh + 100, 'composes with multi-body packing (~2.3× from amortizing dispatch, 8K IMEM): packing cuts round-trips, the roads cut bytes', 'label hl cyan'));
+      sceneRoot.appendChild(text(500, ty + cols.length*rh + 30, 'a real DRAM-PIM ASIC has no FPGA popcount logic → the reproduction claim rides Road A only', 'label'));
+      sceneRoot.appendChild(text(500, ty + cols.length*rh + 52, 'Road B is flashed + silicon-validated but production net-negative (+8%) — KEPT as the cost-model proof, not the deployed path', 'label'));
+      sceneRoot.appendChild(text(500, ty + cols.length*rh + 76, 'packing cuts round-trips (the wall); the roads cut bytes (banked until trips are cut) — the real end-state cuts BOTH', 'label hl cyan'));
+      sceneRoot.appendChild(text(500, ty + cols.length*rh + 100, 'where the byte-vs-trip thread leads: an on-die orchestrator that ENDS the round-trip — Rung-2a probe 27/27 byte-exact (Verilator 07-27), build-27 in flight', 'label hl'));
     }
   },
   caption(step) {
     const c = [
-      `<b>The two project tracks merged in July 2026.</b> Scene 9 established that the result-transfer path (READ row → XDMA → host popcount) dominates. The MVDRAM reproduction (see the <a href="mvdram.html">companion explainer</a>) built and validated exactly the machinery that removes it: an in-DRAM adder. Applying that machinery to our own ternary LLM's bottleneck is the merge — plus a second, FPGA-side road built in parallel.`,
+      `<b>The two project tracks merged in July 2026.</b> Scene 9 named two costs — the readout <em>byte</em> volume and the round-trip <em>latency</em>. The MVDRAM reproduction (see the <a href="mvdram_explainer.html">companion explainer</a>) built exactly the machinery that collapses the bytes: an in-DRAM adder. Applying it to our own ternary LLM's readout is the merge — plus a second, FPGA-side road built in parallel. What happened to the wall when the bytes collapsed is the point of this scene.`,
       `<b>Road A works on silicon.</b> A carry-save tree of dual-track full adders (carry=MAJ3, sum=MAJ5 with the inverted carry twice) reduces K product rows to ceil(log₂(K+1)) result rows read out. Measured: <b>98.6–99.7% of output lanes exact at K=8..64</b>, readout reduced 2.0×→9.1×, which extrapolates to <b>213× at BitNet's K=2560</b>. The carry track is essentially error-free MAJ3 and sum bits never feed forward, so the tree does not accumulate error — the deeper reason this is viable on commodity DRAM at all.`,
       `<b>Stated honestly: rows saved is not (yet) time saved.</b> In the host-marshalled shape measured first, loading each adder's operands costs more bus traffic than the readout it saves — ~320× slower at K=64. The measured packed-program primitive rates (34.2 µs/row-read vs 2.6 µs/MAJ) prove the crossover flips once operands are <em>resident</em>; the fully-resident faithful tile was then built and measured at 58 ops/product — still 4–6× slower than packed readout <em>on this host-round-trip FPGA rig</em>, ≈par with bank-parallelism + sparsity. Its demonstrated value is the mechanism and its portability: on a streaming PIM controller (~100 ns/op, no per-op host round-trip) 58 ops beats an 8 KB transfer decisively.`,
-      `<b>Road B is the exact, rig-specific killer.</b> An FPGA-side accumulator popcounts the readback stream and returns one 32-bit total: 8 KiB → 4 B (2048×), bit-exact in Verilator including the BitNet shape. En route it surfaced a real HDL bug (stock pop_count4.v undercounts nibble 0xE). On silicon the compute datapath is proven (exact totals, 0xE fix observed firing); the remaining blocker is drain-capture timing racing the flush pipeline — fixed at the RTL root in build4 (53/53 sim checks), Vivado build in flight. No Road-B per-token number is quoted until it lands.`,
-      `<b>Keep both — they answer different questions.</b> Road A carries the DRAM-PIM reproduction claim (a real PIM substrate has no FPGA logic); Road B is the practical exact accelerator for this rig. The comparison itself — one portable and approximate, one exact and rig-bound — is the publishable systems story, and the numbers are never blended. Both compose with multi-body packing (~2.3× from amortizing per-program dispatch on the 8K-IMEM bitstream): packing removes round-trips, the roads remove bytes.`,
+      `<b>Road B shipped — and confirmed bytes aren't the wall.</b> An FPGA-side accumulator (ACCUM_XBP, build-8b) popcounts the readback stream and returns one 32-bit total: <b>8 KiB → 4 B (2048×), bit-exact</b>, flashed and silicon-validated on both hynix dies (0/2048 exact, 07-22). En route it surfaced a real HDL bug (stock pop_count4.v undercounts nibble 0xE, fixed). But the production A/B is <b>net-negative (+8% wall)</b>: the recv collapse is real (24.8→6.9 ms/req, ~3.6×) yet exec inflates to eat it, because each execute still pays a host round-trip. Road B is the cleanest proof of the Scene-9 thesis — on a host-orchestrated rig the <em>round-trip count</em> is the wall, and collapsing readout bytes does not move it.`,
+      `<b>Keep both — they answer different questions.</b> Road A carries the DRAM-PIM reproduction claim (a real PIM substrate has no FPGA logic); Road B is the exact, rig-bound accumulator — <em>flashed and silicon-validated, but production net-negative (+8%)</em>, which is exactly why it is worth keeping: it is the cleanest proof that readout bytes are not the wall. Both compose with multi-body packing (~2.3× from amortizing per-program dispatch): packing removes round-trips (the wall), the roads remove bytes (banked until the trips are cut). Where that thread actually leads is an on-die orchestrator that ends the host round-trip entirely — first evidence is now on the bench: a <b>Rung-2a</b> probe returns <b>27/27 byte-exact</b> integer partials against a CPU oracle in Verilator (07-27), with build-27 in flight.`,
     ];
     return c[step];
   },
@@ -1342,12 +1344,15 @@ const sceneMerge = {
 <span class="src">code: app/test_resident_tile.cpp (resident tile)</span>
 <span class="cm">58 ops/product measured; sim-gated schedule</span>
 
-<span class="src">hdl: popcount_accum.v + pop_count4.v 0xE fix (Road B)</span>
-<span class="cm">Verilator bit-exact 5/5; build4 = capture on</span>
-<span class="cm">quiet-cycle edge, 53/53 checks, build in flight</span>
+<span class="src">hdl: ACCUM_XBP build-8b + pop_count4.v 0xE fix (Road B)</span>
+<span class="cm">8 KiB→4 B (2048×) bit-exact; FLASHED + silicon-</span>
+<span class="cm">validated both dies; production A/B = +8% (net-neg)</span>
+
+<span class="src">rtl: on-fabric orchestrator (Rung-2a, build-27)</span>
+<span class="cm">probe 27/27 byte-exact vs CPU oracle (Verilator 07-27)</span>
 
 <span class="src">docs: ADR-005 readout-killer decision</span>
-<span class="cm">Road A = reproduction claim; Road B = rig claim;</span>
+<span class="cm">Road A = reproduction claim; Road B = cost-model proof;</span>
 <span class="cm">publish comparison, never blend</span>`;
   }
 };
@@ -1356,8 +1361,8 @@ const sceneMerge = {
 // SCENE 11 — The production arc (NEW July 2026)
 // =============================================================
 const sceneArc = {
-  title: 'Scene 11 — The production arc: 632 → 47.5 s/token, with correctness going UP',
-  steps: 6,
+  title: 'Scene 11 — The production arc: campaign 1 (632 → 47.5 s/tok), then the −64.7% stack',
+  steps: 7,
   render(step) {
     clearScene();
     const arc = [
@@ -1472,7 +1477,34 @@ const sceneArc = {
         sceneRoot.appendChild(text(x0 + 18, y + 70, words.slice(third, 2*third).join(' '), 'label', 'start'));
         sceneRoot.appendChild(text(x0 + 18, y + 90, words.slice(2*third).join(' '), 'label', 'start'));
       }
-      sceneRoot.appendChild(text(500, y0 + 3*dy + 12, 'remaining levers, all identified and staged: Road-B bitstream (recv volume), residency campaign, streaming-shape execution', 'label dim'));
+      sceneRoot.appendChild(text(500, y0 + 3*dy + 12, 'and the arc did NOT stop here — a second campaign followed (next step): activation-quant, phase-2 send-ahead, and the second model family', 'label dim'));
+    }
+    else if (step === 6) {
+      sceneRoot.appendChild(text(500, 25, 'the second campaign (past 07-20): activation-quant + phase-2 — the current frontier', 'label hl'));
+      const rows = [
+        ['production stack (full-model, dimm2 V2 path)', 's wall', 'vs K=8'],
+        ['K=8, plain, no-stream  (before-everything baseline)', '973.2', '—'],
+        ['+ K=6 activation quant', '762.3', '−21.7%'],
+        ['+ fused-coset  (opt-in)', '623.5', '—'],
+        ['+ phase-2 send-ahead', '343.7', '−64.7%'],
+      ];
+      const tx = 110, ty = 58, cw = [500, 130, 150], rh = 32;
+      for (let r = 0; r < rows.length; r++) {
+        let x = tx;
+        for (let c = 0; c < 3; c++) {
+          sceneRoot.appendChild(rect(x, ty + r*rh, cw[c], rh, '', { fill: r === 0 ? '#1d2230' : (r === rows.length-1 ? '#12291b' : '#131722'), stroke: '#2a2f3d' }));
+          sceneRoot.appendChild(text(x + cw[c]/2, ty + r*rh + rh/2, rows[r][c], r === 0 ? 'label hl' : (r === rows.length-1 ? 'label cyan' : 'label')));
+          x += cw[c];
+        }
+      }
+      const yb = ty + rows.length*rh;
+      sceneRoot.appendChild(text(500, yb + 24, 'new headline: K6 + fused + phase-2 = −64.7% (973.2 → 343.7 s, still "…Paris") — supersedes 632→47.5 / 13.3×', 'label hl cyan'));
+      sceneRoot.appendChild(text(500, yb + 48, 'phase-2 send-ahead is the FIRST lever to cut recv (112 → 57 ms, −26.3%, silicon build-26, now the production default)', 'label'));
+      sceneRoot.appendChild(text(500, yb + 70, 'K-quant (PIM_ACT_K) shipped all 3 families, token-identical, client-only:  1-bit −21.7%  ·  ternary −22.2%  ·  BitNet-2B −32.2%', 'label'));
+      sceneRoot.appendChild(text(500, yb + 92, 'second family Bonsai-1.7B (Qwen3 g128): 1-bit single-track ladder 100 → 18.7 s/tok = 5.36× stacked', 'label dim'));
+      sceneRoot.appendChild(text(500, yb + 122, 'two bets that rode this lattice closed NEGATIVE since 07-20 — recorded, not hidden:', 'label hl'));
+      sceneRoot.appendChild(text(500, yb + 144, 'M3 coset-deposit — body recomputes its row, shadow never read; retracted (PR #16, merged 07-28), machinery excised (−286 lines)', 'label'));
+      sceneRoot.appendChild(text(500, yb + 166, 'X-master-clone — RowClone seed is charge-shared (x′≠x, corr ≈0.94–0.97 depth-flat at production density); −9.9% retracted, V2S hard-gated', 'label'));
     }
   },
   caption(step) {
@@ -1483,6 +1515,7 @@ const sceneArc = {
       `<b>Hop 3 — measuring instead of claiming.</b> 137.1 (8-token) and 80.5 (48-token marginal rate) are different quantities: the short benchmark carries prefill + weight-load overhead that a longer generation amortizes. Reporting the steady-state rate honestly required running 48 tokens and confirming text stability throughout. Voting was re-tested at this scale too: no benefit on clone-ok pools.`,
       `<b>Hop 4 — the second DIMM was there all along.</b> The first dual-DIMM attempt made things WORSE (90.3 s/tok): the streamed-request path — 98% of production traffic — was hardwired to the first server by a single-DIMM-era line, so DIMM 2 got 0.4% of the bytes. The fix splits every streamed request's contraction dimension across DIMMs as concurrent partial sums (the same y=Σ math the resident split already used). Result: <b>47.5 s/tok, 1.91× per token-matmul, 96% of the ideal-halving bound</b>, traffic balanced to 0.01%, output byte-identical.`,
       `<b>Why correctness rose with speed.</b> Three standing practices: (1) byte-identical wrong output across runs is treated as logic, never as silicon noise — that discipline found every bug in the quartet; (2) the drift physics (see companion explainer Scene 7: traffic-induced deposits that refresh cannot undo, because refresh restores charge, not content) was characterized before it was mitigated, and it <em>predicted</em> the one regression it later caused in production (resident constant rows), which was fixed with a per-request rewrite; (3) laws replaced screening — pools, clone sources, and coset addressing are now computed from closed-form predicates validated on held-out silicon. The result is a system that got 13.3× faster while its recorded outputs got cleaner.`,
+      `<b>The arc did not stop at 47.5.</b> A second campaign — past 07-20, and now on a second model family — redefined the frontier. Two levers landed. <b>Activation-quant</b> (<code>PIM_ACT_K</code>) sends fewer bitplanes per activation — client-side, no bitstream, token-identical, gated on per-op correlation rather than token identity — for <b>−21.7%</b> (1-bit) / <b>−22.2%</b> (ternary) / <b>−32.2%</b> (BitNet-2B). <b>Phase-2 send-ahead</b> is the first lever to actually cut <code>recv</code> (112 → 57 ms, <b>−26.3%</b>, silicon-validated on build-26, now the production default). Stacked on the dimm2 full-model path: <b>K6 + fused + phase-2 = −64.7%</b> (973.2 → 343.7 s, still "…Paris") — which supersedes 632→47.5 / 13.3× as the current headline (a separate measurement series, K=8 baseline). And the second family, Bonsai-1.7B, carries its own weight-quant ladder to <b>5.36× stacked</b> (100 → 18.7 s/tok). The honest negatives are load-bearing: two bets that rode the co-activation lattice closed <em>negative</em> and are recorded as such — <b>M3 coset-deposit</b> (the body recomputes its own row, so the deposited shadow is never read; 99.4% of "deposits" were d=0 no-ops; retracted in PR #16 (merged 07-28), machinery excised, −286 lines) and <b>X-master-clone</b> (the RowClone'd activation seed sits at charge-shared, not write-driven, levels, so x′≠x; the corruption is depth-independent, corr ≈0.94–0.97 flat across depths 8–80 rounds at production density; the brief −9.9% was a max-tokens-1 gate, retracted, and V2S is now hard-gated). The same discipline that produced −64.7% is what killed the two that didn't work.`,
     ];
     return c[step];
   },
@@ -1493,6 +1526,13 @@ const sceneArc = {
 <span class="hl">137.1</span>  clone-ok unvoted (add. 22; o8 logs)
 <span class="hl">80.5</span>   48-tok steady state (O2 close)
 <span class="hl">47.5</span>   dual-DIMM split-V2 (add. 25)
+
+<span class="src">second campaign (past 07-20)</span>
+<span class="hl">973.2→343.7</span>  K6+fused+phase-2 = −64.7% "…Paris"
+<span class="hl">−26.3%</span>  phase-2 build-26 (recv 112→57 ms, default)
+<span class="hl">5.36×</span>  Bonsai 1-bit ladder (100 → 18.7 s/tok)
+<span class="cm">M3 retracted (PR #16 merged 07-28, −286 lines); X-master closed</span>
+<span class="cm">negative (charge-shared seed x′≠x, V2S hard-gated)</span>
 
 <span class="src">code: python/pim_linear.py</span>
 <span class="cm">content-keyed bitplane cache (bug 2 fix);</span>
@@ -1524,7 +1564,7 @@ const scene10 = {
 
     const wishlist = [
       ['1. In-DRAM POPCNT + partial accumulation',
-       'addresses: DDR bus + host popcount per MAJ (Scene 9)',
+       'addresses: readout BYTE volume — wall-neutral on our host-round-trip rig, a win on a streaming substrate (Scene 9/10)',
        'prior art: POPCNT3 paper — 27×–348× vs A100 GPU on bulk bitwise accumulation (depending on kernel size)'],
       ['2. First-class MAJ-of-K instruction in the DDR command set',
        'addresses: today\'s out-of-spec timing tricks + per-chip calibration burden',
@@ -1539,8 +1579,8 @@ const scene10 = {
        'addresses: today\'s required K (replication factor) is dominated by sense-amp threshold scatter under process variation',
        'tighter per-cell uniformity → smaller K needed for reliable MAJ → fewer setup writes per op, more compute density'],
       ['6. Deterministic per-chip behaviour',
-       'addresses: today we run multi-million-tuple calibration sweeps per DIMM to find working (R_F, R_S, open_rows[K])',
-       'deterministic spec → calibration becomes a one-time table from the data sheet, not an empirical sweep'],
+       'addresses: residual per-part characterization — a closed-form selection law now predicts working tuples (1691/1691, both dies)',
+       'deterministic spec → the last per-part table comes from the data sheet, not an empirical sweep'],
     ];
 
     const x0 = 80;
@@ -1565,12 +1605,12 @@ const scene10 = {
   caption(step) {
     const c = [
       `<b>Six wishlist items.</b> Each one points at a specific bottleneck or limitation established in earlier scenes — no speculative items.`,
-      `<b>1. In-DRAM POPCNT.</b> Today every MAJ ships a full row to the host. If the chip computes POPCNT internally and returns the count itself, the bus payload per accumulation collapses to log-of-K bits per column. Already demonstrated on COTS DDR4 by POPCNT3 (NeurIPS 2024): 27×–348× throughput vs an A100 GPU across kernel sizes — and by our own July 2026 merge (Scene 10), which runs the in-DRAM accumulation road on this project's stock DDR4.`,
+      `<b>1. In-DRAM POPCNT.</b> Today every MAJ ships a full row to the host. If the chip computes POPCNT internally and returns the count itself, the bus payload per accumulation collapses to log-of-K bits per column. Already demonstrated on COTS DDR4 by POPCNT3 (NeurIPS 2024): 27×–348× throughput vs an A100 GPU across kernel sizes. Our own July 2026 merge (Scene 10) built and silicon-validated that road on stock DDR4 — but on this host-orchestrated rig it is wall-neutral to net-negative (+8%), because the round-trip <em>count</em>, not the byte payload, is the wall. The payload collapse becomes a real win only on a controller-native / streaming substrate that removes the per-execute round-trip.`,
       `<b>2. First-class MAJ instruction.</b> The current APA approach uses timing violations the chip wasn't designed to support — so Samsung doesn't do multi-row activation at all, and the working timing values vary across vendors. A dedicated instruction in the DDR command set removes the calibration burden and the vendor lottery.`,
       `<b>3. Larger guaranteed K.</b> SiMRA's row-decoder hypothesis caps K at 2^(predecoders) = 32 in current chips. Increasing the predecoder count would raise K, which both raises reliability (more replication per MAJ) and parallel compute per cycle.`,
       `<b>4. Native V_DD/2 cells.</b> Today Frac is a timing-trick that works only on some vendors. Native support (an instruction to set a cell to V_DD/2) makes the "neutral row" trick robust and portable.`,
       `<b>5. Cell uniformity binning for PuD-grade DRAM.</b> The reason today's MAJ needs replication (Scene 6) is sense-amp threshold scatter under process variation — a small bitline perturbation might not cross the threshold reliably. Tighter per-cell uniformity (binned at manufacture) shrinks the required K, which shrinks the per-row setup work (writes + Fracs) needed before each MAJ and packs more compute into the same row width.`,
-      `<b>6. Determinism.</b> Today we run multi-million-tuple calibration sweeps per DIMM to find (R_F, R_S, K open rows) triples that produce reliable MAJs. A chip designed for PuD could specify which triples are guaranteed to work — calibration becomes a one-time table from the data sheet rather than a sweep per chip.`,
+      `<b>6. Determinism.</b> Early on we ran multi-million-tuple sweeps per DIMM to find (R_F, R_S, K open rows) triples that produce reliable MAJs. That is now largely a solved characterization: a closed-form <em>selection law</em> predicts the working tuples with <b>1691/1691 zero exceptions on both hynix dies</b> (including a virgin, never-calibrated bank), and calibration <em>transfers</em> by copy + byte-verify — 16/16 banks classification-identical, the 3,941-fault set byte-identical across both dies and a rig change. What remains is per-part: a chip designed for PuD could publish the guaranteed triples in its data sheet, removing even that.`,
     ];
     return c[step];
   },
@@ -1578,8 +1618,9 @@ const scene10 = {
     return `<span class="src">cross-refs</span>
 
 <span class="hl">1. In-DRAM POPCNT</span>
-   → Scene 9 bottleneck
+   → Scene 9: round-trip count is the wall (bytes hide)
    → POPCNT3 paper §3 (demonstrated on COTS DDR4)
+   → our merge: built + silicon-validated, +8% here
 
 <span class="hl">2. First-class MAJ instruction</span>
    → SiMRA Lim. 1 (Samsung no multi-row activation)
@@ -1596,7 +1637,8 @@ const scene10 = {
    → SiMRA §7.2 (perturbation vs threshold scatter)
 
 <span class="hl">6. Determinism / less calibration</span>
-   → our project: FindOpenRows + MajOperations sweep
+   → selection law: 1691/1691 both dies (predicts tuples)
+   → calib transfer: copy + byte-verify, 16/16 banks
    → SiMRA: per-chip variation throughout`;
   }
 };
