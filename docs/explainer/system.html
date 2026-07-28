@@ -67,9 +67,11 @@ DRAM chip are, and nothing about this project.</p>
 
 <div class="box key"><span class="t">The one-sentence version</span>
 A ternary language model (BitNet b1.58-2B) runs end-to-end with every one of its 210 weight-matrix multiplications
-executed inside commodity DRAM by charge-sharing majority votes — and the current production stack answers "What is
-the capital of France?" in a <b>−64.7%</b>-reduced wall (973.2 → <b>343.7 s</b>, still "…Paris"), the frontier a
-second July 2026 campaign reached after a first had already cut per-token time 13.3× (632 → 47.5 s). The answers got
+executed inside commodity DRAM by charge-sharing majority votes. Two optimization campaigns, measured on
+<em>different yardsticks — do not compare the numbers to each other</em>: the first (BitNet-2B, May→July) cut
+<b>per-token time 13.3×</b> (632 → 47.5 s/token); the second (Bonsai-1bit, late July, a fresh baseline) cut the
+<b>whole-answer wall −64.7%</b> (973.2 → <b>343.7 s</b> for a six-token "…Paris"). Each number is meaningful only
+against its own baseline and model. The answers got
 <em>cleaner</em> as they got faster, because most of what looked like "noise" turned out to be bugs and physics with
 names.</div>
 
@@ -87,8 +89,9 @@ the request protocol, the calibration data, the laws in Stop 6 — is software b
 
 <div class="box"><span class="t">Cast of characters</span>
 <b>The DIMMs</b>: four commodity DDR4 modules. Two ("the compute dies") support the full set of in-DRAM tricks;
-two are structurally limited (Stop 6 explains why that's now a measured fact, not a suspicion) and serve storage
-roles. <b>The server</b>: a C++ process owning the FPGA, speaking a binary protocol on stdin/stdout. <b>The
+two are structurally limited (Stop 6 explains why that's now a measured fact, not a suspicion) and sit idle today —
+a storage role is possible in principle, but the four controllers have no die-to-die link, so anything those DIMMs
+held would round-trip through the host. Production computes on one die; a second joins for dual-die work splits. <b>The server</b>: a C++ process owning the FPGA, speaking a binary protocol on stdin/stdout. <b>The
 client</b>: a Python layer that replaces the model's linear layers, so PyTorch calls DRAM without knowing it.</div>
 
 <h2 id="stop2"><span class="stop">Stop 2</span>DRAM in three minutes — and the one distinction that matters</h2>
@@ -165,7 +168,11 @@ This is why validation gates on numerics, never on a token (Stop 7).</p>
 
 <div class="box good"><span class="t">Why this is even worth doing</span>
 A dot product's operands live in memory anyway. Conventional hardware moves them to a processor to multiply;
-here the memory array itself is the ALU, and what crosses the bus is (ideally) only results. The economics stand
+here the memory array itself is the ALU, and what crosses the bus is (ideally) only results. This aims at the
+wall every CPU, GPU, and NPU hits at batch-1 inference: token generation is <b>memory-bandwidth-bound</b> — the
+chip must stream <em>every weight</em> across the bus for <em>every token</em>, which is why a phone-class ternary
+model is a bus problem (and a thermal and battery problem), not a FLOPs problem. Keep the weights where they
+live, and the bus carries activations and results instead of gigabytes of weights per token. The economics stand
 or fall on that "ideally" — which is Stop 5's story.</div>
 
 <h2 id="stop5"><span class="stop">Stop 5</span>One request, end to end — and where the time actually goes</h2>
