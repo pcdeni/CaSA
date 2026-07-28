@@ -47,11 +47,11 @@
   .canvas-wrap svg { max-width: 100%; max-height: 100%; }
 
   .side {
-    display: flex; flex-direction: column; gap: 12px; min-height: 0;
+    display: flex; flex-direction: column; gap: 12px; min-height: 0; overflow-y: auto;
   }
   .caption, .codepane {
     background: #131722; border: 1px solid #2a2f3d; border-radius: 6px;
-    padding: 12px 14px; font-size: 13px; line-height: 1.5;
+    padding: 12px 14px; font-size: 13px; line-height: 1.5; flex-shrink: 0;
   }
   .caption { color: #c3c9d8; min-height: 110px; }
   .caption b { color: #ffd479; }
@@ -91,7 +91,7 @@
   .sense-amp { fill: #2a3142; stroke: #4f9bff; }
   .sense-amp.latched { fill: #3a86ff; stroke: #4f9bff; }
   .sense-amp.partial { fill: #6b8ec9; stroke: #4f9bff; }
-  .label { fill: #c3c9d8; font-family: monospace; font-size: 11px; }
+  .label { fill: #c3c9d8; font-family: monospace; font-size: 12.5px; }
   .label.dim { fill: #5a6178; }
   .label.hl { fill: #ffd479; }
   .label.cyan { fill: #22c1c3; }
@@ -102,8 +102,8 @@
 <header>
   <h1>BitNet PIM — DRAM as the compute substrate</h1>
   <span class="sub">Mechanism grounded in SiMRA, FracDRAM, FCDRAM, POPCNT3 + our project's server code</span>
-  <a href="xor_spread_explainer.html">The doubleACT row-spread →</a>
-  <a href="mvdram_explainer.html" style="margin-left:16px">The MVDRAM reproduction →</a>
+  <a href="xor-spread.html">The doubleACT row-spread →</a>
+  <a href="mvdram.html" style="margin-left:16px">The MVDRAM reproduction →</a>
 </header>
 
 <nav id="nav"></nav>
@@ -1089,7 +1089,7 @@ const scene9 = {
       const items = [
         ['the in-DRAM phases', 'already much faster than CPU MAC — diminishing return on further speedup'],
         ['the host↔FPGA round-trip COUNT', 'BIGGEST leverage: fewer + overlapped trips (batching, streaming, phase-2 send-ahead) — this is the latency wall'],
-        ['the per-MAJ byte payload', 'shrinking it (in-DRAM POPCNT / SEG_POP) is banked but WALL-NEUTRAL until the trips are cut — bytes hide behind latency'],
+        ['the per-MAJ byte payload', ['shrinking it (in-DRAM POPCNT / SEG_POP) is banked but WALL-NEUTRAL', 'until the trips are cut — bytes hide behind latency']],
         ['the set-up phases (RowCopy, Frac, writes)', 'amortise via persistent weights and broadcast-once-per-many-MAJs (we do this already)'],
       ];
       const x0 = 130, y0 = 150, dy = 70;
@@ -1097,7 +1097,9 @@ const scene9 = {
         const y = y0 + i*dy;
         sceneRoot.appendChild(rect(x0, y, 740, dy - 10, '', { fill: '#1d2230', stroke: '#2a2f3d', rx: 3 }));
         sceneRoot.appendChild(text(x0 + 20, y + 18, items[i][0], 'label hl', 'start'));
-        sceneRoot.appendChild(text(x0 + 20, y + 42, items[i][1], 'label', 'start'));
+        const desc = Array.isArray(items[i][1]) ? items[i][1] : [items[i][1]];
+        if (desc.length === 1) sceneRoot.appendChild(text(x0 + 20, y + 42, desc[0], 'label', 'start'));
+        else desc.forEach((ln, j) => sceneRoot.appendChild(text(x0 + 20, y + 38 + j*16, ln, 'label', 'start')));
       }
       sceneRoot.appendChild(text(500, 510, 'next scene: a wishlist for AI-memory hardware, each item mapped to a bottleneck above', 'label dim'));
     }
@@ -1165,7 +1167,7 @@ const scene9 = {
       `<b>The round-trip dominates at scale.</b> Each MAJ batch is one host↔FPGA program: a full DRAM row (e.g., 8 KiB) comes back and the host popcounts it. But the cost that binds is the <em>latency</em> of that round-trip — XDMA interrupt-wake bound at ~1.5 ms per read, so a bigger read barely costs more. It is the <em>count</em> of round-trips, not the byte volume, that dominates wall time across the many programs a layer needs.`,
       `<b>External confirmation — with a caveat for our rig.</b> The POPCNT3 paper computes the popcount inside DRAM and returns one integer, reporting 27×–348× throughput vs an A100 GPU on bulk bitwise accumulation (348× at the smallest tested kernel, 27× at the largest). Those numbers stand. But on our host-orchestrated rig that byte drop is <em>wall-neutral</em>: we shipped it (SEG_POP, 8 KiB → 2048 B, token-identical) and the wall did not move — because recv is latency-bound, not byte-bound. POPCNT3's bandwidth win needs their controller-native, 256-bank regime (4 DIMMs × 64) to become a wall win; our project today uses ~4 banks on one DIMM.`,
       `<b>Where to optimise.</b> The biggest leverage is the <em>round-trip count</em>: fewer, larger, overlapped host↔FPGA programs (batching, streaming, and phase-2 send-ahead). Shrinking the per-MAJ byte payload — in-DRAM POPCNT, returning a scalar instead of a row — is real but <em>wall-neutral until the trips are cut</em>, because recv is latency-bound. The setup phases are already amortised. This is the ranking rule the rest of the arc follows.`,
-      `<b>July 2026: two levers landed</b> — both on the write-side phases (1-3 of the May breakdown), both enabled by the co-activation-lattice addressing characterized in the <a href="xor_spread_explainer.html">companion explainer</a>. (1) <b>Persistent weights</b>: W stays resident, and the per-MAJ weight reload (per-column write, 3 host round-trips) becomes one in-DRAM clone from a backup row at a safe pair offset. (2) <b>Coset activation update</b>: the 10 activation wrRows (5×x + 5×zero) collapse to 4 wrRows + 2 in-tuple coset doubleACTs with the same 5/5/5 vote balance — the balance is a hard rule (the unbalanced 7W/4x/4z variant returns 99.7%/97.9% bad segments). Fused into one per-MAJ program: <b>0.357→0.089 ms/MAJ (3.99×, die A)</b>, 0.556→0.085 (6.53×, die B), verified bit-exact every iteration (0/204,800 bad segments per die, iters=100).`,
+      `<b>July 2026: two levers landed</b> — both on the write-side phases (1-3 of the May breakdown), both enabled by the co-activation-lattice addressing characterized in the <a href="xor-spread.html">companion explainer</a>. (1) <b>Persistent weights</b>: W stays resident, and the per-MAJ weight reload (per-column write, 3 host round-trips) becomes one in-DRAM clone from a backup row at a safe pair offset. (2) <b>Coset activation update</b>: the 10 activation wrRows (5×x + 5×zero) collapse to 4 wrRows + 2 in-tuple coset doubleACTs with the same 5/5/5 vote balance — the balance is a hard rule (the unbalanced 7W/4x/4z variant returns 99.7%/97.9% bad segments). Fused into one per-MAJ program: <b>0.357→0.089 ms/MAJ (3.99×, die A)</b>, 0.556→0.085 (6.53×, die B), verified bit-exact every iteration (0/204,800 bad segments per die, iters=100).`,
       `<b>July 2026, opt-in in the server.</b> The same two levers behind <code>PIM_FUSED_COSET=1</code> — a real win, but <b>opt-in: the server default is 0</b>, and BitNet production runs it OFF: <b>9.7–9.8→6.4–6.9 ms/matmul</b> (bank 0) and 9.5–9.7→6.1 (4-bank) = <b>1.45–1.6×</b>, every returned result bit-exact against the host reference. On the real model (BitNet b1.58-2B, layer 0's seven projections in DRAM, 4-bank, 8 tokens): <b>117.2→71.8 s wall = 1.63×</b> (PIM request time 112.5→70.2 s); both arms answer "Paris". These are write-side (wcol) wins against a small slice; the read-side path is untouched — and the binding wall is not "bytes on the bus" but the per-execute round-trip <em>latency</em>, which only phase-2 (Scene 11) finally attacks.`,
     ];
     return c[step];
@@ -1318,12 +1320,13 @@ const sceneMerge = {
       sceneRoot.appendChild(text(500, ty + cols.length*rh + 30, 'a real DRAM-PIM ASIC has no FPGA popcount logic → the reproduction claim rides Road A only', 'label'));
       sceneRoot.appendChild(text(500, ty + cols.length*rh + 52, 'Road B is flashed + silicon-validated but production net-negative (+8%) — KEPT as the cost-model proof, not the deployed path', 'label'));
       sceneRoot.appendChild(text(500, ty + cols.length*rh + 76, 'packing cuts round-trips (the wall); the roads cut bytes (banked until trips are cut) — the real end-state cuts BOTH', 'label hl cyan'));
-      sceneRoot.appendChild(text(500, ty + cols.length*rh + 100, 'where the byte-vs-trip thread leads: an on-die orchestrator that ENDS the round-trip — Rung-2a probe 27/27 byte-exact (Verilator 07-27), build-27 in flight', 'label hl'));
+      sceneRoot.appendChild(text(500, ty + cols.length*rh + 100, 'where the byte-vs-trip thread leads: an on-die orchestrator that ENDS the round-trip', 'label hl'));
+      sceneRoot.appendChild(text(500, ty + cols.length*rh + 118, '— Rung-2a probe 27/27 byte-exact (Verilator 07-27), build-27 in flight', 'label hl'));
     }
   },
   caption(step) {
     const c = [
-      `<b>The two project tracks merged in July 2026.</b> Scene 9 named two costs — the readout <em>byte</em> volume and the round-trip <em>latency</em>. The MVDRAM reproduction (see the <a href="mvdram_explainer.html">companion explainer</a>) built exactly the machinery that collapses the bytes: an in-DRAM adder. Applying it to our own ternary LLM's readout is the merge — plus a second, FPGA-side road built in parallel. What happened to the wall when the bytes collapsed is the point of this scene.`,
+      `<b>The two project tracks merged in July 2026.</b> Scene 9 named two costs — the readout <em>byte</em> volume and the round-trip <em>latency</em>. The MVDRAM reproduction (see the <a href="mvdram.html">companion explainer</a>) built exactly the machinery that collapses the bytes: an in-DRAM adder. Applying it to our own ternary LLM's readout is the merge — plus a second, FPGA-side road built in parallel. What happened to the wall when the bytes collapsed is the point of this scene.`,
       `<b>Road A works on silicon.</b> A carry-save tree of dual-track full adders (carry=MAJ3, sum=MAJ5 with the inverted carry twice) reduces K product rows to ceil(log₂(K+1)) result rows read out. Measured: <b>98.6–99.7% of output lanes exact at K=8..64</b>, readout reduced 2.0×→9.1×, which extrapolates to <b>213× at BitNet's K=2560</b>. The carry track is essentially error-free MAJ3 and sum bits never feed forward, so the tree does not accumulate error — the deeper reason this is viable on commodity DRAM at all.`,
       `<b>Stated honestly: rows saved is not (yet) time saved.</b> In the host-marshalled shape measured first, loading each adder's operands costs more bus traffic than the readout it saves — ~320× slower at K=64. The measured packed-program primitive rates (34.2 µs/row-read vs 2.6 µs/MAJ) prove the crossover flips once operands are <em>resident</em>; the fully-resident faithful tile was then built and measured at 58 ops/product — still 4–6× slower than packed readout <em>on this host-round-trip FPGA rig</em>, ≈par with bank-parallelism + sparsity. Its demonstrated value is the mechanism and its portability: on a streaming PIM controller (~100 ns/op, no per-op host round-trip) 58 ops beats an 8 KB transfer decisively.`,
       `<b>Road B shipped — and confirmed bytes aren't the wall.</b> An FPGA-side accumulator (ACCUM_XBP, build-8b) popcounts the readback stream and returns one 32-bit total: <b>8 KiB → 4 B (2048×), bit-exact</b>, flashed and silicon-validated on both hynix dies (0/2048 exact, 07-22). En route it surfaced a real HDL bug (stock pop_count4.v undercounts nibble 0xE, fixed). But the production A/B is <b>net-negative (+8% wall)</b>: the recv collapse is real (24.8→6.9 ms/req, ~3.6×) yet exec inflates to eat it, because each execute still pays a host round-trip. Road B is the cleanest proof of the Scene-9 thesis — on a host-orchestrated rig the <em>round-trip count</em> is the wall, and collapsing readout bytes does not move it.`,
@@ -1477,7 +1480,8 @@ const sceneArc = {
         sceneRoot.appendChild(text(x0 + 18, y + 70, words.slice(third, 2*third).join(' '), 'label', 'start'));
         sceneRoot.appendChild(text(x0 + 18, y + 90, words.slice(2*third).join(' '), 'label', 'start'));
       }
-      sceneRoot.appendChild(text(500, y0 + 3*dy + 12, 'and the arc did NOT stop here — a second campaign followed (next step): activation-quant, phase-2 send-ahead, and the second model family', 'label dim'));
+      sceneRoot.appendChild(text(500, y0 + 3*dy + 12, 'and the arc did NOT stop here — a second campaign followed (next step):', 'label dim'));
+      sceneRoot.appendChild(text(500, y0 + 3*dy + 30, 'activation-quant, phase-2 send-ahead, and the second model family', 'label dim'));
     }
     else if (step === 6) {
       sceneRoot.appendChild(text(500, 25, 'the second campaign (past 07-20): activation-quant + phase-2 — the current frontier', 'label hl'));
@@ -1504,7 +1508,8 @@ const sceneArc = {
       sceneRoot.appendChild(text(500, yb + 92, 'second family Bonsai-1.7B (Qwen3 g128): 1-bit single-track ladder 100 → 18.7 s/tok = 5.36× stacked', 'label dim'));
       sceneRoot.appendChild(text(500, yb + 122, 'two bets that rode this lattice closed NEGATIVE since 07-20 — recorded, not hidden:', 'label hl'));
       sceneRoot.appendChild(text(500, yb + 144, 'M3 coset-deposit — body recomputes its row, shadow never read; retracted (PR #16, merged 07-28), machinery excised (−286 lines)', 'label'));
-      sceneRoot.appendChild(text(500, yb + 166, 'X-master-clone — RowClone seed is charge-shared (x′≠x, corr ≈0.94–0.97 depth-flat at production density); −9.9% retracted, V2S hard-gated', 'label'));
+      sceneRoot.appendChild(text(500, yb + 166, 'X-master-clone — RowClone seed is charge-shared (x′≠x, corr ≈0.94–0.97', 'label'));
+      sceneRoot.appendChild(text(500, yb + 184, 'depth-flat at production density); −9.9% retracted, V2S hard-gated', 'label'));
     }
   },
   caption(step) {
@@ -1579,7 +1584,8 @@ const scene10 = {
        'addresses: today\'s required K (replication factor) is dominated by sense-amp threshold scatter under process variation',
        'tighter per-cell uniformity → smaller K needed for reliable MAJ → fewer setup writes per op, more compute density'],
       ['6. Deterministic per-chip behaviour',
-       'addresses: residual per-part characterization — a closed-form selection law now predicts working tuples (1691/1691, both dies)',
+       ['addresses: residual per-part characterization — a closed-form selection law',
+        'now predicts working tuples (1691/1691, both dies)'],
        'deterministic spec → the last per-part table comes from the data sheet, not an empirical sweep'],
     ];
 
@@ -1598,8 +1604,14 @@ const scene10 = {
         opacity: step === 0 ? 0.5 : (step > i + 1 ? 0.4 : (step === i + 1 ? 1 : 0.7))
       }));
       sceneRoot.appendChild(text(x0 + 20, y + 18, wishlist[i][0], 'label hl', 'start'));
-      sceneRoot.appendChild(text(x0 + 20, y + 38, wishlist[i][1], 'label', 'start'));
-      sceneRoot.appendChild(text(x0 + 20, y + 56, wishlist[i][2], 'label dim', 'start'));
+      const d1 = Array.isArray(wishlist[i][1]) ? wishlist[i][1] : [wishlist[i][1]];
+      if (d1.length === 1) {
+        sceneRoot.appendChild(text(x0 + 20, y + 38, d1[0], 'label', 'start'));
+        sceneRoot.appendChild(text(x0 + 20, y + 56, wishlist[i][2], 'label dim', 'start'));
+      } else {
+        d1.forEach((ln, j) => sceneRoot.appendChild(text(x0 + 20, y + 34 + j*16, ln, 'label', 'start')));
+        sceneRoot.appendChild(text(x0 + 20, y + 34 + d1.length*16, wishlist[i][2], 'label dim', 'start'));
+      }
     }
   },
   caption(step) {

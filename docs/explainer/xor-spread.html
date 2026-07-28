@@ -20,8 +20,8 @@
   .stage-title { padding: 10px 14px; border-bottom: 1px solid #2a2f3d; font-size: 14px; color: #ffd479; }
   .canvas-wrap { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 8px; overflow: hidden; }
   .canvas-wrap svg { max-width: 100%; max-height: 100%; }
-  .side { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
-  .caption, .codepane { background: #131722; border: 1px solid #2a2f3d; border-radius: 6px; padding: 12px 14px; font-size: 13px; line-height: 1.5; }
+  .side { display: flex; flex-direction: column; gap: 12px; min-height: 0; overflow-y: auto; }
+  .caption, .codepane { background: #131722; border: 1px solid #2a2f3d; border-radius: 6px; padding: 12px 14px; font-size: 13px; line-height: 1.5; flex-shrink: 0; }
   .caption { color: #c3c9d8; min-height: 120px; }
   .caption b { color: #ffd479; }
   .caption .ex { color: #22c1c3; font-weight: 600; }
@@ -45,7 +45,7 @@
   .row-line.dim { stroke: #5a6178; stroke-width: 1; }
   .bitline { stroke: #5e6678; stroke-width: 1; }
   .bitline.hot { stroke: #3a86ff; stroke-width: 2; }
-  .label { fill: #c3c9d8; font-family: monospace; font-size: 11px; }
+  .label { fill: #c3c9d8; font-family: monospace; font-size: 12.5px; }
   .label.dim { fill: #5a6178; }
   .label.hl { fill: #ffd479; }
   .label.cyan { fill: #22c1c3; }
@@ -59,8 +59,8 @@
 <header>
   <h1>The SiMRA doubleACT row-spread</h1>
   <span class="sub">A cross-DIMM characterization + the MAJ3 self-pollution it causes</span>
-  <a href="pim_explainer.html">← BitNet PIM explainer</a>
-  <a href="mvdram_explainer.html" style="margin-left:16px">The MVDRAM reproduction →</a>
+  <a href="index.html">← BitNet PIM explainer</a>
+  <a href="mvdram.html" style="margin-left:16px">The MVDRAM reproduction →</a>
 </header>
 <div class="banner"><b>Update, July 2026:</b> a SiMRA co-author confirmed the mechanism — the spread is Multi-RowCopy's co-activation lattice seen from the source side (latched predecoders), and assessed our XOR address-algebra as new; nearest prior art is FracDRAM (MICRO'22). We verified the mapping on our own data: all 696 production tuples are exact (R<sub>F</sub>,R<sub>S</sub>) lattices; 3,941/3,941 fault records contained. Scene 2's "source-specific" property is reinterpreted as pair algebra. Exchange: <a href="https://github.com/CMU-SAFARI/DRAM-Bender/issues/12">DRAM-Bender#12</a> · <a href="https://github.com/CMU-SAFARI/SiMRA-DRAM/issues/1">our verification + open questions</a>.</div>
 <nav id="nav"></nav>
@@ -453,8 +453,9 @@ const sCloneLaw={ title:'Scene 6 — The clone-dead law: which rows can feed a t
       sceneRoot.appendChild(text(150,y+52,words.slice(0,half).join(' '),'label','start'));
       sceneRoot.appendChild(text(150,y+70,words.slice(half).join(' '),'label','start'));}
     sceneRoot.appendChild(text(500,y0+3*dy+8,'accuracy on the 9,984 even-anchor observations: 99.980% — the only 2 misses are bank-marginal rows; ZERO false-dead','label cyan'));
-    sceneRoot.appendChild(text(500,y0+3*dy+34,'two failure FAMILIES, not one ladder: u5 fails at median 1200/2048, the u4 triple-group case at 620 — bit 9 encodes something qualitatively different','label dim'));
-    sceneRoot.appendChild(text(500,y0+3*dy+58,'caveat, stated: the form is anchor-parity-conditional — the one odd-Rfirst tuple deviates both ways (97.9%) and needs its own screen','label dim'));
+    sceneRoot.appendChild(text(500,y0+3*dy+30,'two failure FAMILIES, not one ladder: u5 fails at median 1200/2048, the u4 triple-group case at 620','label dim'));
+    sceneRoot.appendChild(text(500,y0+3*dy+46,'— bit 9 encodes something qualitatively different','label dim'));
+    sceneRoot.appendChild(text(500,y0+3*dy+64,'caveat, stated: the form is anchor-parity-conditional — the one odd-Rfirst tuple deviates both ways (97.9%) and needs its own screen','label dim'));
   }
   else if(step===2){
     const rows=[
@@ -549,7 +550,7 @@ const sDrift={ title:'Scene 7 — The same coupling over time: traffic-induced d
     const x0=150,y0=420,w=700,h=280;
     sceneRoot.appendChild(line(x0,y0,x0+w,y0,'bitline'));
     sceneRoot.appendChild(line(x0,y0,x0,y0-h,'bitline'));
-    sceneRoot.appendChild(text(x0-10,y0-h+10,'match vs loaded content','label dim','end'));
+    sceneRoot.appendChild(text(x0,y0-h-10,'match vs loaded content','label dim','start'));
     sceneRoot.appendChild(text(x0+w/2,y0+24,'verify passes (same-subarray traffic between them) →','label dim'));
     // flat at 100%, drop, flat
     const pts=[[0,1.0],[0.18,1.0],[0.22,0.84],[1.0,0.84]];
@@ -845,21 +846,36 @@ const s8={ title:'Scene 11 — Two responses: avoid it, or use it', steps:5, ren
     sceneRoot.appendChild(text(500,390,'K-quant, and the K6+fused+phase-2 stack = −64.7% (973.2→343.7 s, "…Paris")','label cyan'));
   }
   if(step===4){
+    // hand-broken lines: each must fit the card interior (x 110..890, ~96
+    // chars at 12.5px monospace) — the old words/3 auto-split ran ~200 units
+    // past the viewBox and clipped at the pane edge.
     const cards=[
-      ['M3 coset-deposit (PIM_BCAST_LOAD) — production-DEAD','the fused body recomputes its row from the pool, so the deposited shadow is NEVER read; 99.4% of "deposits" were d=0 no-ops; suppressing every deposit leaves the token identical. The only live effect was write-elision (87% served stale masks); ceiling <9% of the wall.','resolved negative 07-26 · retracted PR #16 (merged 07-28; trailing pointer PR #18) · machinery excised −286 lines'],
-      ['X-master-clone (PIM_XMASTER) — closed NEGATIVE','RowClone the activation master into the fused-body op rows instead of re-writing every slot. But a RowClone establishes the seed at CHARGE-SHARED, not write-driven, levels → in-DRAM x′ ≠ x. The 07-27 "corr 0.998 shallow" reading was a low-density harness artifact (25% real rows); at production mask density the corruption is depth-independent — corr ≈0.94–0.97 flat across depths 8–80 rounds, 0/2048 bit-exact. Single-track V2S doubles the error uncancelled → token garbage.','the brief −9.9% was a max-tokens-1 gate, retracted · V2S hard-gated · closed negative 07-28'],
+      ['M3 coset-deposit (PIM_BCAST_LOAD) — production-DEAD',
+       ['the fused body recomputes its row from the pool, so the deposited shadow is NEVER read;',
+        '99.4% of "deposits" were d=0 no-ops; suppressing every deposit leaves the token identical.',
+        'the only live effect was write-elision (87% served stale masks); ceiling <9% of the wall.'],
+       ['resolved negative 07-26 · retracted PR #16 (merged 07-28; pointer PR #18)',
+        'machinery excised −286 lines']],
+      ['X-master-clone (PIM_XMASTER) — closed NEGATIVE',
+       ['RowClone the activation master into the fused-body op rows instead of re-writing every slot.',
+        'but a RowClone establishes the seed at CHARGE-SHARED, not write-driven, levels → in-DRAM x′ ≠ x.',
+        'the 07-27 "corr 0.998 shallow" reading was a low-density harness artifact (25% real rows);',
+        'at production density the corruption is DEPTH-INDEPENDENT — corr ≈0.94–0.97 flat, 8–80 rounds,',
+        '0/2048 bit-exact. Single-track V2S doubles the error uncancelled → token garbage.'],
+       ['the brief −9.9% was a max-tokens-1 gate, retracted · V2S hard-gated · closed negative 07-28']],
     ];
-    for(let i=0;i<2;i++){const y=68+i*148;
-      sceneRoot.appendChild(rect(90,y,820,136,'',{fill:'#2a1a1a',stroke:'#7f1d1d','stroke-width':1.5,rx:5}));
-      sceneRoot.appendChild(text(110,y+22,cards[i][0],'label orange','start'));
-      const words=cards[i][1].split(' ');const q=Math.ceil(words.length/3);
-      sceneRoot.appendChild(text(110,y+46,words.slice(0,q).join(' '),'label','start'));
-      sceneRoot.appendChild(text(110,y+66,words.slice(q,2*q).join(' '),'label','start'));
-      sceneRoot.appendChild(text(110,y+86,words.slice(2*q).join(' '),'label','start'));
-      sceneRoot.appendChild(text(110,y+112,cards[i][2],'label cyan','start'));}
-    sceneRoot.appendChild(text(500,382,'the lattice deposit PRIMITIVE stays bit-exact and real (step 2 above) — only these two production levers died','label hl'));
-    sceneRoot.appendChild(text(500,410,'"Using something in the way it was not intended is not a security risk — it is creativity."','label hl'));
-    sceneRoot.appendChild(text(500,436,'The honest ledger — validated primitives, real microbenchmarks, and two bets that closed negative — is the point.','label dim'));
+    let y=58;
+    for(const [title,body,cyan] of cards){
+      const h=28+body.length*18+cyan.length*18+12;
+      sceneRoot.appendChild(rect(90,y,820,h,'',{fill:'#2a1a1a',stroke:'#7f1d1d','stroke-width':1.5,rx:5}));
+      sceneRoot.appendChild(text(110,y+20,title,'label orange','start'));
+      body.forEach((ln,j)=>sceneRoot.appendChild(text(110,y+42+j*18,ln,'label','start')));
+      cyan.forEach((ln,j)=>sceneRoot.appendChild(text(110,y+42+body.length*18+4+j*18,ln,'label cyan','start')));
+      y+=h+12;
+    }
+    sceneRoot.appendChild(text(500,y+18,'the lattice deposit PRIMITIVE stays bit-exact and real (step 2 above) — only these two production levers died','label hl'));
+    sceneRoot.appendChild(text(500,y+44,'"Using something in the way it was not intended is not a security risk — it is creativity."','label hl'));
+    sceneRoot.appendChild(text(500,y+68,'The honest ledger — validated primitives, real microbenchmarks, and two bets that closed negative — is the point.','label dim'));
   }
 },
 caption(step){return[

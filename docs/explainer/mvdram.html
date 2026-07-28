@@ -21,8 +21,8 @@
   .stage-title { padding: 10px 14px; border-bottom: 1px solid #2a2f3d; font-size: 14px; color: #ffd479; }
   .canvas-wrap { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 8px; overflow: hidden; }
   .canvas-wrap svg { max-width: 100%; max-height: 100%; }
-  .side { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
-  .caption, .codepane { background: #131722; border: 1px solid #2a2f3d; border-radius: 6px; padding: 12px 14px; font-size: 13px; line-height: 1.5; }
+  .side { display: flex; flex-direction: column; gap: 12px; min-height: 0; overflow-y: auto; }
+  .caption, .codepane { background: #131722; border: 1px solid #2a2f3d; border-radius: 6px; padding: 12px 14px; font-size: 13px; line-height: 1.5; flex-shrink: 0; }
   .caption { color: #c3c9d8; min-height: 120px; }
   .caption b { color: #ffd479; }
   .caption .ex { color: #22c1c3; font-weight: 600; }
@@ -46,7 +46,7 @@
   .row-line.dim { stroke: #5a6178; stroke-width: 1; }
   .bitline { stroke: #5e6678; stroke-width: 1; }
   .bitline.hot { stroke: #3a86ff; stroke-width: 2; }
-  .label { fill: #c3c9d8; font-family: monospace; font-size: 11px; }
+  .label { fill: #c3c9d8; font-family: monospace; font-size: 12.5px; }
   .label.dim { fill: #5a6178; }
   .label.hl { fill: #ffd479; }
   .label.cyan { fill: #22c1c3; }
@@ -60,7 +60,7 @@
 <header>
   <h1>The MVDRAM reproduction</h1>
   <span class="sub">What the paper claims, what reproduced on our silicon, and the June→July reversal</span>
-  <span class="links"><a href="pim_explainer.html">← BitNet PIM explainer</a><a href="xor_spread_explainer.html">The doubleACT row-spread →</a></span>
+  <span class="links"><a href="index.html">← BitNet PIM explainer</a><a href="xor-spread.html">The doubleACT row-spread →</a></span>
 </header>
 <div class="banner">Interactive companion to the written study <a href="https://github.com/pcdeni/CaSA/blob/main/docs/MVDRAM_REPRODUCTION.md">docs/MVDRAM_REPRODUCTION.md</a> (updated through 2026-07-28: <b>Result A stands, Result B reversed</b> — §8; reference-policy conditioning exhausted at chain scale — Scene 7). Paper: <a href="https://arxiv.org/abs/2503.23817">MVDRAM, arXiv:2503.23817</a>. Every claim cites the paper (§/Fig/Table), a reproducer in <a href="https://github.com/pcdeni/CaSA">this repo</a>, a data file in <code>docs/data/</code>, or a linked issue — see the <a href="https://github.com/pcdeni/CaSA/blob/main/docs/explainer/mvdram_explainer_ledger.md">claim ledger</a>.</div>
 <nav id="nav"></nav>
@@ -495,7 +495,7 @@ const m5={ title:'Scene 5 — Result B: June\'s collapse, July\'s reversal', ste
 caption(step){return[
  `<b>June 2026.</b> On our four PUD-capable commodity modules, every MVDRAM mechanism reproduced in isolation — but the paper's <em>chained</em> dataflow collapsed: the faithful computation-rows dataflow (its Fig 2) ran at <b>6.1%</b> end-to-end with per-op MAJ at 50.3% (a coin flip); on-the-fly encoding scored 11.3% vs 99.9% for the identical GeMV with host-written products; RowClone-loading a calibrated 16-row tuple left 50.1% intact. (Study §4.)`,
  `<b>The cause was real; the June model of it was wrong.</b> The XOR-spread is real: a doubleACT whose destination is in a co-activated group also deposits the source into lattice siblings. June modelled it as source-specific vulnerability; mitigations built on that model (full-restore, non-shadow source selection) didn't help, and we published "the general copy-based dataflow is not achievable." The spread's existence — unmentioned by the paper — held up. The verdict built on the wrong model did not.`,
- `<b>July 2026: placement by construction.</b> With the settled mechanism (the co-activation lattice and its selection law — <a href="xor_spread_explainer.html">row-spread explainer</a>, Scenes 3+5), corruption during a RowClone into a co-activated group is a function of the <em>pair offset</em> src⊕dst. Offsets free of tuple-generator subsets are clean by construction. Measured: <b>20/20</b> safe loads clean, unsafe-offset controls corrupt exactly the predicted rows, and the full 16-row tuple loads with 8 doubleACTs at <b>16/16</b> (June: 5/16).`,
+ `<b>July 2026: placement by construction.</b> With the settled mechanism (the co-activation lattice and its selection law — <a href="xor-spread.html">row-spread explainer</a>, Scenes 3+5), corruption during a RowClone into a co-activated group is a function of the <em>pair offset</em> src⊕dst. Offsets free of tuple-generator subsets are clean by construction. Measured: <b>20/20</b> safe loads clean, unsafe-offset controls corrupt exactly the predicted rows, and the full 16-row tuple loads with 8 doubleACTs at <b>16/16</b> (June: 5/16).`,
  `<b>The reversal, in one A/B.</b> The same popcount-4 carry-save DAG (18 MAJ3 gates), re-run with only the placement changed: June's host-mediated shape 1.59 ms/gate at 99.99%; safe in-DRAM operand movement 0.89 ms/gate at 99.87%; whole gate fused into one program 0.68 ms/gate at 99.81%. The faithful dataflow reaches <b>99.98%</b> end-to-end on the safe-placement reproducer. June's 6.1% was our own addressing artifact — corrected in public, with dated supersession banners (study §8). Result A is unaffected.`,
  `<b>Faster, not just correct.</b> The definitive two-die A/B: write-load (June shape) 1.585/1.574 ms/gate at 99.990%/99.974% e2e; fused clone-load <b>0.683/0.705 ms/gate</b> at 99.808%/99.814% — <b>2.32×/2.23×</b> per gate. Fast in-DRAM loading costs ~0.17% end-to-end accuracy; fusing costs nothing. This is the fast-operand-movement shape MVDRAM's Fig 3 profile assumes, measured working on commodity, spread-afflicted dies.`,
 ][step];},
@@ -812,11 +812,18 @@ const m7c={ title:'Scene 9 — The last fidelity deviations, closed as server mo
     sceneRoot.appendChild(text(500,216,'— the standing tiled-execution deviation, stated in every table that carries these numbers','label dim'));
     sceneRoot.appendChild(text(500,242,'(closing it = multi-subarray residency, the same residency economics the Lane-1 pilot measured)','label dim'));
     sceneRoot.appendChild(text(500,300,'paper ambiguities met on the way (the consult-the-paper convention):','label hl'));
-    const amb=['§V-C never states where product rows live relative to the adder inputs → we clone into the computation rows (Fig 2 steps 2–3)',
+    const amb=[['§V-C never states where product rows live relative to the adder inputs',
+                '→ we clone into the computation rows (Fig 2 steps 2–3)'],
                '§VII names complements but never writes the identities → we use the unique symmetric choices',
                'partial-sum granularity N≤128 crosses q4_0 scale blocks → exact fp32 impossible at their stated shape (Scene 8)',
-               'their "1-bit" sweeps are unsigned binary → our qb=1 matches (a client had generated signed 1-bit; convention fixed)'];
-    for(let i=0;i<4;i++){sceneRoot.appendChild(text(120,330+i*26,(i+1)+'. '+amb[i],'label dim','start'));}
+               ['their "1-bit" sweeps are unsigned binary → our qb=1 matches',
+                '(a client had generated signed 1-bit; convention fixed)']];
+    let ay=330;
+    for(let i=0;i<amb.length;i++){
+      const lines=Array.isArray(amb[i])?amb[i]:[amb[i]];
+      lines.forEach((ln,j)=>sceneRoot.appendChild(text(j===0?120:139, ay+j*20, (j===0?(i+1)+'. ':'')+ln, 'label dim','start')));
+      ay+=lines.length*20+6;
+    }
   }
 },
 caption(step){return[
@@ -865,12 +872,12 @@ const m8={ title:'Scene 10 — What our silicon adds beyond the paper', steps:6,
     sceneRoot.appendChild(text(100,y+70,w2.slice(m2_).join(' '),active?'label hl':'label dim','start'));}
 },
 caption(step){return[
- `<b>The selection law.</b> For an APA pair at offset d, which of the 2^k predicted lattice rows fire is a zero-exception predicate: each predecoder unit contributes ∅ or its whole share of d. Verified member-by-member: <b>1691/1691 observations explained on each of two dies</b>, zero exceptions, zero mixed rows, identical at all 8 timing combos (t₁₂∈{5,10,20,30} × t₂₃∈{1,2}). Screening becomes a computed predicate — this is what made Scene 5's safe placement possible. Full treatment: <a href="xor_spread_explainer.html">row-spread explainer</a>, Scene 5.`,
+ `<b>The selection law.</b> For an APA pair at offset d, which of the 2^k predicted lattice rows fire is a zero-exception predicate: each predecoder unit contributes ∅ or its whole share of d. Verified member-by-member: <b>1691/1691 observations explained on each of two dies</b>, zero exceptions, zero mixed rows, identical at all 8 timing combos (t₁₂∈{5,10,20,30} × t₂₃∈{1,2}). Screening becomes a computed predicate — this is what made Scene 5's safe placement possible. Full treatment: <a href="xor-spread.html">row-spread explainer</a>, Scene 5.`,
  `<b>Cross-die determinism.</b> The same selection experiment run on two dies of the same model produces per-member CSVs that are <b>byte-identical</b> (only the device-path preamble differs). The law — groups, firing sets, k-decay — is a property of the decoder design, not of the individual specimen. For a method like MVDRAM's, that means a placement discipline computed on one die transfers to another of the same design.`,
  `<b>MAJ3 self-pollution.</b> The MAJ operation corrupts its own operand set through the same co-activation: on one of our modules, a tuple rated "100% reliable" by standard characterization has 2 of its 16 open rows silently overwritten during every MAJ — the result survives only because a 14-vs-2 majority absorbs the corruption (study §4 provenance note). Column-static error models — including reliable-column screening of the kind the paper uses — cannot represent this, because it depends on which rows are co-activated, not on the column. <span class="ex">Independent corroboration has since arrived from the MVDRAM authors' own group: PuDGhost (arXiv 2606.19119, Kubo/SAFARI) measures non-operand corruption on 96 SK Hynix chips (≤10% adjacent, ≤48% concurrent-column at 16-row) and ships CS-1/CS-2 mitigations — the read-direction (environment→output) analog of this effect, complementary to it. Our deposit/write direction — the op corrupting its own operand set — stays novel to it.</span>`,
  `<b>All-MAJ3 accumulation.</b> Our carry-save popcount is built from MAJ3 gates only and reaches <b>99.98%</b> end-to-end on the safe-placement dataflow — no MAJ5 anywhere. That sidesteps the paper's MAJ5 sum bit (§II-C1) and with it the Frac [34] / calibration [48] dependency of their adder. On silicon where chained MAJ5 is fragile, this is the accumulation path that survives — and the July-21 chain A/B settled it: faithful MAJ5 under the best conditioning (ZERO+2) scored 99.512% vs SiMRA's frac'd-ONE 99.902% at GeMV depth, so the all-MAJ3 path (99.98%) is not an optional substitute but <em>the accumulation that holds at depth</em>.`,
  `<b>The reference-policy law.</b> The knob behind their "Frac + calibration → error-free" (§VII), found by sweeping the actual recipe space: for MAJ5 the reference row's <em>initial state</em> dominates, not the pulse count — full-ZERO beats the standard frac'd-ONE recipe ≈5× in strict columns on marginal silicon (963 vs ~200), ZERO+2 is optimal on good subarrays (93.5% strict / 98.1% soft-95, 600-run confirmed), and with it every bank of both compute dies holds a 94–95% MAJ5 colmask — their Table-I top band on commodity parts. It is a single-op optimum, though: at GeMV chain depth conditioning is exhausted (ZERO+2 99.512% vs SiMRA's frac'd-ONE 99.902% at 4096² qb2), so the MAJ5-free all-MAJ3 path carries the accumulation. MAJ3 is policy-insensitive and geometry-limited dies are not rescued: the law's scope is stated with its content. Scene 7 carries the full closure.`,
- `<b>The clone-dead law.</b> Whether a row can serve as a RowClone source into a tuple is a closed-form predicate of the pair offset (count the predecoder units it touches): held-out-validated <b>2,496/2,496</b> with predictions committed before silicon, <b>2,494/2,496</b> on a second die with zero false-dead. For a method that (like the paper's) leans on per-module screening, this converts a screening pass into a computation — and it explained a production mystery on our side (the voting tax) on the way. Full treatment: <a href="xor_spread_explainer.html">row-spread explainer</a>, Scene 6.`,
+ `<b>The clone-dead law.</b> Whether a row can serve as a RowClone source into a tuple is a closed-form predicate of the pair offset (count the predecoder units it touches): held-out-validated <b>2,496/2,496</b> with predictions committed before silicon, <b>2,494/2,496</b> on a second die with zero false-dead. For a method that (like the paper's) leans on per-module screening, this converts a screening pass into a computation — and it explained a production mystery on our side (the voting tax) on the way. Full treatment: <a href="xor-spread.html">row-spread explainer</a>, Scene 6.`,
 ][step];},
 codeRef(step){return [`<span class="src">reproducer + data</span>
 <span class="cm">app/test_selection_timing.cpp</span>
