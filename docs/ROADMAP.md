@@ -139,9 +139,10 @@ design doc that motivates it — the roadmap is itself evidence-first.
 28. **X-master-clone (activation-side residency + clone)** — ❌
     **CLOSED NEGATIVE for production (2026-07-28, root-caused): the
     RowClone'd x seed sits at charge-shared — not write-driven — levels
-    (in-DRAM x′ ≠ x), and the error compounds with request depth on
-    BOTH tracks. The server now hard-gates X-master off on the
-    single track. Default-off everywhere.**
+    (in-DRAM x′ ≠ x); the corruption is present at ALL request depths
+    at production mask density on BOTH tracks. The server now
+    hard-gates X-master off on the single track. Default-off
+    everywhere.**
     On the fused-coset path the 5 activation `wrRow`s (~1,280 slots each)
     rewrite THE SAME `x` plane every round (MAJ3 charge-sharing destroys
     its operand rows each execution). X-master writes each plane's `x`
@@ -169,9 +170,15 @@ design doc that motivates it — the roadmap is itself evidence-first.
     tracks — the defect is that the master→body RowClone establishes
     the x seed at **charge-shared, not write-driven, levels** (x′ ≠ x).
     The dual track computes both popcount terms in-DRAM against the
-    same x′ (coherent; corr 0.998 shallow) but the error **compounds
-    with depth: corr 0.9575, 0/2048 bit-exact at d_in=2560/40 rounds**
-    vs bit-exact without X-master. The single track reconstructs
+    same x′ — and a controlled depth sweep (07-28, four depths 8–80
+    rounds) shows the corruption is **DEPTH-INDEPENDENT** (masters are
+    refilled every round, so per-round seed errors never accumulate):
+    at production mask density (all 2048 output rows real) dual-track
+    corr ≈ **0.94–0.97 at every depth**, 0/2048 bit-exact, vs bit-exact
+    without X-master at all depths to 80 rounds. The 07-27
+    "corr 0.998 shallow" reading reproduces only at its low-density
+    harness config (512 of 2048 rows real) — a density artifact, not a
+    depth effect. The single track reconstructs
     `y = 2·pc_pos(x′) − Σx` with a host-exact Σx — the seed error
     doubles, nothing cancels, output decorrelates to garbage. Proven
     with a new V2S mode of the numerics oracle (live-validated with a
