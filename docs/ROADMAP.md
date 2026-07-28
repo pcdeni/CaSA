@@ -35,6 +35,39 @@ design doc that motivates it — the roadmap is itself evidence-first.
    projection — the end-state demo), and the honest Rung-4 boundary
    (commodity MCs expose no command-level control; every published
    unmodified-DRAM PUD result runs a soft/custom controller).
+   ⚠ **CORRECTION 2026-07-27: streaming alone does NOT invert the
+   regime.** With `PIM_STREAM` on vs off, recv (~64% of the request
+   wall) is UNCHANGED, because the receive is synchronous — streaming
+   the SEND alone is **wall-neutral** (the −4.0% production A/B was
+   phase-1 magnitude, not a regime change). Instruction-count levers
+   (M3, K-batching) therefore do NOT become top post-streaming levers.
+   The recv term only moves when the send is pipelined PAST the recv:
+   that is **phase-2 send-ahead**, and it is the real recv attack ↓.
+3a. **Phase-2 send-ahead (`PIM_STREAM_PIPE`)** — ✅ **VALIDATED ON
+   SILICON 2026-07-27 (build-26, no flash), −26.3% wall.** Full-model
+   A/B: pipe-on 1863.1 s vs pipe-off control 2529.1 s; per-request recv
+   **112 → 57 ms (halved)**, total 176 → 130 ms; token-exact (`'The'`).
+   The `~1/4k` lost-record stall that kept this default-OFF does NOT
+   reproduce: **0 stalls / 0 decay / 0 errors over 11,500 requests**
+   (would expect ~3 if present) — the RTL blocker is gone. Root cause of
+   the stale "waiting on build-11": build-11's fix never reached fabric
+   (Synth 8-7071, `fetch_restart` unconnected in `softmc_core.v` through
+   builds 11–13); the true fix landed in build-14 (magic `0x0D`) and the
+   running build-26 (`0x15`) is later still. UNBLOCKED for production
+   enable — flipping the `PIM_STREAM_PIPE` default is a
+   production-behavior change and is USER-GATED. See
+   `docs/SESSION_2026_07_27.md` §1, `docs/PHASE2_PIPE_2026_07_24.md`.
+3a3. **On-fabric orchestrator (Rung-2) — first probe PASSES.** ✅
+   **Verilator 27/27 byte-exact 2026-07-27** (`rung2_probe_2026_07_27/`,
+   design in `rung2_sequencer_design_2026_07_27.md`): a closed-loop top
+   wires the existing `seq_engine` → a deterministic SiMRA DRAM model →
+   the existing exact popcount+accumulate datapath, driven by a
+   hard-coded sequencer walking one projection's chunk/bitplane loop.
+   TB sends `x` once, reads integer partials once, byte-compares to a CPU
+   oracle (3 edge + {1,8,64}×8 seeds). Feasibility established: the fabric
+   CAN drive a host-command-free projection loop and return exact integer
+   partials. Not yet a soft core / ISA / allocator — those remain the
+   Rung-2 build. See `docs/SESSION_2026_07_27.md` §4.
 
 0. **ACCUM_XBP (build-8): cross-bit-plane accumulator** — DESIGNED
    (`docs/ACCUM_XBP_DESIGN.md`). In-fabric place-value sum: one 8 KB
@@ -110,6 +143,38 @@ design doc that motivates it — the roadmap is itself evidence-first.
 9. **V2G protocol for streaming/batched shapes** — DONE as protocol
    (wall-neutral), READY as the carrier for any future batched regime.
 10. **xrefresh / accum-knob tuning** — minor; only if a measurement says.
+28. **X-master-clone (activation-side residency + clone)** — ⚠️
+    **IMPLEMENTED 2026-07-27; evidence holds ONLY for the dual-track V2
+    path — CORRUPTS output on the V2S single-track path (2026-07-28).
+    Default-off; do not adopt on single-track until root-caused.**
+    On the fused-coset path the 5 activation `wrRow`s (~1,280 slots each)
+    rewrite THE SAME `x` plane every round (MAJ3 charge-sharing destroys
+    its operand rows each execution). X-master writes each plane's `x`
+    master row once per request (8 planes × banks, outside the tuple),
+    then RowClones master→tuple (~40 slots vs ~1,280) per body. Server
+    path behind `PIM_XMASTER` (default 0) + twin `PIM_XMASTER_ALTERNATE`;
+    adversarial verify confirmed default-off byte-identical and caught +
+    fixed a deposit-screening gap for the `PIM_XMASTER`+`PIM_RC_V2`
+    pairing. Engages 8/8 masters all 4 banks; production-shape numerically
+    correct (d_in=512 corr 0.998). **Wall is request-shape-dependent:**
+    single-op d_in=2560 87.8 → 69.8 ms (−20.5%, exec −25%/wcol −15%) but
+    small ops (d_in=512, 16 chunks) go net-negative (master-fill overhead
+    > savings). Full-model A/B: OFF 1541.0 s → ON **1387.7 s (−9.9%)**,
+    token-identical, 0 stalls/decay. **Requires fused-coset**
+    (`PIM_FUSED_COSET=1`, server default 0), so the −9.9% only cashes in
+    if fused is adopted. Stays default-off pending a user decision.
+    `docs/SESSION_2026_07_27.md` §3.
+    **2026-07-28 CORRECTION (session audit):** the −9.9% A/B above was
+    BitNet dual-track V2 at max-tokens **1**, both arms emitting '1'
+    (the legitimate list-start — a 3-token probe yields '1. '); that is
+    a thin gate. On the production Bonsai **V2S single-track** path,
+    X-master produces degenerate output in every tested config (K=6 and
+    K=8, streaming on and off) on the same server binary — the break is
+    model-path-dependent, not a K or streaming interaction. Suspect:
+    masters clone into `open_rows[1]`/`[4]`, whose role may differ in
+    single-track fused bodies. The V2 numerics oracle does not cover
+    V2S; extending it is the next debugging step. Until then:
+    dual-track-only, default-off.
 
 ## C. Characterization / science (learn + enable)
 
@@ -138,9 +203,44 @@ design doc that motivates it — the roadmap is itself evidence-first.
     replicated-block hierarchy (the two-granularity finding).
 15. **D1/D3 storage roles** — PARKED-ish. MAJ3-limited dies as weight
     parking + RowClone shuttle. Revisit only if capacity binds.
+29. **V2 output-numerics gate** — ✅ **BUILT + VALIDATED 2026-07-27.**
+    The project had no full-coverage output-numerics gate (the old
+    per-projection oracle was deleted; `ab_fused_server.py` fails silently
+    on the disabled handle path; token-identity is insensitive — passed at
+    87% wrong PIM masks). Two halves built: (a) `mm3d-verify` widened past
+    round-0 via `PIM_VERIFY_ROUNDS` (default 1 = old byte-identical
+    behaviour; raised = strided across all rounds), rebuilt + proven on
+    silicon; (b) `numerics_gate/v2_oracle.py` drives the REAL `MAGIC_V2`
+    production path, builds a CPU reference from the same masks/bitplane
+    factors, refuses to fail silently (asserts response length, `y≠0`,
+    `exec>0`), and carries a working `--inject-fault` negative control —
+    `PIM_BACKEND=sim` 8/8 bit-exact, card-free. **KEY finding: the gate
+    must be CORRELATION-based, not bit-exact** — raw per-op V2 silicon is
+    NOT bit-exact (same op across processes: bit-exact count swung
+    28/459/463/283 of 512, per-boot operating point) yet **corr =
+    0.997–0.9998 STABLE**; wrong weights/stale masks collapse the
+    correlation. Threshold (corr ≥ 0.98) provisional pending a real
+    corruption-run calibration. RULE recorded: gate mask/weight/pool
+    changes on numerics, never on token identity.
+    `docs/SESSION_2026_07_27.md` §2.
 
 ## D. Model / application levers
 
+30. **Coarser activation quant (`PIM_ACT_K`)** — ✅ **SHIPPED + SILICON-
+    VALIDATED 2026-07-28, across the whole model zoo, token-identical.**
+    The activation is decomposed into K bit-planes = K MAJ3 bodies = K
+    `platform.execute` round-trips (1/plane at the production
+    `PIM_INLINE_BITPLANES=1`). Dropping K cuts the *binding recv wall*
+    proportionally, with no accuracy loss down to a model-specific floor
+    (which tracks the training recipe, not weight bits). Client-only, NO
+    bitstream. Measured full-model A/B (V2 path + phase-2), each vs its own
+    K=8: **Bonsai-1bit K=6 −21.7%, Bonsai-ternary K=6 −22.2%, BitNet-2B
+    K=5 −32.2%** — all token-identical, numerics gate corr 0.99995. K=4
+    (int4) collapses on all Bonsai; BitNet-2B tolerates K=4 (QAT native-A8)
+    but K=5 is the safe floor. Production defaults set per model
+    (1bit/ternary=6, bitnet=5); `setdefault` so explicit `PIM_ACT_K` wins.
+    Composes orthogonally with fused/streaming (acts on the execute COUNT,
+    they act on per-execute body time).
 16. **Bonsai/BitNet batched-token shapes** — IDEA; V2G-ready carrier.
 17. **More g128 model families** — READY anytime (weight-spec path is
     generic); value = generality story, not throughput.
@@ -159,6 +259,25 @@ design doc that motivates it — the roadmap is itself evidence-first.
 
 ## DONE (move rows here with the measured result)
 
+- 2026-07-27: Phase-2 send-ahead (`PIM_STREAM_PIPE`) VALIDATED on silicon
+  (build-26, no flash) — full-model −26.3% (2529.1 → 1863.1 s), recv
+  112 → 57 ms, token-exact, 0 stalls/decay/errors over 11,500 requests;
+  RTL blocker gone (fix reached fabric in build-14). UNBLOCKED, USER-gated
+  to enable. `docs/SESSION_2026_07_27.md` §1. (Correction: streaming ALONE
+  is wall-neutral; phase-2 is the recv attack — see lever 3/3a.)
+- 2026-07-27: V2 output-numerics gate BUILT (`numerics_gate/v2_oracle.py`
+  + `PIM_VERIFY_ROUNDS`) — real `MAGIC_V2` path, sim 8/8 bit-exact, working
+  negative control; gate is CORRELATION-based (corr 0.997–0.9998 stable
+  where raw per-op bit-exactness is process-dependent).
+  `docs/SESSION_2026_07_27.md` §2. (Lever #29.)
+- 2026-07-27: X-master-clone IMPLEMENTED (default-off, requires fused) —
+  full-model −9.9% (1541.0 → 1387.7 s), token-identical, 0 stalls/decay;
+  small-op net-negative, single-op d_in=2560 −20.5%.
+  `docs/SESSION_2026_07_27.md` §3. (Lever #28.)
+- 2026-07-27: Rung-2a on-fabric orchestrator probe — Verilator 27/27
+  byte-exact (fabric-driven projection loop returns exact integer partials,
+  no host command). Feasibility of a host-command-free loop established.
+  `docs/SESSION_2026_07_27.md` §4.
 - 2026-07-21: Road-B lane2 integration (product dataflow 1.4–28×; accum
   crossover ~50K products; 65K totals 0 faults) — `docs/ROADB_2026_07.md`.
 - 2026-07-21: 1-bit single-track V2S (18.7 s/tok, 1.81×, ladder 5.36×).

@@ -53,7 +53,7 @@ def _pack_xbp(x_int8, n_chunks):
         # decorrelated from position 0 while down/gate tails were normal).
         # tobytes() is a ~2.5 KB copy, ~µs vs the ~1 ms pack it saves;
         # dict equality on bytes keys makes hits exact, not just probable.
-        key = (x_int8.tobytes(), n_chunks)
+        key = (x_int8.tobytes(), n_chunks, N_BITPLANES)
         cached = _XBP_CACHE.get(key)
         if cached is not None:
             return cached
@@ -73,8 +73,22 @@ def _pack_xbp(x_int8, n_chunks):
             old = _XBP_CACHE_ORDER.pop(0)
             _XBP_CACHE.pop(old, None)
     return out
-N_BITPLANES = 8
-BITPLANE_FACTORS = np.array([1, 2, 4, 8, 16, 32, 64, -128], dtype=np.int32)
+# PIM_ACT_K = number of activation bit-planes = MAJ3 bodies per output =
+# platform.execute round-trips per chunk at PIM_INLINE_BITPLANES=1. Default
+# 8 (= BitNet int8, bit-identical to the historical path). K<8 = coarser
+# activation quant: fewer planes → fewer round-trips (the binding recv wall),
+# fewer bytes, fewer bodies, at a quantization cost. CPU K-sweep (2026-07-27,
+# LEVERS #24): K=6 is coherent + factually correct (safe floor); K=5 marginal;
+# K=4 collapses (1-bit weights leave no headroom for int4 activation error).
+# Two's-complement truncation: the low K bits of the 8-bit code ARE the K-bit
+# code, so packing K planes with the sign-weighted factors below is exact.
+_PIM_ACT_K = int(os.environ.get('PIM_ACT_K', '8'))
+if not (2 <= _PIM_ACT_K <= 8):
+    raise ValueError(f"PIM_ACT_K must be in [2,8], got {_PIM_ACT_K}")
+N_BITPLANES = _PIM_ACT_K
+BITPLANE_FACTORS = np.array(
+    [1 << b for b in range(N_BITPLANES - 1)] + [-(1 << (N_BITPLANES - 1))],
+    dtype=np.int32)   # K=8 → [1,2,4,8,16,32,64,-128]; K=6 → [1,2,4,8,16,-32]
 MAGIC_V2 = 0xB17EF002
 MAGIC_LOAD = 0xB17EF003   # LOAD_WEIGHTS (one-time per linear's slice)
 MAGIC_MM3D = 0xB17EF004   # MATMUL_HANDLE (subsequent calls)
@@ -131,6 +145,26 @@ class PimServer:
         # PIM_SUB_START / PIM_SUB_END (the subarray range differs per DIMM —
         # DIMM 0's s_id 77 is 640-aligned, DIMM 2's s_id 72 is not).
         proc_env = dict(os.environ)
+        # 2026-07-26 AUTHORITATIVE GUARD (single source for every runner).
+        # Without this the server defaults to a 2048-instruction IMEM, every
+        # ~6000-instruction MM3D program is SILENTLY SKIPPED as oversize, and
+        # the model emits degenerate tokens. The skip is logged ONLY in the
+        # server's own stderr, never surfaced to the client, so it presents as
+        # a hardware fault -- it cost a full day of RTL debugging and two FPGA
+        # flashes. Both run_bitnet_pim.py and bonsai/e2e_bonsai.py lacked it.
+        # The 8K-IMEM bitstream has been production since 2026-07-17.
+        proc_env.setdefault('BITSTREAM_IMEM', '8192')
+        # 2026-07-27: phase-2 send-ahead pipeline ON by default (single source).
+        # Silicon-validated on build-26 (magic 0x15): full-model -26.3% wall
+        # (2529->1863 s), recv halved per request, 0 stalls / 0 decay / 0 errors
+        # over 11,500 requests, token-exact. PIM_STREAM_PIPE rides PIM_STREAM, so
+        # both are required. REQUIRES a streaming-capable bitstream (build-9+,
+        # trailer magic >= 0xDBC0DE08); on an OLDER flash export PIM_STREAM=0
+        # (the STREAM_EN word corrupts IMEM on pre-build-9 images — caller-beware,
+        # test_bitnet_server.cpp:4376). Production tower has been build-9+ since
+        # 2026-07-22. setdefault means an explicit env value still wins.
+        proc_env.setdefault('PIM_STREAM', '1')
+        proc_env.setdefault('PIM_STREAM_PIPE', '1')
         if extra_env:
             proc_env.update({k: str(v) for k, v in extra_env.items()})
         self.proc = subprocess.Popen(
@@ -629,7 +663,9 @@ class PimBitLinear(nn.Module):
         # Apply BitNet's per-token symmetric activation quant.
         in_dtype = x.dtype
         x_f32 = x.float()
-        Qn, Qp = -128, 127
+        # K-bit symmetric range (K = N_BITPLANES; K=8 → [-128,127]).
+        Qp = (1 << (N_BITPLANES - 1)) - 1
+        Qn = -(1 << (N_BITPLANES - 1))
         abs_max = x_f32.abs().amax(dim=-1, keepdim=True).clamp(min=1e-5)
         x_scale = Qp / abs_max
         x_q = (x_f32 * x_scale).round().clamp(Qn, Qp).to(torch.int32)
@@ -741,6 +777,13 @@ class PimBitLinear(nn.Module):
         for s, slc in enumerate(self._slices):
             a, b, n_real = slc['a'], slc['b'], slc['n_real']
             if self._server is not None:
+                # Body-build timer starts HERE. Was reusing the stale `_ts`
+                # from the xbp timer above, so `_t_body_build_ms` (the
+                # "body-concat" summary line) accumulated the intervening
+                # LOAD/request round-trips and read ~168 s — a measurement
+                # artifact, not client CPU (real client push = pipe-write
+                # ≈ 0.4% of wall). 2026-07-28 fix; instrumentation-only.
+                _ts = _time.perf_counter()
                 # Pre-loaded weights (LOAD_WEIGHTS + MATMUL_HANDLE protocol)
                 # is gated behind PIM_USE_LOAD_WEIGHTS=1 because we observed
                 # incorrect outputs in some matmul-mix configurations
