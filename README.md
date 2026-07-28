@@ -42,6 +42,16 @@ at a language model.
 > — every July lever in one deck: what was tried, what it measured,
 > what shipped, and what died — with the numbers that decided each.
 >
+> ▶ **The experiment trail:**
+> **<https://pcdeni.github.io/CaSA/explainer/experiment-trail.html>**
+> — the tried → result → pointed-to narrative, Acts I–VIII: every dead
+> end kept, every reversal dated, through the second campaign.
+>
+> ▶ **DRAM internals atlas:**
+> **<https://pcdeni.github.io/CaSA/explainer/dram-internals.html>**
+> — the substrate science: cells and subarrays, the co-activation
+> lattice and its selection law, and the measured hazard→tool ladder.
+>
 > ▶ **Plain-language tour:** **<https://pcdeni.github.io/CaSA/explainer/system.html>**
 > — "what we built and how it works" end to end for a reader new to the
 > project: what charge-sharing physically does, how a ternary matmul
