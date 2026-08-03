@@ -359,24 +359,33 @@ into the others. Same four commands; the timing alone picks the physics.</p>
 
 <div class="callout">
 This boundary was measured on <strong>all four dies we own</strong> — two SK&nbsp;hynix and two Micron.
-On every one the vote is clean at the operating point and the copy regime sits a few slots away; the
-copy never happens at the clean vote point. Exactly where the copy begins is a per-die number
-(SK&nbsp;hynix here: copy at 3 slots; the Micron dies' copy regime begins a few slots later, around
-slot 5).
+On every one, a well-timed operation never <em>imports</em> a foreign value: the copy regime sits a
+few slots away, and where it begins is a per-die number (SK&nbsp;hynix here: copy at 3 slots; the
+Micron dies' copy regime begins a few slots later, around slot 5).
 </div>
 
-<p>Two honest edges to "clean." First, clean means <em>a real majority exists</em>. At an exact
-per-bit tie — half the open rows say 1, half say 0 — the sense amplifiers fall back to a fixed
-preference that varies by row region, and that preference does not follow anyone's data (flip the
-first row's content and the tie still resolves the same way). An instrument that manufactures ties —
-for example filler rows the recipe assumes are charge-weakened but the silicon leaves at full
-strength — will misread that fixed preference as instability. On one of our Micron dies this alone
-drops one tuple's characterization score to ~3% at the clean operating point while a sibling tuple
-in a region of opposite tie preference scores ~79% — same die, same program. Second, "clean" is a
-property of <em>calibrated</em> tuples: open a pair that was never calibrated together, even at vote
-timing, and the contested rows neither vote nor copy — their data simply mixes and is destroyed,
-with no directional winner. The same pair at copy timing deposits byte-exactly into its predicted
-victims.</p>
+<p>But "clean" needs its honest scope, and a model-free census (unique fingerprints on every row of
+a ~640-row window, hundreds of <em>random</em> uncalibrated pairs, no assumptions about where effects
+may land) sharpened it to this: on the SK&nbsp;hynix dies, a vote-timing operation <strong>always
+co-activates the pair's whole coset</strong> — the rows the selection law names — and resolves them
+<em>together</em>, to one shared value. Zero of 200 random pairs left the rows untouched;
+70–73% recruited rows beyond the two named. A vote is "clean" when the co-activated rows already
+agree — which is exactly what calibration and operand replication arrange, so a calibrated majority
+comes back looking untouched. Give the co-activated rows <em>disagreeing</em> data and the same
+operation destroys them all: one uncalibrated pair here leaves its entire 8-row coset in an
+identical blended state (the earlier probe saw only 3 of those 8 — its watch-list was built from
+the very model being tested), while the same pair at copy timing deposits byte-exactly into the
+same 8 rows. Same coset, same law; the timing picks vote-together versus copy-from-source.</p>
+
+<p>Two further edges. At an exact per-bit tie — half the co-activated rows say 1, half say 0 — the
+sense amplifiers fall back to a fixed preference that varies by row region and does not follow
+anyone's data (flip the first row's content and the tie resolves the same way). An instrument that
+manufactures ties — for example filler rows the recipe assumes are charge-weakened but the silicon
+leaves at full strength — will misread that fixed preference as instability: on one of our Micron
+dies this drops one tuple's characterization score to ~3% at the clean operating point while a
+sibling tuple in a region of opposite tie preference scores ~79%. And the co-activation mechanism
+itself is die-family-scoped: the Micron dies do not follow the hynix selection law and often fail
+to co-activate at vote timing at all — a different decoder regime, not a cleaner vote.</p>
 
 <h3>A second knob: the gap to the second activation</h3>
 <p>The other knob — the <strong>gap</strong> after PRE, before the second ACT — controls a different

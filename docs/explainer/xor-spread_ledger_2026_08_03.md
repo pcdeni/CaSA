@@ -133,3 +133,25 @@ overwrites its own operands. This ledger covers the rebuilt content only.
 - Uncalibrated-pair destruction at vote timing (mixed ~52% state, no
   directional copy; same pair deposits byte-exact at copy timing)
   ([claim:C73]; fourdie_fracprobe_2026_08_03/RESULT.md §A-EXT).
+
+## Post-census rework (2026-08-03 night, paircensus campaign — model-free)
+
+- Joint-resolution scope on the "clean vote" claim: on hynix a vote-timing
+  doubleACT ALWAYS co-activates and jointly resolves the pair's selection-law
+  coset (0/200 random (0,0) trials untouched; 70–73% recruit beyond the two
+  named rows); "clean" = the co-activated set already agreed (calibration
+  arranges this) ([claim:C74]; paircensus_2026_08_03/RESULT.md).
+- Recruitment containment: recruited rows ⊆ selection-law coset in ≥98% of
+  trials, exact for all ≤3-unit offsets — the law extends to bare-doubleACT
+  recruitment at vote AND copy timing ([claim:C75]).
+- The A-EXT event recharacterized: 8-row lawful coset {38416, 38424, 38512,
+  38520, 38544, 38552, 38640, 38648} jointly resolved to one blended value
+  (analog charge-share, matches no per-bit boolean of the written data); the
+  earlier probe's watch-list covered only 3 of the 8 ([claim:C76]).
+- Die-family scope: Micron dies do not follow the hynix law (19% exact) and
+  often fail to co-activate at (0,0) (27/120 untouched) — different decoder
+  regime ([claim:C77]).
+- Production safety: every production doubleACT(0,0) fires a calibrated
+  (Rfirst, Rsecond) pair (verified by code audit); the uncalibrated-pair
+  hazard never triggers in production ([claim:C77];
+  paircensus_2026_08_03/RESULT.md §consequences).
