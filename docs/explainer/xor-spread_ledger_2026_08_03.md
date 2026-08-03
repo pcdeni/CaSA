@@ -145,9 +145,13 @@ overwrites its own operands. This ledger covers the rebuilt content only.
   trials, exact for all ≤3-unit offsets — the law extends to bare-doubleACT
   recruitment at vote AND copy timing ([claim:C75]).
 - The A-EXT event recharacterized: 8-row lawful coset {38416, 38424, 38512,
-  38520, 38544, 38552, 38640, 38648} jointly resolved to one blended value
-  (analog charge-share, matches no per-bit boolean of the written data); the
-  earlier probe's watch-list covered only 3 of the 8 ([claim:C76]).
+  38520, 38544, 38552, 38640, 38648} jointly resolved to ONE shared value =
+  the EQUAL-WEIGHT per-bit majority of all participants' pre-fire contents
+  (non-tie purity 1.000000 at coset ≤4 / 0.99996 at 8; 100% reproducible;
+  exact ties → fixed per-region polarity; the earlier "analog blend /
+  matches-no-boolean" reading was a double analysis artifact: byte-granular
+  comparison + wrong hardcoded tie polarity) ([claim:C76-revised],
+  [claim:C78]; votepoint_closure_2026_08_03/RESULT.md).
 - Die-family scope: Micron dies do not follow the hynix law (19% exact) and
   often fail to co-activate at (0,0) (27/120 untouched) — different decoder
   regime ([claim:C77]).
