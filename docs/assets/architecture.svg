@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 400" width="820" height="400" role="img" aria-label="A host running PyTorch talks over PCIe to an FPGA controller (DRAM-Bender on a Xilinx BCU1525 card), which drives a DDR4 DIMM. The weights live resident in the DIMM's cells and the projection matrix-multiplies run there as a majority vote over cell charge. The host-to-DRAM round-trip, repeated once per weight chunk, is the wall; only cutting the request count moves it.">
+  <style>
+    :root{
+      --bg:transparent; --surface:#ffffff; --surface-2:#f1f5f9;
+      --ink:#0f172a; --muted:#475569; --line:#cbd5e1;
+      --host:#2563eb; --host-t:#dbe6fb;
+      --ctrl:#0891b2; --ctrl-t:#d5eef4;
+      --dram:#7c3aed; --dram-t:#eaddfb;
+      --wall:#dc2626;
+    }
+    @media (prefers-color-scheme: dark){
+      :root{
+        --surface:#0f172a; --surface-2:#111c30;
+        --ink:#e5edf7; --muted:#93a4bd; --line:#243449;
+        --host:#60a5fa; --host-t:#16263f;
+        --ctrl:#22d3ee; --ctrl-t:#0e2e35;
+        --dram:#a78bfa; --dram-t:#241a3d;
+        --wall:#f87171;
+      }
+    }
+    .box{fill:var(--surface);stroke:var(--line);stroke-width:1.5}
+    .lbl{fill:var(--ink);font:600 15px system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+    .sub{fill:var(--muted);font:400 12px system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+    .tag{fill:var(--muted);font:600 11px ui-monospace,Menlo,Consolas,monospace;letter-spacing:.03em}
+    .wall-t{fill:var(--wall);font:700 13px system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+    .wall-s{fill:var(--muted);font:400 11.5px system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+    .conn{stroke:var(--muted);stroke-width:2;fill:none}
+    .wallbrace{stroke:var(--wall);stroke-width:1.6;fill:none}
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/>
+    </marker>
+  </defs>
+
+  <!-- Host -->
+  <rect class="box" x="24" y="150" width="212" height="120" rx="10" style="fill:var(--host-t);stroke:var(--host)"/>
+  <text class="lbl" x="130" y="184" text-anchor="middle">Host — PyTorch</text>
+  <text class="sub" x="130" y="212" text-anchor="middle">softmax · norms ·</text>
+  <text class="sub" x="130" y="230" text-anchor="middle">sampling (on the CPU)</text>
+  <text class="sub" x="130" y="252" text-anchor="middle">issues weight-chunk requests</text>
+
+  <!-- FPGA controller -->
+  <rect class="box" x="304" y="150" width="212" height="120" rx="10" style="fill:var(--ctrl-t);stroke:var(--ctrl)"/>
+  <text class="lbl" x="410" y="184" text-anchor="middle">FPGA controller</text>
+  <text class="sub" x="410" y="210" text-anchor="middle">DRAM-Bender on a</text>
+  <text class="sub" x="410" y="228" text-anchor="middle">Xilinx BCU1525 card</text>
+  <text class="sub" x="410" y="252" text-anchor="middle">drives the DDR command bus</text>
+
+  <!-- DDR4 DIMM -->
+  <rect class="box" x="584" y="150" width="212" height="120" rx="10" style="fill:var(--dram-t);stroke:var(--dram)"/>
+  <text class="lbl" x="690" y="184" text-anchor="middle">DDR4 DIMM</text>
+  <text class="sub" x="690" y="210" text-anchor="middle">weights resident in cells</text>
+  <text class="sub" x="690" y="228" text-anchor="middle">projection matmuls run here —</text>
+  <text class="sub" x="690" y="252" text-anchor="middle">a majority vote over cell charge</text>
+
+  <!-- PCIe connector -->
+  <line class="conn" x1="240" y1="210" x2="300" y2="210" marker-start="url(#ah)" marker-end="url(#ah)"/>
+  <text class="tag" x="270" y="200" text-anchor="middle">PCIe</text>
+
+  <!-- DDR connector -->
+  <line class="conn" x1="520" y1="210" x2="580" y2="210" marker-start="url(#ah)" marker-end="url(#ah)"/>
+  <text class="tag" x="550" y="200" text-anchor="middle">DDR</text>
+
+  <!-- The wall: round-trip brace over the whole span -->
+  <path class="wallbrace" d="M130,120 L130,104 L690,104 L690,120"/>
+  <line class="wallbrace" x1="410" y1="104" x2="410" y2="92"/>
+  <text class="wall-t" x="410" y="58" text-anchor="middle">THE WALL — the round-trip between host and DRAM</text>
+  <text class="wall-s" x="410" y="78" text-anchor="middle">a fixed cost repeated once per weight-chunk request · request-count-bound</text>
+
+  <!-- caption -->
+  <text class="sub" x="410" y="318" text-anchor="middle" style="font-style:italic">The arithmetic happens in the charge of ordinary DDR4 cells. Only request count moves the wall.</text>
+</svg>

@@ -2,1766 +2,614 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>BitNet PIM explainer — DRAM-as-compute, step by step</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How an LLM runs inside a DRAM chip</title>
 <style>
-  * { box-sizing: border-box; }
-  html, body {
-    margin: 0; padding: 0;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background: #0f1116;
-    color: #e6e8ee;
-    height: 100%;
+/* ============================================================
+   Shared explainer visual language (style_spec.md Part 2) —
+   palette + row-bar, copied unchanged so this page and the
+   mechanism explainer read as one system.
+   ============================================================ */
+:root{
+  /* surfaces + ink */
+  --bg:#f8fafc; --surface:#ffffff; --surface-2:#f1f5f9;
+  --ink:#0f172a; --muted:#475569; --line:#cbd5e1;
+  /* role hues (fills) */
+  --role-written:#2563eb;   /* blue   */
+  --role-copied:#0891b2;    /* cyan   */
+  --role-deposited:#d97706; /* amber  */
+  --role-voted:#7c3aed;     /* violet */
+  --role-read:#059669;      /* green  */
+  --role-source:#dc2626;    /* red (accent/outline) */
+  --role-idle:#94a3b8;      /* slate  */
+  /* tints = role at ~12% for row-bar fills behind dark text */
+  --tint-written:#dbe6fb; --tint-copied:#d5eef4; --tint-deposited:#fbedd6;
+  --tint-voted:#eaddfb;   --tint-read:#d5f0e6;   --tint-idle:#e7edf3;
+  /* value chip */
+  --chip-bg:#0f172a; --chip-ink:#f8fafc;     /* hex byte, monospace */
+  --chip-wrong:#dc2626;                       /* wrong-value marker  */
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#0b1220; --surface:#0f172a; --surface-2:#111c30;
+    --ink:#e5edf7; --muted:#93a4bd; --line:#243449;
+    --role-written:#60a5fa; --role-copied:#22d3ee; --role-deposited:#fbbf24;
+    --role-voted:#a78bfa;   --role-read:#34d399;   --role-source:#f87171;
+    --role-idle:#64748b;
+    --tint-written:#16263f; --tint-copied:#0e2e35; --tint-deposited:#3a2c10;
+    --tint-voted:#241a3d;   --tint-read:#0d2e22;   --tint-idle:#1b2636;
+    --chip-bg:#e5edf7; --chip-ink:#0b1220; --chip-wrong:#f87171;
   }
-  body { display: flex; flex-direction: column; height: 100vh; }
+}
+:root[data-theme="dark"]{ /* mirror the dark block so a manual toggle wins */
+  --bg:#0b1220; --surface:#0f172a; --surface-2:#111c30;
+  --ink:#e5edf7; --muted:#93a4bd; --line:#243449;
+  --role-written:#60a5fa; --role-copied:#22d3ee; --role-deposited:#fbbf24;
+  --role-voted:#a78bfa; --role-read:#34d399; --role-source:#f87171; --role-idle:#64748b;
+  --tint-written:#16263f; --tint-copied:#0e2e35; --tint-deposited:#3a2c10;
+  --tint-voted:#241a3d; --tint-read:#0d2e22; --tint-idle:#1b2636;
+  --chip-bg:#e5edf7; --chip-ink:#0b1220; --chip-wrong:#f87171;
+}
+:root[data-theme="light"]{ color-scheme:light; } /* force-light wins too */
 
-  header {
-    padding: 10px 18px;
-    background: #161922;
-    border-bottom: 1px solid #2a2f3d;
-    display: flex; gap: 12px; align-items: center;
-    flex-shrink: 0;
-  }
-  header h1 { font-size: 15px; margin: 0; font-weight: 600; color: #ffd479; }
-  header .sub { color: #8a93a8; font-size: 13px; }
-  header a { color: #4f9bff; font-size: 12px; text-decoration: none; margin-left: auto; }
+/* --- the row-bar (identical in this page and the mechanism explainer) --- */
+.rowbar{display:grid;grid-template-columns:5.5em 8.5em 1fr;align-items:center;
+  gap:.6rem;min-height:2.1rem;padding:.25rem .6rem;border:1px solid var(--line);
+  border-left:4px solid var(--role-idle);border-radius:6px;
+  background:var(--tint-idle);color:var(--ink);font-size:.95rem;margin:.28rem 0}
+.rowbar .addr{font-family:ui-monospace,Menlo,Consolas,monospace;color:var(--muted)}
+.rowbar .role{font-weight:600;font-size:.82rem}
+.rowbar .chip{font-family:ui-monospace,Menlo,Consolas,monospace;font-weight:700;
+  background:var(--chip-bg);color:var(--chip-ink);border-radius:4px;
+  padding:.05rem .5rem;justify-self:start}
+.rowbar[data-role="written"]{border-left-color:var(--role-written);background:var(--tint-written)}
+.rowbar[data-role="copied"]{border-left-color:var(--role-copied);background:var(--tint-copied)}
+.rowbar[data-role="deposited"]{border-left-color:var(--role-deposited);background:var(--tint-deposited)}
+.rowbar[data-role="voted"]{border-left-color:var(--role-voted);background:var(--tint-voted)}
+.rowbar[data-role="read"]{border-left-color:var(--role-read);background:var(--tint-read)}
+.rowbar[data-role="idle"]{border-left-color:var(--role-idle);background:var(--tint-idle)}
+.rowbar[data-source="1"]{outline:2px solid var(--role-source);outline-offset:1px}
+.rowbar .chip.wrong{background:var(--chip-wrong);color:#fff;text-decoration:line-through}
 
-  nav { display: flex; gap: 4px; padding: 8px 18px; background: #131722; flex-wrap: wrap; flex-shrink: 0; }
-  nav button {
-    background: #1d2230; border: 1px solid #2a2f3d; color: #c3c9d8;
-    padding: 4px 10px; cursor: pointer; border-radius: 4px; font-size: 12px;
-  }
-  nav button:hover { background: #262d3e; }
-  nav button.active { background: #3a86ff; color: white; border-color: #3a86ff; }
+/* ============================================================
+   Page chrome (specific to this explainer)
+   ============================================================ */
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  line-height:1.55;font-size:16px}
+.wrap{max-width:72ch;margin:0 auto;padding:0 20px 96px}
+a{color:var(--role-written);text-decoration:none}
+a:hover{text-decoration:underline}
+code,.mono{font-family:ui-monospace,Menlo,Consolas,monospace}
+.mono{font-family:ui-monospace,Menlo,Consolas,monospace}
 
-  main {
-    flex: 1; display: grid; grid-template-columns: 1fr 380px; gap: 16px;
-    padding: 14px 18px; min-height: 0;
-  }
+header.top{position:sticky;top:0;z-index:20;background:var(--surface);
+  border-bottom:1px solid var(--line);padding:10px 20px;
+  display:flex;align-items:center;gap:14px;justify-content:space-between}
+header.top .brand{font-weight:700;font-size:.95rem}
+header.top .brand span{color:var(--muted);font-weight:400}
+.theme-btn{border:1px solid var(--line);background:var(--surface-2);color:var(--ink);
+  border-radius:999px;padding:5px 12px;font-size:.8rem;cursor:pointer;font-family:inherit}
+.theme-btn:hover{border-color:var(--role-written)}
 
-  .stage {
-    background: #131722; border: 1px solid #2a2f3d; border-radius: 6px;
-    display: flex; flex-direction: column; min-height: 0;
-  }
-  .stage-title { padding: 10px 14px; border-bottom: 1px solid #2a2f3d; font-size: 14px; color: #ffd479; }
-  .canvas-wrap { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 8px; overflow: hidden; }
-  .canvas-wrap svg { max-width: 100%; max-height: 100%; }
+h1{font-size:1.9rem;line-height:1.2;margin:34px 0 10px;letter-spacing:-.01em}
+.lede{font-size:1.12rem;color:var(--muted);margin:0 0 8px;max-width:66ch}
+section{margin:52px 0 0}
+h2{font-size:1.3rem;margin:0 0 6px;letter-spacing:-.01em}
+h2 .n{color:var(--role-written);font-family:ui-monospace,monospace;font-size:.85rem;
+  display:block;font-weight:600;letter-spacing:.02em;margin-bottom:2px}
+p{margin:12px 0;max-width:66ch}
+.small{font-size:.9rem;color:var(--muted)}
+ul,ol{max-width:66ch}
+li{margin:5px 0}
 
-  .side {
-    display: flex; flex-direction: column; gap: 12px; min-height: 0; overflow-y: auto;
-  }
-  .caption, .codepane {
-    background: #131722; border: 1px solid #2a2f3d; border-radius: 6px;
-    padding: 12px 14px; font-size: 13px; line-height: 1.5; flex-shrink: 0;
-  }
-  .caption { color: #c3c9d8; min-height: 110px; }
-  .caption b { color: #ffd479; }
-  .caption .ex { color: #22c1c3; font-weight: 600; }
-  .caption code { background: #1f2434; padding: 1px 5px; border-radius: 3px; font-size: 12px; color: #ffd479; }
-  .caption a, .codepane a { color: #4f9bff; text-decoration: none; }
-  .codepane { font-family: ui-monospace, monospace; font-size: 11.5px; color: #8a93a8; overflow: auto; max-height: 280px; }
-  .codepane .hl { color: #ffd479; }
-  .codepane .cm { color: #5a6178; font-style: italic; }
-  .codepane .src { display: block; color: #4f9bff; margin-top: 6px; margin-bottom: 2px; font-size: 11px; font-weight: 600; }
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;
+  padding:18px 20px;margin:20px 0}
+.note{border-left:4px solid var(--role-written);background:var(--surface-2);
+  border-radius:8px;padding:12px 16px;margin:18px 0;font-size:.95rem}
+.note.link{border-left-color:var(--role-voted)}
+.note .t{font-weight:700;display:block;margin-bottom:3px}
 
-  .controls {
-    padding: 10px 18px; background: #161922; border-top: 1px solid #2a2f3d;
-    display: flex; gap: 10px; align-items: center; flex-shrink: 0;
-  }
-  .controls button {
-    background: #1d2230; border: 1px solid #2a2f3d; color: #e6e8ee;
-    padding: 6px 14px; cursor: pointer; border-radius: 4px; font-size: 13px;
-  }
-  .controls button:hover { background: #262d3e; }
-  .controls button:disabled { opacity: 0.4; cursor: not-allowed; }
-  .controls .step { color: #8a93a8; font-size: 13px; margin-left: 8px; }
-  .controls .step b { color: #e6e8ee; }
-  .controls .scenefoot { color: #5a6178; font-size: 12px; margin-left: auto; }
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
 
-  /* SVG element styling */
-  .cap { fill: #3a86ff; stroke: #4f9bff; }
-  .cap.empty { fill: #1d2230; stroke: #4f9bff; }
-  .cap.half { fill: #6b8ec9; stroke: #4f9bff; }
-  .cap.frac { fill: #6b8ec9; stroke: #ffd479; }
-  .row-line { stroke: #ffd479; stroke-width: 1.5; }
-  .row-line.dim { stroke: #5a6178; stroke-width: 1; }
-  .bitline { stroke: #5e6678; stroke-width: 1; }
-  .bitline.hot { stroke: #3a86ff; stroke-width: 2; }
-  .bitline.partial { stroke: #6b8ec9; stroke-width: 1.5; }
-  .bitline.cold { stroke: #5e6678; stroke-width: 1; }
-  .sense-amp { fill: #2a3142; stroke: #4f9bff; }
-  .sense-amp.latched { fill: #3a86ff; stroke: #4f9bff; }
-  .sense-amp.partial { fill: #6b8ec9; stroke: #4f9bff; }
-  .label { fill: #c3c9d8; font-family: monospace; font-size: 12.5px; }
-  .label.dim { fill: #5a6178; }
-  .label.hl { fill: #ffd479; }
-  .label.cyan { fill: #22c1c3; }
-  .arrow { stroke: #ffd479; stroke-width: 2; fill: none; marker-end: url(#arrowhead); }
+/* legend of the five roles */
+.legend{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0}
+.legend .lg{display:inline-flex;align-items:center;gap:6px;font-size:.8rem;
+  border:1px solid var(--line);border-radius:999px;padding:3px 10px;background:var(--surface)}
+.legend .sw{width:12px;height:12px;border-radius:3px;flex:0 0 auto}
+.sw.written{background:var(--role-written)} .sw.copied{background:var(--role-copied)}
+.sw.deposited{background:var(--role-deposited)} .sw.voted{background:var(--role-voted)}
+.sw.read{background:var(--role-read)} .sw.source{background:var(--role-source)}
+.sw.idle{background:var(--role-idle)}
+
+/* ---------- the instruction walk (central object) ---------- */
+.walk{background:var(--surface);border:1px solid var(--line);border-radius:14px;
+  padding:0;margin:22px 0;overflow:hidden;box-shadow:0 1px 0 var(--line)}
+.walk .wtop{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:12px 16px;border-bottom:1px solid var(--line);background:var(--surface-2)}
+.walk .wtitle{font-weight:700;font-size:1.02rem}
+.walk .wtitle .k{display:block;font-size:.72rem;font-weight:600;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--role-written)}
+.walk .counter{font-family:ui-monospace,monospace;font-size:.8rem;color:var(--muted);white-space:nowrap}
+.walk .wbody{padding:16px}
+.walk .rows{margin:0 0 6px}
+.walk .cap{font-size:.95rem;margin:14px 0 0;min-height:3.2em}
+.walk .cap b{color:var(--ink)}
+.walk .wnav{display:flex;align-items:center;gap:10px;padding:12px 16px;
+  border-top:1px solid var(--line);background:var(--surface-2)}
+.walk button.nav{border:1px solid var(--line);background:var(--surface);color:var(--ink);
+  border-radius:8px;padding:7px 16px;font-size:.9rem;cursor:pointer;font-family:inherit;font-weight:600}
+.walk button.nav:hover:not(:disabled){border-color:var(--role-written)}
+.walk button.nav:disabled{opacity:.4;cursor:default}
+.walk .dots{display:flex;gap:6px;margin-left:auto;align-items:center}
+.walk .dot{width:9px;height:9px;border-radius:999px;background:var(--line);border:none;padding:0;cursor:pointer}
+.walk .dot[aria-current="true"]{background:var(--role-written)}
+.walk .hint{font-size:.78rem;color:var(--muted);padding:0 16px 12px;margin:0}
+
+/* value chip transition (disabled under reduced motion) */
+.rowbar{transition:background-color .28s ease, border-color .28s ease}
+.rowbar .chip{transition:background-color .28s ease,color .28s ease}
+@media (prefers-reduced-motion: reduce){
+  .rowbar,.rowbar .chip{transition:none}
+}
+
+/* the aligned-binary vote figure (the one and only binary in this page) */
+.binfig{margin:14px 0 2px}
+.bintbl{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.98rem;
+  border-collapse:collapse;white-space:nowrap}
+.bintbl th,.bintbl td{padding:3px 7px;text-align:center}
+.bintbl .lab{color:var(--muted);text-align:right;padding-right:12px;font-weight:700}
+.bintbl .hex{color:var(--muted);text-align:left;padding-left:14px;font-weight:700}
+.bintbl .rule td{border-top:2px solid var(--line);padding:0;height:2px}
+.bintbl tr.maj td.bit{background:var(--tint-voted);border-radius:3px;color:var(--ink);font-weight:700}
+.bincap{font-size:.85rem;color:var(--muted);margin:8px 0 0}
+
+/* the small static timing-dial motif (interactive version lives in the mechanism explainer) */
+.dial{margin:16px 0;border:1px solid var(--line);border-radius:10px;background:var(--surface);padding:14px 16px}
+.dial .bar{display:grid;grid-template-columns:1.3fr .7fr 1.6fr;height:34px;border-radius:8px;overflow:hidden;border:1px solid var(--line)}
+.dial .zone{display:flex;align-items:center;justify-content:center;font-size:.74rem;font-weight:700;letter-spacing:.04em}
+.dial .z-vote{background:var(--tint-voted);color:var(--role-voted)}
+.dial .z-tie{background:var(--tint-idle);color:var(--muted)}
+.dial .z-copy{background:var(--tint-deposited);color:var(--role-deposited)}
+.dial .axis{display:flex;justify-content:space-between;font-family:ui-monospace,monospace;
+  font-size:.72rem;color:var(--muted);margin-top:6px}
+.dial .needle{position:relative;height:0}
+.dial .needle .n{position:absolute;left:16%;top:-2px;transform:translateX(-50%);
+  color:var(--ink);font-size:.9rem}
+.dial .bnd{font-size:.76rem;color:var(--muted);margin-top:8px}
+.dial .bnd b{color:var(--ink)}
+
+/* the simple hierarchy figure */
+.hier{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:16px 0;font-size:.82rem}
+.hier .u{border:1px solid var(--line);border-radius:8px;padding:8px 12px;background:var(--surface);text-align:center;line-height:1.3}
+.hier .u b{display:block;font-size:.9rem}
+.hier .u span{color:var(--muted);font-size:.72rem}
+.hier .arw{color:var(--muted);font-family:ui-monospace,monospace}
+
+/* the mini matmul strip */
+.chips{display:flex;flex-wrap:wrap;gap:6px;font-family:ui-monospace,monospace;font-size:.85rem;margin:8px 0}
+.chips .c{border:1px solid var(--line);border-radius:6px;padding:3px 8px;background:var(--surface)}
+.chips .c.pos{border-color:var(--role-written);color:var(--role-written)}
+.chips .c.neg{border-color:var(--role-source);color:var(--role-source)}
+.chips .c.zero{color:var(--muted)}
+
+.links{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));margin:18px 0}
+.links a.tile{display:block;border:1px solid var(--line);border-radius:12px;padding:14px 16px;
+  background:var(--surface);text-decoration:none;color:var(--ink)}
+.links a.tile:hover{border-color:var(--role-written);text-decoration:none}
+.links a.tile b{display:block;color:var(--role-written)}
+.links a.tile span{font-size:.88rem;color:var(--muted)}
+
+footer{margin-top:64px;border-top:1px solid var(--line);padding-top:18px;
+  font-size:.82rem;color:var(--muted)}
+footer a{color:var(--muted);text-decoration:underline}
+
+@media (max-width:460px){
+  .rowbar{grid-template-columns:1fr;gap:.15rem;row-gap:.1rem}
+  .rowbar .addr{font-size:.85rem}
+  h1{font-size:1.55rem}
+}
 </style>
 </head>
 <body>
-<header>
-  <h1>BitNet PIM — DRAM as the compute substrate</h1>
-  <span class="sub">Mechanism grounded in SiMRA, FracDRAM, FCDRAM, POPCNT3 + our project's server code</span>
-  <a href="xor-spread.html">The doubleACT row-spread →</a>
-  <a href="mvdram.html" style="margin-left:16px">The MVDRAM reproduction →</a>
+<header class="top">
+  <div class="brand">CaSA <span>· an LLM that answers through DRAM</span></div>
+  <button class="theme-btn" id="themeBtn" aria-pressed="false" title="Switch light / dark">◐ Theme</button>
 </header>
 
-<nav id="nav"></nav>
+<div class="wrap">
 
-<main>
-  <div class="stage">
-    <div class="stage-title" id="stage-title">—</div>
-    <div class="canvas-wrap"><svg id="canvas" viewBox="0 0 1000 600" preserveAspectRatio="xMidYMid meet">
-      <defs>
-        <marker id="arrowhead" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
-          <polygon points="0 0, 8 4, 0 8" fill="#ffd479"/>
-        </marker>
-      </defs>
-      <g id="scene"></g>
-    </svg></div>
+<h1>How an LLM runs inside a DRAM chip</h1>
+<p class="lede">A published, multi-billion-parameter language model answers a question — and its
+matrix multiplies happen inside the electric charge of ordinary DDR4 memory. No custom chip.
+This page walks one instruction through the memory, row by row.</p>
+<p class="small">A plain-language walkthrough. No prior knowledge assumed. For the exact physics of the
+compute step, see the mechanism explainer <a href="xor-spread.html">One command pair, two physics</a>;
+for throughput numbers and how they are measured, see <a href="../RELATED_SYSTEMS.md">Related systems &amp; methodology</a>.</p>
+
+<!-- ============================================================ 1 -->
+<section id="promise">
+  <h2><span class="n">01 · the promise</span>The answer comes out of the memory itself</h2>
+  <p>Ask this system "What is the capital of France?" and, after some minutes, it answers "Paris." The
+  interesting part is <em>where</em> the multiplications happened. In a normal computer the memory only
+  <em>stores</em> numbers; a separate processor fetches them and does the math. Here the memory
+  <strong>does the math</strong>. The weights of the neural network sit in the memory as charge, and the
+  memory's own analog behaviour is coaxed into computing with them in place.</p>
+  <p>Nothing about the memory is modified. These are commodity DDR4 sticks, the same parts in any desktop.
+  What is unusual is the <em>timing</em> of the commands sent to them — a controlled rule-break, explained
+  in the next few sections, that turns a storage array into a tiny, massively parallel calculator.</p>
+  <div class="note"><span class="t">Same physics as a memory attack, opposite purpose</span>
+  The effects used here are close cousins of RowHammer and other disturbance phenomena — cases where
+  mistimed memory access changes data. This is authorized research that steers the same physics
+  <em>on purpose</em>, to compute rather than to corrupt.</div>
+</section>
+
+<!-- ============================================================ 2 -->
+<section id="cell">
+  <h2><span class="n">02 · the substrate</span>A memory cell is a bucket of charge</h2>
+  <p>One bit of DRAM is a tiny capacitor: <strong>charged means 1, empty means 0</strong>. To read it, the
+  chip <em>activates</em> the cell — it tips the bucket out onto a shared wire (a "bitline"). A sense
+  amplifier on that wire watches the faint voltage and snaps it to a clean 0 or 1.</p>
+  <p>Two facts matter for everything that follows:</p>
+  <ul>
+    <li><strong>Reading is destructive.</strong> Tipping the bucket empties it. So right after sensing, the
+    chip writes the value back — it re-fills the bucket. Every read is really a read-and-restore.</li>
+    <li><strong>Buckets leak.</strong> Left alone, a cell forgets its bit in a fraction of a second, so the
+    chip constantly <em>refreshes</em>: it re-reads each row and tops the charge back up. Refresh preserves
+    <em>charge</em>, not <em>content</em> — it faithfully keeps whatever the row holds now, correct or not.</li>
+  </ul>
+  <p class="small">Three commands do all the work below: <span class="mono">ACT</span> (activate — open a row
+  onto its bitlines), <span class="mono">READ</span>/<span class="mono">WRITE</span>, and
+  <span class="mono">PRE</span> (precharge — close the row and reset the bitlines for the next one).</p>
+</section>
+
+<!-- ============================================================ 3 -->
+<section id="hierarchy">
+  <h2><span class="n">03 · the layout</span>Cells, rows, subarrays, banks</h2>
+  <p>Cells are not addressed one at a time. Thousands of them share a wordline and are opened together as a
+  <strong>row</strong>. Rows are grouped into <strong>subarrays</strong>, each with its own strip of sense
+  amplifiers; subarrays stack into <strong>banks</strong>; banks make up the DIMM. When the chip
+  "activates row 38424," it opens that whole row's worth of cells onto the shared bitlines at once.</p>
+  <div class="hier">
+    <div class="u"><b>cell</b><span>one capacitor · 1 bit</span></div>
+    <div class="arw">→</div>
+    <div class="u"><b>row</b><span>~thousands of cells<br>share a wordline</span></div>
+    <div class="arw">→</div>
+    <div class="u"><b>subarray</b><span>rows sharing one<br>set of sense amps</span></div>
+    <div class="arw">→</div>
+    <div class="u"><b>bank</b><span>stack of subarrays</span></div>
+    <div class="arw">→</div>
+    <div class="u"><b>DIMM</b><span>the memory stick</span></div>
   </div>
-  <aside class="side">
-    <div class="caption" id="caption">—</div>
-    <div class="codepane" id="codepane">—</div>
-  </aside>
-</main>
+  <p>That "open a whole row at once" behaviour is what the compute trick exploits. Open <em>several</em>
+  rows at nearly the same instant, and their charge does something useful.</p>
+</section>
 
-<div class="controls">
-  <button id="prevBtn">◀ Prev</button>
-  <button id="playBtn">▶ Play</button>
-  <button id="nextBtn">Next ▶</button>
-  <span class="step">Step <b id="stepNum">1</b> / <b id="stepMax">1</b></span>
-  <span class="scenefoot" id="scenefoot">Scene 1 of 13</span>
+<!-- ============================================================ 4 -->
+<section id="trick">
+  <h2><span class="n">04 · the trick</span>Open several rows at once and let the charge vote</h2>
+  <p>Normally you open one row at a time, with mandatory settling pauses between commands. Break those
+  pauses — issue the commands too close together — and you can open a small set of rows onto the same
+  bitlines simultaneously. Their charge <strong>mixes</strong>. The sense amplifier then snaps the mixture
+  to whichever value <em>most</em> of the contributing rows held.</p>
+  <p><strong>That majority is the computation.</strong> A majority vote across rows of bits, done in analog,
+  thousands of bit-positions in parallel — this single move is the arithmetic the whole language model is
+  built out of.</p>
+
+  <div class="dial" aria-label="timing dial motif: this page sits at the clean VOTE point">
+    <div class="bar">
+      <div class="zone z-vote">VOTE</div>
+      <div class="zone z-tie">TIE</div>
+      <div class="zone z-copy">COPY</div>
+    </div>
+    <div class="needle"><span class="n" aria-hidden="true">▲</span></div>
+    <div class="axis"><span>0</span><span>1</span><span>2</span><span>3</span><span>4 (6.0&nbsp;ns)</span><span>…</span></div>
+    <div class="bnd">The exact gap between the two commands (in empty command slots) decides what happens.
+    This page lives at the <b>VOTE</b> point. Widen the gap past the boundary — <b>4 slots, 6.0&nbsp;ns</b> —
+    and the very same pair of commands stops voting and starts <em>copying</em> one row into the others.</div>
+  </div>
+  <div class="note link"><span class="t">Why the exact gap matters, and how it can go wrong</span>
+  The vote-versus-copy dial, the address rule for <em>which</em> rows open, and the good/bad tables live in
+  the mechanism explainer → <a href="xor-spread.html">One command pair, two physics</a>. This page shows
+  where the walk sits on that dial: at the clean vote.</div>
+</section>
+
+<!-- ============================================================ 5 — THE CENTREPIECE -->
+<section id="walk">
+  <h2><span class="n">05 · the instruction walk</span>One compute step, row by row</h2>
+  <p>Here is one instruction, from start to finish. Watch the <strong>same eight rows</strong> — they keep
+  their addresses and their vertical position the whole way through; only the colour (what just happened to
+  them) and the value they hold change. Use <strong>Prev / Next</strong> or the <strong>← →</strong> arrow
+  keys.</p>
+
+  <div class="legend" aria-hidden="true">
+    <span class="lg"><span class="sw written"></span>│ written</span>
+    <span class="lg"><span class="sw copied"></span>↳ copied</span>
+    <span class="lg"><span class="sw deposited"></span>⤳ deposited</span>
+    <span class="lg"><span class="sw voted"></span>✓ voted</span>
+    <span class="lg"><span class="sw read"></span>→ read</span>
+    <span class="lg"><span class="sw source"></span>● source</span>
+    <span class="lg"><span class="sw idle"></span>· idle</span>
+  </div>
+
+  <div class="walk" id="walk" tabindex="0" aria-roledescription="carousel" aria-label="instruction walk">
+    <div class="wtop">
+      <div class="wtitle"><span class="k" id="wkind">step</span><span id="wtitle">—</span></div>
+      <div class="counter" id="wcount">Step 1 of 7</div>
+    </div>
+    <div class="wbody">
+      <div class="rows" id="wrows" aria-live="polite"></div>
+      <div id="wextra"></div>
+      <p class="cap" id="wcap"></p>
+    </div>
+    <div class="wnav">
+      <button class="nav" id="wprev" aria-label="Previous step">‹ Prev</button>
+      <button class="nav" id="wnext" aria-label="Next step">Next ›</button>
+      <div class="dots" id="wdots" role="tablist" aria-label="jump to step"></div>
+    </div>
+    <p class="hint">The full compute group is 16 rows; these are eight of them — with their real values
+    (three <span class="mono">F0</span>, two <span class="mono">CC</span>, three <span class="mono">AA</span>)
+    they already vote to <span class="mono">E8</span>. The bit-by-bit derivation and the full 16-row
+    good/bad tables are in the <a href="xor-spread.html">mechanism explainer</a>.</p>
+  </div>
+
+  <p class="small">The addresses are real: a fixed 16-row compute group (our label
+  <span class="mono">s61</span>) in bank&nbsp;0, on one of the project's SK&nbsp;hynix modules. The first
+  row the vote opens is <span class="mono">38424</span> (marked
+  <span style="color:var(--role-source)">● source</span>); the two rows the command actually names are
+  <span class="mono">38424</span> and <span class="mono">38988</span>.</p>
+</section>
+
+<!-- ============================================================ 6 -->
+<section id="matmul">
+  <h2><span class="n">06 · from a vote to a matrix multiply</span>Counting yes-votes is the arithmetic</h2>
+  <p>A neural-network layer is a big matrix multiply: dot products of a weight vector with an activation
+  vector. This model's weights are <strong>ternary</strong> — every weight is just <span class="mono">−1</span>,
+  <span class="mono">0</span>, or <span class="mono">+1</span>. That is what makes memory arithmetic possible,
+  because a ternary dot product needs no multiplier — only ANDs and counting:</p>
+  <div class="chips" aria-hidden="true">
+    <span class="c pos">+1</span><span class="c zero">0</span><span class="c neg">−1</span>
+    <span class="c pos">+1</span><span class="c pos">+1</span><span class="c zero">0</span>
+    <span class="c neg">−1</span><span class="c pos">+1</span>
+  </div>
+  <ol>
+    <li>Split the ternary weights into two yes/no masks: a <strong>+1 mask</strong> and a
+    <strong>−1 mask</strong>.</li>
+    <li>Slice the activation numbers into their individual bits (the ones-bits, the twos-bits, and so on).</li>
+    <li>For each mask and each bit-slice, <strong>AND them together</strong> — that AND is exactly one vote in
+    DRAM (a majority with one input pinned low is an AND) — then <strong>count the 1s</strong> that come out
+    (a "popcount").</li>
+    <li>On the host, add up the counts with the right place-values and subtract the −1 count from the +1
+    count. That total is the dot product.</li>
+  </ol>
+  <p>So a whole projection is <em>many thousands of votes plus a count</em>. Everything the memory does is step 3,
+  two thousand bit-positions at a time. Everything else is bookkeeping. The formal, bit-by-bit version of the
+  vote lives in the <a href="xor-spread.html">mechanism explainer</a>.</p>
+</section>
+
+<!-- ============================================================ 7 -->
+<section id="loop">
+  <h2><span class="n">07 · the inference loop</span>Where DRAM computes, where the CPU still does</h2>
+  <p>Producing one word (one token) runs the whole model once. The split is the same one every
+  "compute-in-memory" system makes:</p>
+  <ul>
+    <li><strong>In DRAM:</strong> the matrix multiplies — every layer's projections — run as votes and counts,
+    the mechanism above.</li>
+    <li><strong>On the CPU:</strong> the parts that are not matrix multiplies — attention's softmax, the
+    normalisation steps, turning the final numbers into the next token, and the tokenizer/embedding at the
+    edges.</li>
+  </ul>
+  <p>The loop: text in → CPU turns it into numbers → many matrix multiplies run in the memory, with the small
+  non-matrix steps on the CPU between them → out comes the next token → feed it back in and repeat. A single
+  token is hundreds of thousands of votes across all the layers; the answer is the accumulation of all of them.</p>
+</section>
+
+<!-- ============================================================ 8 -->
+<section id="wall">
+  <h2><span class="n">08 · the slow part</span>It is the round-trip, not the physics</h2>
+  <p>A vote itself takes tens of nanoseconds. So why does a token take minutes? Because on this rig the
+  memory sits behind an FPGA card on a PCIe link, and every little program is a <strong>round-trip</strong>:
+  the host ships commands over, the card runs them, and the results come back. That hand-off has a fixed cost
+  each time it happens, no matter how few bytes ride along. With thousands of programs per token, the wall is
+  the <em>number of trips</em>, not the physics inside the chip.</p>
+  <p>This is why one of the levers is to <strong>count the yes-votes inside the DRAM</strong> before sending
+  anything back — the answer that crosses the link shrinks from a whole memory row to a handful of numbers.
+  The intuition is here; the actual timing model, and why only cutting the trip <em>count</em> moves the
+  wall, are in <a href="../RELATED_SYSTEMS.md">Related systems &amp; methodology</a>.</p>
+</section>
+
+<!-- ============================================================ 9 -->
+<section id="today">
+  <h2><span class="n">09 · what runs today</span>Real models, correct answers, out of memory</h2>
+  <p>This is not a single scripted demo. <strong>Seven flagship model families</strong> run correctly with
+  their matrix multiplies executed in unmodified DDR4 — a ternary BitNet-2B and two forms of Bonsai run live
+  on the silicon; Llama-2 (7B and 13B), Llama-3 and Phi-4 are validated to match their reference math through
+  a sampled end-to-end check. The headline list is on the <a href="../../README.md">front page</a>, and exactly what
+  "match" means for each is in <a href="../RELATED_SYSTEMS.md">Related systems &amp; methodology</a>.</p>
+  <p>Speed is improving as the round-trip work is engineered down: the measured ladder runs from
+  <strong>632 down to 45 seconds per token</strong>, with the memory-interface-bound floor as the target the
+  work is aimed at. The point is not that this beats a GPU today (it does not). The point is that the
+  <em>mechanism</em> is real, on real silicon, on published models — the correct word comes back out of the
+  memory's own charge.</p>
+</section>
+
+<!-- ============================================================ links -->
+<section id="next">
+  <h2><span class="n">go deeper</span>Where each thread continues</h2>
+  <div class="links">
+    <a class="tile" href="xor-spread.html"><b>The physics →</b><span>One command pair, two physics: the
+      vote-vs-copy timing dial, the address rule for which rows open, and the good/bad case tables.</span></a>
+    <a class="tile" href="../RELATED_SYSTEMS.md"><b>How it compares &amp; how we measure →</b><span>Related
+      systems, the MVDRAM contrast, the wall model, and the verification discipline behind every number.</span></a>
+    <a class="tile" href="../../README.md"><b>The front page →</b><span>What this is in one screen: the
+      thesis, the ladder, the seven models, the architecture picture, the repo map.</span></a>
+    <a class="tile" href="../ROADMAP.md"><b>What's next →</b><span>The live ledger of open levers and their
+      status.</span></a>
+  </div>
+</section>
+
+<footer>
+  <p>This page describes work on commodity DDR4 parts operated outside their standard timing specification —
+  capability exploration on real silicon, not a product claim. Mechanism prior art: RowClone, Ambit, SiMRA,
+  FracDRAM, FCDRAM, POPCNT3 (SAFARI et&nbsp;al.); instrument: DRAM&nbsp;Bender. Model families: Microsoft
+  BitNet, PrismML Bonsai, and published Llama / Phi checkpoints. Part of the
+  <a href="https://github.com/pcdeni/CaSA">CaSA</a> project.</p>
+</footer>
+
 </div>
 
 <script>
-const SVG_NS = 'http://www.w3.org/2000/svg';
-const sceneRoot = document.getElementById('scene');
-const captionEl = document.getElementById('caption');
-const codeEl    = document.getElementById('codepane');
-const titleEl   = document.getElementById('stage-title');
-const stepNumEl = document.getElementById('stepNum');
-const stepMaxEl = document.getElementById('stepMax');
-const sceneFoot = document.getElementById('scenefoot');
-const nav       = document.getElementById('nav');
+(function(){
+  "use strict";
 
-function el(name, attrs = {}, children = []) {
-  const e = document.createElementNS(SVG_NS, name);
-  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
-  for (const c of children) e.appendChild(c);
-  return e;
-}
-function text(x, y, str, cls = 'label', anchor = 'middle') {
-  const t = el('text', { x, y, class: cls, 'text-anchor': anchor, 'dominant-baseline': 'middle' });
-  t.textContent = str;
-  return t;
-}
-function rect(x, y, w, h, cls, extra={}) {
-  return el('rect', Object.assign({ x, y, width: w, height: h, class: cls, rx: 1, ry: 1 }, extra));
-}
-function line(x1, y1, x2, y2, cls) {
-  return el('line', { x1, y1, x2, y2, class: cls });
-}
-function clearScene() { sceneRoot.innerHTML = ''; }
-
-// =============================================================
-// SCENE 1 — DRAM hierarchy
-// =============================================================
-const scene1 = {
-  title: 'Scene 1 — DRAM hierarchy (zoom out)',
-  steps: 5,
-  render(step) {
-    clearScene();
-    const stages = [
-      'one CELL = 1 access transistor + 1 capacitor (1T1C)',
-      'thousands of cells share one wordline → one ROW',
-      'rows + their local sense amps → SUBARRAY (PuD operations live here)',
-      'subarrays share I/O → BANK (one open row at a time)',
-      '16 banks per rank (4 groups × 4); typically 1–4 ranks per DIMM (DDR4 UDIMM/RDIMM)',
-    ];
-    sceneRoot.appendChild(text(500, 30, stages[step], 'label hl'));
-
-    if (step === 0) {
-      sceneRoot.appendChild(line(150, 300, 850, 300, 'row-line'));
-      sceneRoot.appendChild(text(890, 300, 'wordline', 'label'));
-      sceneRoot.appendChild(line(500, 100, 500, 550, 'bitline'));
-      sceneRoot.appendChild(text(540, 110, 'bitline', 'label'));
-      sceneRoot.appendChild(rect(480, 280, 40, 40, 'sense-amp'));
-      sceneRoot.appendChild(text(500, 270, 'access transistor', 'label dim'));
-      sceneRoot.appendChild(line(490, 350, 510, 350, 'row-line'));
-      sceneRoot.appendChild(line(490, 360, 510, 360, 'row-line'));
-      sceneRoot.appendChild(line(500, 320, 500, 350, 'bitline'));
-      sceneRoot.appendChild(line(500, 360, 500, 400, 'bitline'));
-      sceneRoot.appendChild(rect(470, 400, 60, 30, 'cap'));
-      sceneRoot.appendChild(text(500, 415, '1 bit', 'label hl'));
-      sceneRoot.appendChild(text(500, 470, 'cap holds a small charge; leaks over time; needs periodic refresh', 'label dim'));
-    }
-    else if (step === 1) {
-      const N = 16;
-      const x0 = 150, dx = 44;
-      sceneRoot.appendChild(line(120, 200, 850, 200, 'row-line'));
-      sceneRoot.appendChild(text(880, 200, 'wordline', 'label'));
-      for (let i = 0; i < N; i++) {
-        const x = x0 + i * dx;
-        sceneRoot.appendChild(line(x, 100, x, 450, 'bitline'));
-        sceneRoot.appendChild(rect(x-12, 250, 24, 24, i % 3 === 0 ? 'cap empty' : 'cap'));
-      }
-      sceneRoot.appendChild(text(500, 360, 'one wordline pulse opens ALL cells in the row at once', 'label dim'));
-      sceneRoot.appendChild(text(500, 390, '⟹ DRAM access is fundamentally row-granular', 'label hl'));
-    }
-    else if (step === 2) {
-      const W = 700, x0 = 150;
-      const numRows = 8;
-      const rowHeight = 30, y0 = 100;
-      for (let r = 0; r < numRows; r++) {
-        const y = y0 + r * rowHeight;
-        sceneRoot.appendChild(line(x0, y, x0 + W, y, 'row-line dim'));
-        sceneRoot.appendChild(text(x0 - 25, y, `r${r}`, 'label dim'));
-      }
-      const N = 16, dx = W / N;
-      for (let i = 0; i < N; i++) {
-        const x = x0 + i * dx + dx/2;
-        sceneRoot.appendChild(line(x, y0 - 10, x, y0 + numRows * rowHeight + 60, 'bitline'));
-      }
-      const saY = y0 + numRows * rowHeight + 30;
-      sceneRoot.appendChild(rect(x0, saY, W, 30, 'sense-amp'));
-      sceneRoot.appendChild(text(x0 + W + 60, saY + 15, 'sense amps', 'label hl'));
-      sceneRoot.appendChild(text(500, saY + 90, 'PuD ops (RowCopy, MAJ, ...) all happen INSIDE one subarray', 'label hl'));
-      sceneRoot.appendChild(text(500, saY + 115, 'because they rely on shared local sense amps and bitlines', 'label dim'));
-    }
-    else if (step === 3) {
-      const numSub = 4;
-      const subH = 90, subW = 600, x0 = 200, y0 = 100;
-      for (let i = 0; i < numSub; i++) {
-        const y = y0 + i * (subH + 15);
-        sceneRoot.appendChild(rect(x0, y, subW, subH, 'sense-amp'));
-        sceneRoot.appendChild(text(x0 - 50, y + subH/2, `sub ${i}`, 'label'));
-        sceneRoot.appendChild(rect(x0+5, y + subH - 12, subW - 10, 6, 'sense-amp latched'));
-      }
-      sceneRoot.appendChild(rect(x0 + subW + 20, y0, 30, numSub*(subH+15)-15, 'sense-amp latched'));
-      sceneRoot.appendChild(text(x0 + subW + 90, y0 + 30, 'shared I/O', 'label hl'));
-      sceneRoot.appendChild(text(500, 530, 'a bank serves one open row at a time across its subarrays', 'label dim'));
-    }
-    else if (step === 4) {
-      const cellW = 90, cellH = 60, gap = 8, x0 = 200, y0 = 100;
-      const groupColors = ['#3a86ff', '#ffd479', '#22c1c3', '#ff6b6b'];
-      for (let bg = 0; bg < 4; bg++) {
-        for (let b = 0; b < 4; b++) {
-          const x = x0 + bg*(cellW + gap*4);
-          const y = y0 + b*(cellH + gap);
-          sceneRoot.appendChild(rect(x, y, cellW, cellH, '', { fill: '#1d2230', stroke: groupColors[bg], 'stroke-width': 1.5, rx: 3 }));
-          sceneRoot.appendChild(text(x + cellW/2, y + cellH/2, `BG${bg}/B${b}`, 'label'));
-        }
-        sceneRoot.appendChild(text(x0 + bg*(cellW + gap*4) + cellW/2, y0 - 15, `bank group ${bg}`, 'label dim'));
-      }
-      sceneRoot.appendChild(text(500, 470, '16 banks per rank, 1-2 ranks per DIMM (DDR4 standard)', 'label hl'));
-    }
-  },
-  caption(step) {
-    const c = [
-      `<b>One bit lives in a capacitor.</b> The access transistor connects/disconnects it from the bitline. Charge leaks away — DRAM needs periodic refresh (~64 ms in DDR4) to survive.`,
-      `<b>A row = thousands of cells sharing one wordline.</b> Activating the wordline opens all cells in the row simultaneously onto their bitlines. <em>That's why DRAM access is row-granular.</em>`,
-      `<b>A subarray = rows that share local bitlines and sense amps.</b> The sense amps are the row buffer. <b>All PuD operations (RowCopy, MAJ, ...) live inside one subarray</b> because they depend on these shared sense amps.`,
-      `<b>A bank = subarrays sharing I/O.</b> Only one row open at a time per bank.`,
-      `<b>DDR4 organisation:</b> 16 banks per rank (4 groups × 4), 1–2 ranks per DIMM. Cross-bank-group commands have tighter timing parameters than same-group commands.`,
-    ];
-    return c[step];
-  },
-  codeRef() { return '<span class="cm">(general DRAM, no project-specific link)</span>'; }
-};
-
-// =============================================================
-// SCENE 2 — One cell: write, destructive read, write-back
-// =============================================================
-const scene2 = {
-  title: 'Scene 2 — One cell: write, destructive read, write-back',
-  steps: 5,
-  render(step) {
-    clearScene();
-    sceneRoot.appendChild(text(500, 30, 'one cell, one bitline, one sense amp', 'label hl'));
-
-    sceneRoot.appendChild(line(150, 270, 850, 270, step >= 1 ? 'row-line' : 'bitline'));
-    sceneRoot.appendChild(text(890, 270, 'wordline', 'label'));
-
-    const blClass = step === 0 ? 'bitline' : step === 1 ? 'bitline partial' : step === 2 ? 'bitline hot' : step === 3 ? 'bitline hot' : 'bitline';
-    sceneRoot.appendChild(line(500, 100, 500, 500, blClass));
-    sceneRoot.appendChild(text(540, 110, 'bitline', 'label'));
-
-    sceneRoot.appendChild(rect(480, 255, 40, 30, step >= 1 ? 'sense-amp latched' : 'sense-amp'));
-
-    const capStates = ['cap', 'cap', 'cap empty', 'cap empty', 'cap'];
-    sceneRoot.appendChild(rect(470, 390, 60, 30, capStates[step]));
-    sceneRoot.appendChild(line(490, 385, 510, 385, 'row-line'));
-    sceneRoot.appendChild(line(490, 380, 510, 380, 'row-line'));
-    sceneRoot.appendChild(line(500, 285, 500, 380, 'bitline'));
-    sceneRoot.appendChild(line(500, 385, 500, 390, 'bitline'));
-
-    const saClass = step === 0 ? 'sense-amp' :
-                    step === 1 ? 'sense-amp partial' :
-                    step === 2 || step === 3 ? 'sense-amp latched' : 'sense-amp';
-    sceneRoot.appendChild(rect(440, 85, 120, 30, saClass));
-    sceneRoot.appendChild(text(500, 100, 'sense amp', 'label'));
-
-    const ann = [
-      'IDLE: wordline OFF, bitline precharged to V_DD/2',
-      'ACT: wordline ON → cap charge shares with bitline',
-      'sense amp resolves → bitline driven to V_DD or GND',
-      'READ pulls value — but cap is now drained (destructive)',
-      'PRE: sense amp writes value back → wordline OFF → bitline precharges'
-    ];
-    sceneRoot.appendChild(text(500, 540, ann[step], 'label hl'));
-  },
-  caption(step) {
-    const c = [
-      `<b>Idle.</b> Cap holds its charge (representing 1 or 0). Bitline is precharged to V_DD/2 (mid-rail). Wordline OFF — cell is isolated.`,
-      `<b>ACT.</b> Wordline goes high → access transistor opens → cap connects to bitline. The cap's small charge nudges the bitline slightly above or below V_DD/2 (charge sharing).`,
-      `<b>Sense amp resolves.</b> A pair of cross-coupled inverters amplifies the tiny perturbation to full-rail. The bitline is now driven to V_DD or GND. <b>This is the row buffer.</b>`,
-      `<b>READ.</b> Column decoder picks columns out of the sense amp band to the I/O bus. <em>Notice: the cap itself is now empty — its charge drained into the bitline.</em> DRAM reads are <b>destructive</b>.`,
-      `<b>PRE (precharge).</b> Sense amp drives the cap back to its original value, wordline goes OFF, then the bitline returns to V_DD/2. Cell is restored.`,
-    ];
-    return c[step];
-  },
-  codeRef() { return '<span class="cm">(general DRAM, no project-specific link)</span>'; }
-};
-
-// =============================================================
-// SCENE 3 — Normal ACT / READ / PRE on a row
-// =============================================================
-const scene3 = {
-  title: 'Scene 3 — ACT / READ / PRE on a whole row',
-  steps: 4,
-  render(step) {
-    clearScene();
-    const N = 12;
-    const x0 = 120, dx = 60, y0 = 120;
-    const wlActive = step >= 1 && step <= 3;
-    sceneRoot.appendChild(line(80, y0, x0 + N*dx, y0, wlActive ? 'row-line' : 'bitline'));
-    sceneRoot.appendChild(text(50, y0, 'WL', 'label hl'));
-
-    for (let i = 0; i < N; i++) {
-      const x = x0 + i*dx;
-      const blState = step === 0 ? 'bitline' : step === 1 ? 'bitline partial' : 'bitline hot';
-      sceneRoot.appendChild(line(x, 60, x, 460, blState));
-      const bit = i % 2;
-      const capCls = (step >= 3 ? 'cap' : (step === 2 ? 'cap empty' : 'cap')) + (bit ? '' : ' empty');
-      sceneRoot.appendChild(rect(x-12, 350, 24, 24, capCls));
-      sceneRoot.appendChild(rect(x-12, y0-12, 24, 24, wlActive ? 'sense-amp latched' : 'sense-amp'));
-    }
-    const saCls = step === 0 ? 'sense-amp' : step === 1 ? 'sense-amp partial' : 'sense-amp latched';
-    sceneRoot.appendChild(rect(x0 - 30, 250, N*dx + 20, 30, saCls));
-    sceneRoot.appendChild(text(x0 + N*dx + 40, 265, 'sense amps (row buffer)', 'label hl'));
-
-    const phases = ['IDLE', 'ACT', 'READ (cap drains; row buffer is the only copy)', 'PRE (sense amp restores cap, wordline off)'];
-    sceneRoot.appendChild(text(500, 510, phases[step], 'label hl'));
-    sceneRoot.appendChild(text(500, 535, 'DDR4 timing rules: tRAS ≥ ACT-to-PRE; tRP ≥ PRE-to-next-ACT (JEDEC spec)', 'label dim'));
-  },
-  caption(step) {
-    const c = [
-      `<b>Idle.</b> Bank's row buffer empty. Bitlines at V_DD/2.`,
-      `<b>ACT row R.</b> All cells in R drop their charges onto bitlines simultaneously. Sense amps resolve to full rail. <b>Row buffer = row R.</b>`,
-      `<b>READ col.</b> Column decoder picks an N-byte slice from the row buffer to the I/O bus. Cells in R are now drained — row buffer is the only copy.`,
-      `<b>PRE.</b> Sense amps write their values back into R. Wordline OFF, bitlines precharge to V_DD/2. <em>SiMRA, FracDRAM, FCDRAM all bend this 3-phase cycle by violating tRAS or tRP — that's where in-DRAM compute comes from.</em>`,
-    ];
-    return c[step];
-  },
-  codeRef() { return '<span class="cm">(general DRAM, no project-specific link)</span>'; }
-};
-
-// =============================================================
-// SCENE 4 — The APA primitive
-// =============================================================
-const scene4 = {
-  title: 'Scene 4 — The APA primitive (ACT — wait t₁ — PRE — wait t₂ — ACT)',
-  steps: 5,
-  render(step) {
-    clearScene();
-    sceneRoot.appendChild(text(500, 30, 'one envelope, three different operations depending on (t₁, t₂)', 'label hl'));
-
-    // Timing diagram
-    const tx0 = 100, txw = 800, ty = 180;
-    // Baseline timing axis
-    sceneRoot.appendChild(line(tx0, ty + 40, tx0 + txw, ty + 40, 'bitline'));
-    sceneRoot.appendChild(text(tx0 + txw + 30, ty + 40, 'time →', 'label dim'));
-
-    // Three commands as boxes
-    const c1x = tx0 + 50, c2x = tx0 + 350, c3x = tx0 + 600;
-    const boxW = 80, boxH = 40;
-
-    sceneRoot.appendChild(rect(c1x, ty + 20, boxW, boxH, step >= 1 ? 'sense-amp latched' : 'sense-amp'));
-    sceneRoot.appendChild(text(c1x + boxW/2, ty + 40, 'ACT R_F', 'label hl'));
-
-    sceneRoot.appendChild(rect(c2x, ty + 20, boxW, boxH, step >= 3 ? 'sense-amp latched' : 'sense-amp'));
-    sceneRoot.appendChild(text(c2x + boxW/2, ty + 40, 'PRE', 'label hl'));
-
-    sceneRoot.appendChild(rect(c3x, ty + 20, boxW, boxH, step >= 4 ? 'sense-amp latched' : 'sense-amp'));
-    sceneRoot.appendChild(text(c3x + boxW/2, ty + 40, 'ACT R_S', 'label hl'));
-
-    // Gap annotations
-    if (step >= 2) {
-      sceneRoot.appendChild(line(c1x + boxW, ty + 90, c2x, ty + 90, 'arrow'));
-      sceneRoot.appendChild(text((c1x + boxW + c2x)/2, ty + 110, 't₁', 'label hl'));
-      sceneRoot.appendChild(text((c1x + boxW + c2x)/2, ty + 128, '(gap 1)', 'label dim'));
-    }
-    if (step >= 3) {
-      sceneRoot.appendChild(line(c2x + boxW, ty + 90, c3x, ty + 90, 'arrow'));
-      sceneRoot.appendChild(text((c2x + boxW + c3x)/2, ty + 110, 't₂', 'label hl'));
-      sceneRoot.appendChild(text((c2x + boxW + c3x)/2, ty + 128, '(gap 2)', 'label dim'));
-    }
-
-    // JEDEC vs APA rules
-    if (step >= 2) {
-      sceneRoot.appendChild(text(500, 380, 'JEDEC spec:  t₁ ≥ tRAS  (~tens of ns)   AND   t₂ ≥ tRP  (~tens of ns)', 'label dim'));
-      sceneRoot.appendChild(text(500, 405, 'APA breaks one or both — chooses t₁, t₂ to produce a specific in-DRAM operation', 'label hl'));
-    }
-
-    // Outcome table preview
-    if (step >= 4) {
-      const ty2 = 450;
-      sceneRoot.appendChild(text(500, ty2, '(t₁, t₂) determines what happens:', 'label hl'));
-      const rows = [
-        ['t₁ long  (≥ tRAS), t₂ short', '→  RowCopy / Multi-RowCopy', '(Scene 5)'],
-        ['t₁ short, t₂ short',           '→  Multi-Row Activation, then MAJ', '(Scene 6)'],
-        ['PRE  ACT  PRE  back-to-back',  '→  Frac (cell ← V_DD/2)', '(Scene 6)'],
-      ];
-      for (let i = 0; i < rows.length; i++) {
-        const y = ty2 + 25 + i*22;
-        sceneRoot.appendChild(text(250, y, rows[i][0], 'label'));
-        sceneRoot.appendChild(text(560, y, rows[i][1], 'label hl'));
-        sceneRoot.appendChild(text(740, y, rows[i][2], 'label dim'));
-      }
-    }
-  },
-  caption(step) {
-    const c = [
-      `<b>The primitive.</b> All in-DRAM compute we use is built from <b>one command envelope</b>: ACT, then PRE, then ACT. Both ACTs target rows in the same subarray.`,
-      `<b>First ACT.</b> Opens row R_F. Sense amp begins to resolve.`,
-      `<b>Then wait t₁.</b> The gap between ACT₁ and PRE — controllable by the controller. Standard DDR4 demands t₁ ≥ tRAS, but APA can shorten it.`,
-      `<b>PRE, then wait t₂.</b> The gap between PRE and ACT₂. Standard DDR4 demands t₂ ≥ tRP. Again, APA can shorten it.`,
-      `<b>Different (t₁, t₂) → different operations.</b> The bitline / sense amp ends up in different physical states depending on how much settling was allowed at each gap. <span class="ex">EXAMPLE values from one chip family appear in later scenes — the specific numbers vary across DDR4 manufacturers.</span>`,
-    ];
-    return c[step];
-  },
-  codeRef() {
-    return `<span class="src">paper: SiMRA §3.2 — APA defined</span>
-<span class="cm">"ACT R_F — wait t₁ — PRE — wait t₂ — ACT R_S"</span>
-<span class="cm">Both R_F, R_S target the same subarray.</span>
-
-<span class="src">code: util.cpp:242-286 (our doubleACT)</span>
-<span class="cm">// Cmd:    ----|ACT R0|----| PRE |----|ACT R3|----</span>
-<span class="cm">// Gaps:               t_12          t_23</span>
-
-q_inst[<span class="hl">0</span>]                = SMC_ACT(BAR, RF_REG);
-q_inst[<span class="hl">t_12 + 1</span>]         = SMC_PRE(BAR);
-q_inst[<span class="hl">2 + t_12 + t_23</span>] = SMC_ACT(BAR, RS_REG);
-
-<span class="cm">→ project's t_12 = paper's t₁,   t_23 = t₂</span>`;
+  /* ---------- theme toggle: stamp data-theme so a manual choice wins ---------- */
+  var root = document.documentElement, tb = document.getElementById('themeBtn');
+  function apply(t){
+    if(t){ root.setAttribute('data-theme', t); }
+    tb.setAttribute('aria-pressed', (root.getAttribute('data-theme')==='dark') ? 'true':'false');
   }
-};
-
-// =============================================================
-// SCENE 5 — One envelope, three operations
-// =============================================================
-const scene5 = {
-  title: 'Scene 5 — From APA to RowCopy / Multi-RowCopy / Multi-Row Activation',
-  steps: 6,
-  render(step) {
-    clearScene();
-    const variants = [
-      'RowCopy: t₁ ≥ tRAS, t₂ ≪ tRP — sense amp fully resolves R_F, then dst opens onto driven bitlines',
-      'RowCopy result: dst absorbs src',
-      'Multi-RowCopy: same timing, but R_S address opens many wordlines via row-decoder predecoders',
-      'Multi-RowCopy result: one src → many dst rows',
-      'Multi-Row Activation: t₁ short — sense amp does NOT fully resolve any single row',
-      'K rows now share charge on the bitlines simultaneously → ready for MAJ (Scene 6)',
-    ];
-    sceneRoot.appendChild(text(500, 30, variants[step], 'label hl'));
-
-    // 3 rows visualised
-    const xs = 100, xe = 870;
-    const N = 10;
-    const dx = (xe - xs) / (N+1);
-
-    const yA = 100;   // R_F
-    const yMid = 200; // explanation area
-    const yDst0 = 300; // 8 dst rows
-
-    // R_F row
-    const wlA = step >= 0;
-    sceneRoot.appendChild(line(xs, yA, xe, yA, wlA ? 'row-line' : 'row-line dim'));
-    sceneRoot.appendChild(text(60, yA, 'R_F (src)', 'label hl'));
-    const pat = [1,0,1,1,0,1,0,0,1,0];
-
-    // Bitlines
-    let blCls;
-    if (step <= 0) blCls = 'bitline cold';
-    else if (step === 1) blCls = 'bitline hot';
-    else if (step <= 3) blCls = 'bitline hot';
-    else blCls = 'bitline partial';
-
-    for (let i = 0; i < N; i++) {
-      const x = xs + (i+1)*dx;
-      sceneRoot.appendChild(line(x, 75, x, yDst0 + 8*22 + 30, pat[i] && step >= 0 ? blCls : 'bitline cold'));
-      sceneRoot.appendChild(rect(x-10, yA-12, 20, 18, pat[i] ? 'cap' : 'cap empty'));
-    }
-
-    // Multiple destination rows
-    const numDst = step <= 1 ? 1 : (step <= 3 ? 8 : 8);
-    for (let r = 0; r < numDst; r++) {
-      const y = yDst0 + r*20;
-      const opened = (step <= 1 && r === 0) || (step >= 2);
-      sceneRoot.appendChild(line(xs, y, xe, y, opened ? 'row-line' : 'row-line dim'));
-      if (r === 0) {
-        sceneRoot.appendChild(text(60, y, step <= 1 ? 'dst (1)' : 'K dst rows', 'label hl'));
-      }
-      for (let i = 0; i < N; i++) {
-        const x = xs + (i+1)*dx;
-        let cellCls;
-        if (step <= 1 && r === 0) {
-          cellCls = step === 1 ? (pat[i] ? 'cap' : 'cap empty') : 'cap empty';
-        } else if (step <= 3) {
-          cellCls = step === 3 ? (pat[i] ? 'cap' : 'cap empty') : 'cap empty';
-        } else {
-          // multi-row activation — random initial states
-          cellCls = ((i+r) % 3 === 0) ? 'cap' : 'cap empty';
-        }
-        sceneRoot.appendChild(rect(x-7, y-7, 14, 12, cellCls));
-      }
-    }
-
-    // Sense amp band
-    const saY = yDst0 + numDst*20 + 15;
-    const saCls = (step === 0) ? 'sense-amp partial' :
-                  (step >= 1 && step <= 3) ? 'sense-amp latched' :
-                  'sense-amp partial';
-    sceneRoot.appendChild(rect(xs, saY, xe-xs, 22, saCls));
-    sceneRoot.appendChild(text(xs-50, saY+11, 'sense amps', 'label dim'));
-
-    sceneRoot.appendChild(text(500, saY + 60,
-      step <= 1 ? 'paper-term: RowCopy (intra-subarray)' :
-      step <= 3 ? 'paper-term: Multi-RowCopy (SiMRA §3.4)' :
-      'paper-term: Multi-Row Activation (SiMRA §3.3)',
-      'label dim'));
-  },
-  caption(step) {
-    const c = [
-      `<b>RowCopy.</b> Use APA with <b>t₁ ≥ tRAS</b> (sense amp fully resolves R_F) and <b>t₂ ≪ tRP</b> (the PRE is interrupted by ACT₂ before bitlines drift). The sense amp is still driving the bitlines when dst opens — dst absorbs the source value.`,
-      `<b>Result.</b> dst row = src row, byte-for-byte. <em>No data crossed the I/O bus.</em>`,
-      `<b>Multi-RowCopy.</b> Same envelope; the difference is in R_S's address. If R_F and R_S differ in particular bits, the row decoder predecoders latch overlapping signals, so the second ACT opens <b>K destination rows</b> simultaneously. <span class="ex">EXAMPLE: SiMRA reports (t₁≈36 ns, t₂≈3 ns) as the best Multi-RowCopy timing on Hynix DDR4. Our project's chips perform best at a shorter t₁ — the optimal timing is a per-chip calibration result, not a fixed constant.</span>`,
-      `<b>Result.</b> One src row → K dst rows in one APA. <span class="ex">EXAMPLE: SiMRA reports K ∈ {2, 4, 8, 16, 32} on Hynix/Micron DDR4; K is chip-dependent (Samsung does not support multi-row activation at all).</span>`,
-      `<b>Multi-Row Activation.</b> Now BOTH t₁ and t₂ are short. The sense amp does <em>not</em> fully resolve any one row before the next ACT fires. K rows open and their cells share charge on the bitlines together.`,
-      `<b>K cells per bitline charge-sharing.</b> No row dominates the bitline — instead, the bitline voltage reflects the <em>combination</em> of K cell charges. This is the substrate for MAJ (next scene).`,
-    ];
-    return c[step];
-  },
-  codeRef() {
-    return `<span class="src">paper: SiMRA §3.4 — Multi-RowCopy mechanism</span>
-<span class="cm">1. ACT R_F</span>
-<span class="cm">2. wait t₁ ≈ tRAS  (sense amp fully resolves R_F)</span>
-<span class="cm">3. PRE</span>
-<span class="cm">4. wait t₂ &lt; tRP  (bitlines don't precharge)</span>
-<span class="cm">5. ACT R_S  (K wordlines open simultaneously)</span>
-<span class="cm">6. sense amp drives all K dst rows to R_F's value</span>
-
-<span class="src">paper: SiMRA §7.1 — row decoder hypothesis</span>
-<span class="cm">Hierarchical decoder: 5 predecoders</span>
-<span class="cm">Max K = 2⁵ = 32 simultaneous wordlines</span>
-<span class="cm">(when R_F and R_S addresses force every predecoder</span>
-<span class="cm"> to latch both of its outputs)</span>
-
-<span class="src">code: test_bitnet_server.cpp:247-253</span>
-<span class="cm">// 1. RowCopy backup → Rfirst</span>
-doubleACT(t_12=<span class="hl">long</span>, t_23=<span class="hl">short</span>, backup, Rfirst);
-<span class="cm">// 2. Multi-RowCopy Rfirst → K open rows</span>
-doubleACT(t_12=<span class="hl">short</span>, t_23=<span class="hl">short</span>, Rfirst, Rsecond);`;
-  }
-};
-
-// =============================================================
-// SCENE 6 — MAJ via K-row charge share + replication
-// =============================================================
-const scene6 = {
-  title: 'Scene 6 — MAJ-of-K via K-row charge share; replication for stability',
-  steps: 6,
-  render(step) {
-    clearScene();
-    sceneRoot.appendChild(text(500, 25, 'K rows simultaneously activated → K cells per bitline share charge → sense amp resolves majority', 'label hl'));
-
-    if (step === 0) {
-      // Naive MAJ3: K=3 rows
-      const ys = [100, 130, 160];
-      for (const y of ys) sceneRoot.appendChild(line(150, y, 850, y, 'row-line'));
-      sceneRoot.appendChild(text(80, 130, 'K=3 rows', 'label hl'));
-      const N = 10, x0 = 200;
-      const dx = 60;
-      // Three inputs: A, B, C
-      const A = [1,0,1,1,0,1,0,1,1,0];
-      const B = [0,1,1,0,1,1,1,0,0,1];
-      const C = [1,1,0,1,1,0,1,0,1,1];
-      for (let i = 0; i < N; i++) {
-        const x = x0 + i*dx;
-        sceneRoot.appendChild(line(x, 80, x, 320, 'bitline partial'));
-        sceneRoot.appendChild(rect(x-7, ys[0]-7, 14, 14, A[i] ? 'cap' : 'cap empty'));
-        sceneRoot.appendChild(rect(x-7, ys[1]-7, 14, 14, B[i] ? 'cap' : 'cap empty'));
-        sceneRoot.appendChild(rect(x-7, ys[2]-7, 14, 14, C[i] ? 'cap' : 'cap empty'));
-      }
-      sceneRoot.appendChild(rect(150, 260, 700, 30, 'sense-amp partial'));
-      sceneRoot.appendChild(text(80, 275, 'sense amps', 'label dim'));
-      // Result row
-      const MAJ = A.map((a, i) => (a + B[i] + C[i]) >= 2 ? 1 : 0);
-      sceneRoot.appendChild(text(80, 360, 'MAJ3', 'label hl'));
-      for (let i = 0; i < N; i++) {
-        const x = x0 + i*dx;
-        sceneRoot.appendChild(rect(x-7, 353, 14, 14, MAJ[i] ? 'cap' : 'cap empty'));
-      }
-      sceneRoot.appendChild(text(500, 420, 'V_BL ≈ (n_ones / K) · V_DD  (negligible-bitline-cap limit)  →  sense amp → 1 exactly when majority held 1', 'label hl'));
-      sceneRoot.appendChild(text(500, 450, 'this is the textbook (Ambit-style) MAJ3', 'label dim'));
-      sceneRoot.appendChild(text(500, 480, 'on real COTS chips, K=3 alone often gives unreliable resolution under process variation', 'label dim'));
-    }
-    else if (step === 1 || step === 2) {
-      // Replication: K=4 (tight) vs K=32 (replicated 10x)
-      const small = step === 1;
-      sceneRoot.appendChild(text(500, 70, small ? 'TIGHT (K = 4): one row per input + 1 neutral' : 'REPLICATED (K = 32): each input × 10 copies + 2 neutrals', 'label hl'));
-      const K = small ? 4 : 32;
-      const totalH = 280;
-      const dy = totalH / K;
-      const xs = 120, xe = 800;
-      // Show every row, colour by which input it represents
-      const groupColors = ['#ffd479', '#3a86ff', '#22c1c3', '#6b8ec9'];
-      const labels = ['A', 'B', 'C', 'neutral'];
-      for (let r = 0; r < K; r++) {
-        const y = 110 + r*dy;
-        let grp;
-        if (small) grp = r;  // A, B, C, neutral
-        else grp = r < 30 ? Math.floor(r / 10) : 3;
-        const col = groupColors[grp];
-        sceneRoot.appendChild(line(xs, y, xe, y, ''));
-        sceneRoot.appendChild(rect(xs, y - dy/2 + 1, xe-xs, dy - 2, '', { fill: col, opacity: 0.18, stroke: col, 'stroke-width': 0.5 }));
-        if (r % (small ? 1 : 10) === 0) {
-          sceneRoot.appendChild(text(xs - 60, y + dy/2, labels[grp], 'label hl'));
-        }
-      }
-      // Sense amp band
-      sceneRoot.appendChild(rect(xs, 110 + totalH + 10, xe-xs, 22, small ? 'sense-amp partial' : 'sense-amp latched'));
-      sceneRoot.appendChild(text(500, 460,
-        small ? 'small bitline perturbation → sense amp resolution sensitive to process variation' :
-                'large bitline perturbation → reliable resolution even with process variation',
-        'label hl'));
-      sceneRoot.appendChild(text(500, 488,
-        small ? '— may flip under noise / temperature / supply variation' :
-                '— SPICE (SiMRA Fig. 15): 32-row gives ~159% larger perturbation vs 4-row',
-        'label dim'));
-    }
-    else if (step === 3) {
-      // F-MAJ: neutral row via Frac
-      sceneRoot.appendChild(text(500, 70, 'How to get a "neutral" row: FracDRAM\'s Frac primitive', 'label hl'));
-      // Timing diagram
-      const tx0 = 200, dxx = 100;
-      const cmds = ['PRE', 'ACT R', 'PRE'];
-      for (let i = 0; i < 3; i++) {
-        const x = tx0 + i*dxx;
-        sceneRoot.appendChild(rect(x, 130, 70, 35, 'sense-amp'));
-        sceneRoot.appendChild(text(x + 35, 148, cmds[i], 'label hl'));
-      }
-      sceneRoot.appendChild(line(tx0+70, 220, tx0+dxx, 220, 'arrow'));
-      sceneRoot.appendChild(line(tx0+70+dxx, 220, tx0+2*dxx, 220, 'arrow'));
-      sceneRoot.appendChild(text(tx0+dxx, 245, 'back-to-back', 'label dim'));
-      sceneRoot.appendChild(text(tx0+2*dxx, 245, '(no idle)', 'label dim'));
-      // Result: cell at V_DD/2
-      sceneRoot.appendChild(rect(450, 320, 80, 40, 'cap frac'));
-      sceneRoot.appendChild(text(490, 340, '≈ V_DD/2', 'label hl'));
-      sceneRoot.appendChild(text(490, 380, '("neutral" — contributes nothing to MAJ)', 'label dim'));
-      sceneRoot.appendChild(text(500, 460, 'Frac\'s trailing PRE INTERRUPTS the activation before the sense amp resolves', 'label hl'));
-      sceneRoot.appendChild(text(500, 488, '→ cell capacitor holds the partially-shared voltage = V_DD/2', 'label dim'));
-      sceneRoot.appendChild(text(500, 512, 'paper: FracDRAM §III-A — Frac sequence and mechanism', 'label dim'));
-    }
-    else if (step === 4) {
-      // MAJ → AND
-      sceneRoot.appendChild(text(500, 70, 'MAJ(a, b, 0) = (a AND b)   /   MAJ(a, b, 1) = (a OR b)', 'label hl'));
-      // Truth table style
-      const rows = [
-        ['a', 'b', '0', 'MAJ', 'a AND b'],
-        ['0', '0', '0', '0',   '0'],
-        ['0', '1', '0', '0',   '0'],
-        ['1', '0', '0', '0',   '0'],
-        ['1', '1', '0', '1',   '1'],
-      ];
-      const tx = 280, ty = 160, cw = 80, rh = 32;
-      for (let r = 0; r < rows.length; r++) {
-        for (let c = 0; c < rows[r].length; c++) {
-          const x = tx + c*cw, y = ty + r*rh;
-          if (r === 0) sceneRoot.appendChild(rect(x, y, cw, rh, '', { fill: '#1d2230', stroke: '#5a6178' }));
-          else sceneRoot.appendChild(rect(x, y, cw, rh, '', { fill: '#131722', stroke: '#2a2f3d' }));
-          sceneRoot.appendChild(text(x + cw/2, y + rh/2, rows[r][c], r === 0 ? 'label hl' : 'label'));
-        }
-      }
-      sceneRoot.appendChild(text(500, 380, 'To compute (a AND b), pin one MAJ3 input to 0 (zero-row, or a Frac\'d cell).', 'label hl'));
-      sceneRoot.appendChild(text(500, 408, 'Or use Frac\'s F-MAJ trick: one row Frac\'d to V_DD/2 → contributes nothing → MAJ of the other 3', 'label dim'));
-      sceneRoot.appendChild(text(500, 432, 'paper: FracDRAM §VI-A (F-MAJ)', 'label dim'));
-    }
-    else if (step === 5) {
-      // "Our project's layout" annotation
-      sceneRoot.appendChild(text(500, 80, 'EXAMPLE: one layout our project uses for MAJ3 on top of 16-row activation', 'label hl cyan'));
-      sceneRoot.appendChild(text(500, 105, '(this exact pattern is calibrated for our chips — the GENERAL principle is replicate + neutralise)', 'label dim'));
-
-      const xs = 150, K = 16;
-      const dy = 22;
-      const colors = {
-        'w (weight)':     '#3a86ff',
-        'x (activation)': '#ffd479',
-        '0':              '#3a4150',
-        '1':              '#22c1c3',
-        'r[0] Frac\'d':   '#6b8ec9',
-      };
-      // 16 rows pattern: 5 w, 5 x, 5 zero, 1 one+frac
-      const pattern = [
-        'r[0] Frac\'d',
-        'x (activation)', '0',
-        'w (weight)', 'x (activation)', '0',
-        'w (weight)', 'x (activation)', '0',
-        'w (weight)', 'x (activation)', '0',
-        'w (weight)', 'x (activation)', '0',
-        'w (weight)',
-      ];
-      for (let r = 0; r < K; r++) {
-        const y = 140 + r*dy;
-        const what = pattern[r];
-        sceneRoot.appendChild(rect(xs, y, 600, dy - 2, '', { fill: colors[what], opacity: 0.25 }));
-        sceneRoot.appendChild(text(xs - 30, y + (dy-2)/2, `r${r}`, 'label dim'));
-        sceneRoot.appendChild(text(xs + 300, y + (dy-2)/2, what, 'label'));
-      }
-      sceneRoot.appendChild(text(820, 250, '5 × w', 'label hl'));
-      sceneRoot.appendChild(text(820, 285, '5 × x', 'label hl'));
-      sceneRoot.appendChild(text(820, 320, '5 × 0', 'label hl'));
-      sceneRoot.appendChild(text(820, 355, '1 × 1', 'label hl'));
-      sceneRoot.appendChild(text(820, 390, '(Frac)', 'label dim'));
-      sceneRoot.appendChild(text(500, 540, 'bitline majority of (5w + 5x + 5·0 + 1·1) → (w AND x) on success-calibrated tuples', 'label hl'));
-      sceneRoot.appendChild(text(500, 568, 'the exact (5/5/5/1) split is empirical; the principle "replicate inputs + neutralise" is general', 'label dim'));
-    }
-  },
-  caption(step) {
-    const c = [
-      `<b>Textbook MAJ-of-K.</b> Open K rows simultaneously → K cells per bitline share charge → V_BL ≈ (n_ones/K)·V_DD → sense amp resolves to 1 if and only if a majority of cells held 1. <b>This is the substrate.</b>`,
-      `<b>Tight K (say K=4) is fragile.</b> Bitline perturbation away from V_DD/2 is small — only 1 of K cells imbalances the bitline. Sense amps have process-variation in their threshold, so this small perturbation may not cross reliably.`,
-      `<b>Replicate each input across many rows.</b> SiMRA's central result: replicating each input N/X times for MAJ-of-X gives much bigger bitline perturbation, which crosses the sense amp threshold reliably even under variation. <span class="ex">EXAMPLE: SiMRA reports 32-row vs 4-row → +159% perturbation (SPICE) → MAJ3 success ~99% vs ~68% on tested chips.</span>`,
-      `<b>Neutral rows.</b> When N is not divisible by X, the leftover rows must contribute nothing to the bitline. Solution: FracDRAM's Frac primitive sets cells to V_DD/2 by interrupting the activation before the sense amp resolves. A V_DD/2 cell perturbs the bitline by ≈ 0.`,
-      `<b>MAJ → AND, OR.</b> MAJ(a, b, 0) = (a AND b). MAJ(a, b, 1) = (a OR b). To get the AND we need ONE of the three logical inputs to be 0. Either: pin one row to all-0; or use Frac to make that cell neutral and only use 2 real inputs.`,
-      `<b>EXAMPLE layout (our project).</b> Our calibration sweep landed on a 16-row pattern: 5 rows hold the weight bit, 5 hold the activation bit, 5 hold zero, and position 0 is first written to all-ones then Frac'd three times so it ends near V_DD/2. <em>The 5/5/5/1 split and the ONE→Frac sequence on row 0 are empirically tuned for our chips.</em> The general principle — "replicate inputs, neutralise the rest" — is what's portable.`,
-    ];
-    return c[step];
-  },
-  codeRef() {
-    return `<span class="src">paper: SiMRA §2.2 (MAJ3), §3.3 (MAJX with replication)</span>
-<span class="cm">"three cells connected to each bitline share charge</span>
-<span class="cm"> simultaneously and contribute to the perturbation</span>
-<span class="cm"> of the bitline. Upon sensing the perturbation,</span>
-<span class="cm"> the sense amplifier amplifies the bitline voltage</span>
-<span class="cm"> to V_DD or 0 V if at least two of the three DRAM</span>
-<span class="cm"> cells are charged or discharged, respectively."</span>
-
-<span class="src">paper: SiMRA §7.2 — why replication helps</span>
-<span class="cm">larger perturbation → crosses sense-amp threshold</span>
-<span class="cm">scatter from process variation reliably</span>
-
-<span class="src">paper: FracDRAM §III-A — Frac primitive</span>
-<span class="cm">PRE - ACT(R) - PRE  (back-to-back, no idle)</span>
-<span class="cm">trailing PRE interrupts before sense amp resolves</span>
-<span class="cm">cell holds partially-shared voltage ≈ V_DD/2</span>
-
-<span class="src">paper: FracDRAM §VI-A — F-MAJ</span>
-<span class="cm">4-row activation, 1 Frac'd row contributes nothing</span>
-<span class="cm">→ MAJ of the other 3</span>
-
-<span class="src">code: test_bitnet_server.cpp:258-280 (our specific layout)</span>
-<span class="cm">act_pos  = {1, 4, 7, 10, 13}  // 5 rows of x</span>
-<span class="cm">zero_pos = {2, 5, 8, 11, 14}  // 5 rows of 0</span>
-<span class="cm">// rows 3,6,9,12,15 keep w from Broadcast</span>
-<span class="cm">// row 0 = ONE then Frac×3</span>`;
-  }
-};
-
-// =============================================================
-// SCENE 7 — Ternary × int8 multiply, composed from MAJ-based ANDs
-// =============================================================
-const scene7 = {
-  title: 'Scene 7 — Composing one ternary × int8 multiply from MAJ-based ANDs',
-  steps: 5,
-  render(step) {
-    clearScene();
-    sceneRoot.appendChild(text(500, 25, 'how single-bit MAJ-based ANDs reconstruct a full ternary × int8 dot product', 'label hl'));
-
-    const yW = 90, yX = 220, yMul = 360, yOut = 490;
-    const xL = 80;
-
-    // Ternary weights
-    sceneRoot.appendChild(text(60, yW, 'w', 'label hl'));
-    const w = [+1, 0, -1, +1, +1, 0, -1, +1];
-    const wColors = { '1': '#3a86ff', '0': '#3a4150', '-1': '#ff6b6b' };
-    for (let i = 0; i < w.length; i++) {
-      const x = xL + 30 + i * 110;
-      sceneRoot.appendChild(rect(x, yW - 15, 90, 30, '', { fill: wColors[String(w[i])], stroke: 'none', rx: 3 }));
-      sceneRoot.appendChild(text(x + 45, yW, String(w[i]), 'label hl'));
-    }
-
-    // Split into +/- masks
-    if (step >= 1) {
-      sceneRoot.appendChild(text(60, yW + 35, 'pos_mask', 'label'));
-      for (let i = 0; i < w.length; i++) {
-        const x = xL + 30 + i * 110;
-        const v = w[i] === 1 ? 1 : 0;
-        sceneRoot.appendChild(rect(x, yW + 22, 90, 16, v ? 'cap' : 'cap empty'));
-        sceneRoot.appendChild(text(x + 45, yW + 30, String(v), 'label dim'));
-      }
-      sceneRoot.appendChild(text(60, yW + 65, 'neg_mask', 'label'));
-      for (let i = 0; i < w.length; i++) {
-        const x = xL + 30 + i * 110;
-        const v = w[i] === -1 ? 1 : 0;
-        sceneRoot.appendChild(rect(x, yW + 52, 90, 16, v ? 'cap' : 'cap empty'));
-        sceneRoot.appendChild(text(x + 45, yW + 60, String(v), 'label dim'));
-      }
-    }
-
-    // Activations (int8)
-    if (step >= 2) {
-      sceneRoot.appendChild(text(60, yX, 'x (int8)', 'label hl'));
-      const x = [5, -2, 7, 1, -4, 3, 0, 6];
-      for (let i = 0; i < x.length; i++) {
-        const cx = xL + 30 + i * 110;
-        sceneRoot.appendChild(rect(cx, yX - 15, 90, 30, '', { fill: '#1d2230', stroke: '#ffd479', rx: 3 }));
-        sceneRoot.appendChild(text(cx + 45, yX, String(x[i]), 'label hl'));
-      }
-      if (step >= 3) {
-        const u8 = x.map(v => v < 0 ? v + 256 : v);
-        sceneRoot.appendChild(text(60, yX + 40, '8 bitplanes', 'label'));
-        for (let b = 0; b < 8; b++) {
-          for (let i = 0; i < u8.length; i++) {
-            const cx = xL + 30 + i * 110;
-            const v = (u8[i] >> b) & 1;
-            sceneRoot.appendChild(rect(cx + b*10, yX + 30, 8, 8, v ? 'cap' : 'cap empty'));
-          }
-        }
-        sceneRoot.appendChild(text(800, yX + 60, 'b0  ............  b7', 'label dim'));
-        sceneRoot.appendChild(text(800, yX + 78, '× 1, 2, 4, 8, 16, 32, 64, −128', 'label dim'));
-      }
-    }
-
-    // MAJ stream
-    if (step >= 3) {
-      sceneRoot.appendChild(text(60, yMul, 'MAJ stream', 'label hl'));
-      sceneRoot.appendChild(text(500, yMul - 5, 'per (chunk × sign × bitplane): one MAJ-based popcount of (mask_bit AND x_bit) across 32 inputs', 'label'));
-      sceneRoot.appendChild(text(500, yMul + 22, 'per output: 2 (signs) × 8 (bitplanes) × n_chunks  MAJs', 'label dim'));
-      sceneRoot.appendChild(text(500, yMul + 42, 'per projection d_in × d_out: 2 · 8 · (d_in/32) · d_out  total', 'label hl'));
-    }
-
-    // Host accumulate
-    if (step >= 4) {
-      sceneRoot.appendChild(text(60, yOut, 'host', 'label hl'));
-      sceneRoot.appendChild(rect(xL + 100, yOut - 25, 720, 60, '', { fill: '#1d2230', stroke: '#22c1c3', rx: 3 }));
-      sceneRoot.appendChild(text(xL + 460, yOut - 5, 'y_int32 = Σ_b factor[b] · (pos_pop[b] − neg_pop[b])', 'label hl'));
-      sceneRoot.appendChild(text(xL + 460, yOut + 15, 'y_bf16 = y_int32 × weight_scale  /  input_scale', 'label'));
-      sceneRoot.appendChild(text(xL + 460, yOut + 32, 'factor = [1, 2, 4, 8, 16, 32, 64, −128]  (MSB negative — two\'s complement sign)', 'label dim'));
-    }
-  },
-  caption(step) {
-    const c = [
-      `<b>Ternary weight w ∈ {−1, 0, +1}.</b> Storing one ternary value needs 2 bits.`,
-      `<b>Split into two masks.</b> <code>pos_mask</code> (1 exactly when w=+1), <code>neg_mask</code> (1 exactly when w=−1). Each MAJ-based AND operates on one of the two masks. Final result = pos_count − neg_count.`,
-      `<b>Activations are int8</b> (after BitNet's input quantizer). Stored as int8 in PyTorch.`,
-      `<b>Decompose int8 into 8 bitplanes.</b> Each MAJ operates on a single bit. Bitplane b's contribution is multiplied by 2^b on host. The MSB factor is <em>negative</em> (−128), giving correct two's-complement sign handling natively.`,
-      `<b>Host accumulates.</b> Sum bitplane popcounts with 2^b weights, subtract neg from pos → int32. Multiply by bf16 weight scale, <em>divide</em> by input scale → bf16 (input was quantised as x_int8 = round(x · input_scale), so reverse it by dividing). Hand back to PyTorch.`,
-    ];
-    return c[step];
-  },
-  codeRef() {
-    return `<span class="src">code: pim_linear.py:24, 64-65</span>
-D_OUT_SLICE = <span class="hl">2048</span>
-N_BITPLANES = <span class="hl">8</span>
-BITPLANE_FACTORS = [<span class="hl">1, 2, 4, 8, 16, 32, 64, -128</span>]
-                              <span class="cm">↑ MSB negative</span>
-
-<span class="src">code: pim_linear.py:231 (chunk = 32 inputs)</span>
-n_chunks = d_in // <span class="hl">32</span>
-
-<span class="src">code: pim_linear.py:248-254 (±mask split)</span>
-pos_mask[c, :] = (seg == <span class="hl">+1</span>)
-neg_mask[c, :] = (seg == <span class="hl">-1</span>)
-
-<span class="src">paper: textbook BitNet b1.58 ternary + int8</span>
-<span class="cm">int8 × ternary multiply ≡ sum of bit-wise ANDs</span>
-<span class="cm">with proper scaling and ± masking</span>`;
-  }
-};
-
-// =============================================================
-// SCENE 8 — Inference loop
-// =============================================================
-const scene8 = {
-  title: 'Scene 8 — Inference loop: prompt → token → next token',
-  steps: 5,
-  render(step) {
-    clearScene();
-    sceneRoot.appendChild(text(500, 25, 'end-to-end: one token through the model', 'label hl'));
-
-    sceneRoot.appendChild(rect(50, 60, 140, 50, '', { fill: '#1d2230', stroke: '#22c1c3', rx: 4 }));
-    sceneRoot.appendChild(text(120, 85, 'prompt (text)', 'label hl'));
-
-    sceneRoot.appendChild(rect(220, 60, 130, 50, '', { fill: '#1d2230', stroke: '#22c1c3', rx: 4 }));
-    sceneRoot.appendChild(text(285, 80, 'tokenizer', 'label hl'));
-    sceneRoot.appendChild(text(285, 96, '(CPU)', 'label dim'));
-
-    sceneRoot.appendChild(rect(380, 60, 130, 50, '', { fill: '#1d2230', stroke: '#22c1c3', rx: 4 }));
-    sceneRoot.appendChild(text(445, 80, 'embed', 'label hl'));
-    sceneRoot.appendChild(text(445, 96, '(CPU)', 'label dim'));
-
-    sceneRoot.appendChild(el('path', { d: 'M 190 85 L 220 85', class: 'arrow' }));
-    sceneRoot.appendChild(el('path', { d: 'M 350 85 L 380 85', class: 'arrow' }));
-    sceneRoot.appendChild(el('path', { d: 'M 510 85 L 540 85', class: 'arrow' }));
-
-    const layerStartY = 150, layerH = 280;
-    sceneRoot.appendChild(rect(540, layerStartY, 320, layerH, '', { fill: '#13161e', stroke: '#3a86ff', rx: 6 }));
-    sceneRoot.appendChild(text(700, layerStartY + 18, '× N_layers', 'label hl'));
-
-    const blocks = [
-      { y: layerStartY + 30, label: 'RMSNorm', cls: 'cpu' },
-      { y: layerStartY + 60, label: 'q / k / v / o  (4 ternary linears)', cls: 'pim' },
-      { y: layerStartY + 100, label: 'attn (Q · Kᵀ, softmax, · V)  CPU', cls: 'cpu' },
-      { y: layerStartY + 130, label: 'residual + RMSNorm', cls: 'cpu' },
-      { y: layerStartY + 165, label: 'gate / up  (2 ternary linears)', cls: 'pim' },
-      { y: layerStartY + 200, label: 'SwiGLU × down  (1 ternary linear)', cls: 'pim' },
-      { y: layerStartY + 235, label: 'residual', cls: 'cpu' },
-    ];
-    for (const b of blocks) {
-      const isPim = b.cls === 'pim';
-      const highlight = step >= 1 && isPim;
-      sceneRoot.appendChild(rect(560, b.y, 280, 25, '', { fill: highlight ? '#3a86ff' : (isPim ? '#1d2230' : '#13161e'), stroke: isPim ? '#3a86ff' : '#5a6178', rx: 3 }));
-      sceneRoot.appendChild(text(700, b.y + 13, b.label, isPim ? 'label hl' : 'label dim'));
-    }
-
-    if (step >= 2) {
-      sceneRoot.appendChild(rect(880, 200, 100, 230, '', { fill: '#13161e', stroke: '#ffd479', rx: 4 }));
-      sceneRoot.appendChild(text(930, 215, 'one PIM', 'label hl'));
-      sceneRoot.appendChild(text(930, 230, 'linear =', 'label hl'));
-      sceneRoot.appendChild(text(930, 260, '2 · 8 ·', 'label hl'));
-      sceneRoot.appendChild(text(930, 277, '(d_in/32)', 'label hl'));
-      sceneRoot.appendChild(text(930, 294, '· d_out', 'label hl'));
-      sceneRoot.appendChild(text(930, 320, 'MAJs', 'label dim'));
-      sceneRoot.appendChild(text(930, 360, '7 linears', 'label'));
-      sceneRoot.appendChild(text(930, 376, 'per layer', 'label dim'));
-      sceneRoot.appendChild(text(930, 410, '× N_layers', 'label'));
-    }
-
-    if (step >= 3) {
-      sceneRoot.appendChild(rect(360, 470, 130, 50, '', { fill: '#1d2230', stroke: '#22c1c3', rx: 4 }));
-      sceneRoot.appendChild(text(425, 488, 'unembed', 'label hl'));
-      sceneRoot.appendChild(text(425, 504, '(CPU)', 'label dim'));
-      sceneRoot.appendChild(rect(530, 470, 130, 50, '', { fill: '#1d2230', stroke: '#22c1c3', rx: 4 }));
-      sceneRoot.appendChild(text(595, 488, 'softmax + sample', 'label hl'));
-      sceneRoot.appendChild(text(595, 504, '(CPU)', 'label dim'));
-      sceneRoot.appendChild(rect(700, 470, 130, 50, '', { fill: '#1d2230', stroke: '#ffd479', rx: 4 }));
-      sceneRoot.appendChild(text(765, 488, 'next token', 'label hl'));
-
-      sceneRoot.appendChild(el('path', { d: 'M 700 360 Q 600 470 490 495', class: 'arrow' }));
-      sceneRoot.appendChild(el('path', { d: 'M 490 495 L 530 495', class: 'arrow' }));
-      sceneRoot.appendChild(el('path', { d: 'M 660 495 L 700 495', class: 'arrow' }));
-    }
-
-    if (step >= 4) {
-      sceneRoot.appendChild(el('path', { d: 'M 830 495 Q 880 495 880 230 Q 880 85 220 85', class: 'arrow', 'stroke-dasharray': '4,3' }));
-      sceneRoot.appendChild(text(890, 100, 'feed token back', 'label hl'));
-      sceneRoot.appendChild(text(890, 115, 'until EOS', 'label dim'));
-    }
-  },
-  caption(step) {
-    const c = [
-      `<b>Step 1 — prep.</b> Prompt → tokenizer → embed → first layer's input. All CPU.`,
-      `<b>Step 2 — N transformer layers.</b> Each layer: RMSNorm → attention (q/k/v/o ternary linears) → attention compute → residual → RMSNorm → MLP (gate, up, SwiGLU, down). The 7 ternary linears go to PIM. Everything else stays on CPU/GPU. <b>This same 7-linear offload now runs three validated model families</b> — BitNet b1.58-2B (ternary) and Bonsai-1.7B (Qwen3, group-128) in both ternary and 1-bit form, token-exact on silicon since 07-20. The 1-bit variant takes a <em>single-track</em> path (one mask, not two), and Bonsai is the production model for most post-0720 throughput work (Scene 11).`,
-      `<b>Step 3 — what's inside one PIM linear.</b> 2 · 8 · (d_in/32) · d_out MAJs. The total per token = (7 ternary linears per layer) × (N_layers). For BitNet b1.58-2B-4T the distinct projection sizes are <b>{640, 2560, 6912}</b>: q/o do 2560→2560, k/v do 2560→640 (5 KV heads × 128 head_dim), gate/up do 2560→6912, down does 6912→2560.`,
-      `<b>Step 4 — sample.</b> Final hidden state → unembed → softmax → sample one token.`,
-      `<b>Step 5 — loop.</b> Append the new token, run the stack again, until EOS or max_tokens.`,
-    ];
-    return c[step];
-  },
-  codeRef() {
-    return `<span class="src">model: microsoft/bitnet-b1.58-2B-4T</span>
-N_layers transformer layers
-7 ternary linears per layer (q,k,v,o,gate,up,down)
-distinct projection sizes: {640, 2560, 6912}
-  q/o   2560 → 2560
-  k/v   2560 → 640    (5 KV heads × 128 head_dim)
-  gate  2560 → 6912
-  up    2560 → 6912
-  down  6912 → 2560
-
-<span class="src">code: pim_linear.py PIMLinear.forward()</span>
-1. x_int8 = input_quantise(x)
-2. pack to bitplanes (cached per token)
-3. for each output slice (D_OUT_SLICE = 2048):
-     send (header, pos_mask, neg_mask, x_bp) to server
-4. accumulate int32 → bf16 × scales
-
-<span class="src">code: bitnet-proj-server (C++)</span>
-for each (chunk, sign):
-  for each bitplane:
-    build APA-based program (Scene 6 layout)
-    execute on FPGA-driven DRAM
-    receive popcount via XDMA`;
-  }
-};
-
-// =============================================================
-// SCENE 9 — Bottleneck analysis (NEW)
-// =============================================================
-const scene9 = {
-  title: 'Scene 9 — Where the time goes (per-MAJ bottleneck analysis)',
-  steps: 7,
-  render(step) {
-    clearScene();
-    if (step <= 4) sceneRoot.appendChild(text(500, 25, 'per MAJ, where does the wall time go? (production pipeline as of May 2026)', 'label hl'));
-
-    // Per-MAJ phase bar
-    const phases = [
-      { label: 'RowCopy  (load weight → Rfirst)',           color: '#3a86ff' },
-      { label: 'Multi-RowCopy  (replicate weight)',        color: '#3a86ff' },
-      { label: 'per-row writes  (set up replica pattern)', color: '#6b8ec9' },
-      { label: 'Frac × K  (neutralise rows)',              color: '#6b8ec9' },
-      { label: 'MAJ APA  (the compute)',                   color: '#22c1c3' },
-      { label: 'READ row buffer  (cells → DRAM bus)',      color: '#ffd479' },
-      { label: 'XDMA transfer  (DRAM bus → host RAM)',     color: '#ffd479' },
-      { label: 'host POPCNT  (sum 1s in returned row)',    color: '#ff6b6b' },
-    ];
-
-    if (step <= 1) {
-      // Just list the phases
-      const x0 = 200, y0 = 100, dy = 38, w = 600;
-      for (let i = 0; i < phases.length; i++) {
-        const y = y0 + i * dy;
-        sceneRoot.appendChild(rect(x0, y, w, dy - 6, '', { fill: phases[i].color, opacity: step === 0 ? 0.2 : 0.6, rx: 3 }));
-        sceneRoot.appendChild(text(x0 + 20, y + (dy-6)/2, `${i+1}. ${phases[i].label}`, 'label', 'start'));
-      }
-      if (step >= 1) {
-        sceneRoot.appendChild(text(500, 530, 'phases 1-5: in-DRAM, fast and parallel across all bitlines in the subarray', 'label hl'));
-        sceneRoot.appendChild(text(500, 555, 'phases 6-8: serialised through the DDR bus and the host CPU', 'label hl cyan'));
-      }
-    }
-    else if (step === 2) {
-      // Show that READ + XDMA + popcount dominates as MAJs scale
-      sceneRoot.appendChild(text(500, 80, 'one MAJ returns one full row to the host (e.g., 8 KiB on DDR4)', 'label hl'));
-      sceneRoot.appendChild(text(500, 105, 'host runs popcount on it to produce ONE integer result', 'label dim'));
-
-      sceneRoot.appendChild(rect(150, 160, 240, 60, '', { fill: '#22c1c3', opacity: 0.3, rx: 4 }));
-      sceneRoot.appendChild(text(270, 190, 'in-DRAM MAJ', 'label hl'));
-      sceneRoot.appendChild(text(270, 208, '(fast, parallel)', 'label dim'));
-
-      sceneRoot.appendChild(el('path', { d: 'M 390 190 L 470 190', class: 'arrow' }));
-
-      sceneRoot.appendChild(rect(470, 160, 320, 60, '', { fill: '#ffd479', opacity: 0.3, rx: 4 }));
-      sceneRoot.appendChild(text(630, 180, '~8 KiB over DDR bus + XDMA', 'label hl'));
-      sceneRoot.appendChild(text(630, 200, 'serial per MAJ', 'label dim'));
-
-      sceneRoot.appendChild(el('path', { d: 'M 790 190 L 850 190', class: 'arrow' }));
-      sceneRoot.appendChild(rect(850, 160, 100, 60, '', { fill: '#ff6b6b', opacity: 0.3, rx: 4 }));
-      sceneRoot.appendChild(text(900, 180, 'CPU', 'label hl'));
-      sceneRoot.appendChild(text(900, 200, 'POPCNT', 'label hl'));
-
-      sceneRoot.appendChild(text(500, 300, 'per token: 7 ternary linears × N_layers × 2·8·(d_in/32)·d_out  →  many MAJs', 'label'));
-      sceneRoot.appendChild(text(500, 325, '→ many host↔FPGA round-trips — one program dispatched and drained per MAJ batch', 'label hl'));
-      sceneRoot.appendChild(text(500, 355, 'the round-trip COUNT is the dominant cost — latency (~1.5 ms/read wake), not the bytes per row', 'label hl cyan'));
-      sceneRoot.appendChild(text(500, 380, 'a bigger read barely costs more; the in-DRAM phase is a sliver either way', 'label dim'));
-    }
-    else if (step === 3) {
-      // Frame the POPCNT3 paper insight
-      sceneRoot.appendChild(text(500, 80, 'Confirmation from outside: POPCNT3 paper (NeurIPS MLNCP 2024)', 'label hl'));
-      sceneRoot.appendChild(text(500, 105, 'Kubo et al. — "Bulk Bitwise Accumulation in Commercial DRAM"', 'label dim'));
-
-      sceneRoot.appendChild(rect(100, 150, 800, 280, '', { fill: '#13161e', stroke: '#22c1c3', rx: 4 }));
-      sceneRoot.appendChild(text(500, 175, '"...accumulation is a fundamental operation in MAC computations [...]"', 'label'));
-      sceneRoot.appendChild(text(500, 200, '"Executing accumulation with many inputs necessitates a proportional number of', 'label'));
-      sceneRoot.appendChild(text(500, 218, 'logical operations, resulting in slow performance when implemented in PuD"', 'label'));
-      sceneRoot.appendChild(text(500, 250, '— POPCNT3, §1, lines 71-76', 'label dim'));
-
-      sceneRoot.appendChild(text(500, 295, 'their fix: compute the popcount INSIDE DRAM (POPCNT3 via MAJX + reference rows)', 'label hl'));
-      sceneRoot.appendChild(text(500, 320, 'then return one integer instead of one full row → bandwidth drop by row-width / log₂(K)', 'label'));
-      sceneRoot.appendChild(text(500, 355, 'measured throughput vs A100 GPU on bulk bitwise accumulation: 27× — 348× across kernel sizes', 'label hl cyan'));
-      sceneRoot.appendChild(text(500, 380, '(POPCNT3 setup: 4 DDR4 DIMMs × 64 banks = 256 parallel banks. Our project today: 1 DIMM × 4 banks.)', 'label dim'));
-    }
-    else if (step === 4) {
-      // The wider implication
-      sceneRoot.appendChild(text(500, 80, 'so where to optimise?', 'label hl'));
-      const items = [
-        ['the in-DRAM phases', 'already much faster than CPU MAC — diminishing return on further speedup'],
-        ['the host↔FPGA round-trip COUNT', 'BIGGEST leverage: fewer + overlapped trips (batching, streaming, phase-2 send-ahead) — this is the latency wall'],
-        ['the per-MAJ byte payload', ['shrinking it (in-DRAM POPCNT / SEG_POP) is banked but WALL-NEUTRAL', 'until the trips are cut — bytes hide behind latency']],
-        ['the set-up phases (RowCopy, Frac, writes)', 'amortise via persistent weights and broadcast-once-per-many-MAJs (we do this already)'],
-      ];
-      const x0 = 130, y0 = 150, dy = 70;
-      for (let i = 0; i < items.length; i++) {
-        const y = y0 + i*dy;
-        sceneRoot.appendChild(rect(x0, y, 740, dy - 10, '', { fill: '#1d2230', stroke: '#2a2f3d', rx: 3 }));
-        sceneRoot.appendChild(text(x0 + 20, y + 18, items[i][0], 'label hl', 'start'));
-        const desc = Array.isArray(items[i][1]) ? items[i][1] : [items[i][1]];
-        if (desc.length === 1) sceneRoot.appendChild(text(x0 + 20, y + 42, desc[0], 'label', 'start'));
-        else desc.forEach((ln, j) => sceneRoot.appendChild(text(x0 + 20, y + 38 + j*16, ln, 'label', 'start')));
-      }
-      sceneRoot.appendChild(text(500, 510, 'next scene: a wishlist for AI-memory hardware, each item mapped to a bottleneck above', 'label dim'));
-    }
-    else if (step === 5) {
-      // July 2026: the two write-side levers, tool-level A/B
-      sceneRoot.appendChild(text(500, 25, 'July 2026: two levers landed on the write-side phases', 'label hl'));
-      const levers = [
-        ['1. persistent weights', 'W stays resident in its pool row; the per-MAJ weight reload (per-column write, 3 host round-trips) becomes ONE in-DRAM clone from a backup row'],
-        ['2. coset activation update', 'the 10 activation wrRows (5×x + 5×zero) become 4 wrRows + 2 in-tuple coset doubleACTs — same 5/5/5 vote balance (the unbalanced 7W/4x/4z variant is wrong: 99.7%/97.9% bad)'],
-      ];
-      for (let i = 0; i < 2; i++) {
-        const y = 60 + i * 78;
-        sceneRoot.appendChild(rect(90, y, 820, 68, '', { fill: '#1d2230', stroke: '#22c1c3', 'stroke-width': 2, rx: 4 }));
-        sceneRoot.appendChild(text(110, y + 20, levers[i][0], 'label hl', 'start'));
-        // wrap the description over two lines
-        const words = levers[i][1].split(' ');
-        const mid = Math.ceil(words.length / 2);
-        sceneRoot.appendChild(text(110, y + 40, words.slice(0, mid).join(' '), 'label', 'start'));
-        sceneRoot.appendChild(text(110, y + 56, words.slice(mid).join(' '), 'label', 'start'));
-      }
-      // A/B bars (die A): A=0.357, B2=0.089 ms/MAJ; die B: 0.556 -> 0.085
-      const bars = [
-        ['die A: production shape', 0.357, '#6b8ec9'], ['die A: both levers fused (B2)', 0.089, '#22c1c3'],
-        ['die B: production shape', 0.556, '#6b8ec9'], ['die B: both levers fused (B2)', 0.085, '#22c1c3'],
-      ];
-      const bx = 330, by0 = 250, bh = 30, scale = 900;
-      sceneRoot.appendChild(text(500, by0 - 18, 'steady-state tool A/B, iters=100, one process — verified every iteration', 'label dim'));
-      for (let i = 0; i < 4; i++) {
-        const y = by0 + i * (bh + 14);
-        const w = Math.max(4, bars[i][1] * scale);
-        sceneRoot.appendChild(text(bx - 12, y + bh / 2, bars[i][0], 'label', 'end'));
-        sceneRoot.appendChild(rect(bx, y, w, bh, '', { fill: bars[i][2], opacity: 0.8, rx: 2 }));
-        sceneRoot.appendChild(text(bx + w + 12, y + bh / 2, `${bars[i][1].toFixed(3)} ms/MAJ`, 'label hl', 'start'));
-      }
-      sceneRoot.appendChild(text(500, by0 + 4 * (bh + 14) + 18, '3.99× (die A) · 6.53× (die B) — bit-exact: 0/204,800 bad segments per die', 'label hl cyan'));
-    }
-    else if (step === 6) {
-      // July 2026: production server + real-model numbers
-      sceneRoot.appendChild(text(500, 25, 'July 2026: the same levers, opt-in in the server (PIM_FUSED_COSET=1, default OFF)', 'label hl'));
-      sceneRoot.appendChild(rect(110, 70, 780, 120, '', { fill: '#1d2230', stroke: '#22c1c3', 'stroke-width': 2, rx: 4 }));
-      sceneRoot.appendChild(text(130, 94, 'per matmul (bitnet-proj-server, synthetic A/B, byte-identical requests)', 'label hl', 'start'));
-      sceneRoot.appendChild(text(130, 122, 'bank 0:   9.7–9.8  →  6.4–6.9 ms/matmul', 'label', 'start'));
-      sceneRoot.appendChild(text(130, 146, '4-bank:   9.5–9.7  →  6.1 ms/matmul', 'label', 'start'));
-      sceneRoot.appendChild(text(130, 170, '= 1.45–1.6× — every returned y bit-exact vs the host reference, both arms', 'label hl', 'start'));
-      // real model bars
-      const bars = [['baseline', 117.2, '#6b8ec9'], ['PIM_FUSED_COSET=1', 71.8, '#22c1c3']];
-      const bx = 330, by0 = 260, bh = 34, scale = 4.2;
-      sceneRoot.appendChild(text(500, by0 - 20, 'real model: BitNet b1.58-2B, layer 0 × 7 projections in DRAM, 4-bank, 8 tokens', 'label hl'));
-      for (let i = 0; i < 2; i++) {
-        const y = by0 + i * (bh + 16);
-        const w = bars[i][1] * scale;
-        sceneRoot.appendChild(text(bx - 12, y + bh / 2, bars[i][0], 'label', 'end'));
-        sceneRoot.appendChild(rect(bx, y, w, bh, '', { fill: bars[i][2], opacity: 0.8, rx: 2 }));
-        sceneRoot.appendChild(text(bx + w + 12, y + bh / 2, `${bars[i][1]} s wall`, 'label hl', 'start'));
-      }
-      sceneRoot.appendChild(text(500, by0 + 2 * (bh + 16) + 16, '1.63× wall (PIM request time 112.5 → 70.2 s) — both arms answer "Paris"', 'label hl cyan'));
-      sceneRoot.appendChild(text(500, 460, 'the write-side (wcol) phases shrank — a small slice; the round-trip COUNT is untouched here', 'label'));
-      sceneRoot.appendChild(text(500, 484, 'so the remaining wall is the per-execute round-trip latency — the target of phase-2 (Scene 11)', 'label dim'));
-    }
-  },
-  caption(step) {
-    const c = [
-      `<b>Per MAJ, eight phases run in sequence</b> in the production pipeline as of May 2026: setup (RowCopy, Multi-RowCopy, per-row writes, Frac) → the MAJ itself → result transfer (READ row, XDMA, host popcount). Phases 1-5 stay inside DRAM; 6-8 leave DRAM. (Steps 6-7 of this scene: what changed in July 2026.)`,
-      `<b>The two regimes have very different cost.</b> Inside DRAM, the MAJ is parallel across thousands of bitlines in the subarray. Outside, the path is serial: one row of bits leaves through the DDR bus per MAJ, then the host runs popcount.`,
-      `<b>The round-trip dominates at scale.</b> Each MAJ batch is one host↔FPGA program: a full DRAM row (e.g., 8 KiB) comes back and the host popcounts it. But the cost that binds is the <em>latency</em> of that round-trip — XDMA interrupt-wake bound at ~1.5 ms per read, so a bigger read barely costs more. It is the <em>count</em> of round-trips, not the byte volume, that dominates wall time across the many programs a layer needs.`,
-      `<b>External confirmation — with a caveat for our rig.</b> The POPCNT3 paper computes the popcount inside DRAM and returns one integer, reporting 27×–348× throughput vs an A100 GPU on bulk bitwise accumulation (348× at the smallest tested kernel, 27× at the largest). Those numbers stand. But on our host-orchestrated rig that byte drop is <em>wall-neutral</em>: we shipped it (SEG_POP, 8 KiB → 2048 B, token-identical) and the wall did not move — because recv is latency-bound, not byte-bound. POPCNT3's bandwidth win needs their controller-native, 256-bank regime (4 DIMMs × 64) to become a wall win; our project today uses ~4 banks on one DIMM.`,
-      `<b>Where to optimise.</b> The biggest leverage is the <em>round-trip count</em>: fewer, larger, overlapped host↔FPGA programs (batching, streaming, and phase-2 send-ahead). Shrinking the per-MAJ byte payload — in-DRAM POPCNT, returning a scalar instead of a row — is real but <em>wall-neutral until the trips are cut</em>, because recv is latency-bound. The setup phases are already amortised. This is the ranking rule the rest of the arc follows.`,
-      `<b>July 2026: two levers landed</b> — both on the write-side phases (1-3 of the May breakdown), both enabled by the co-activation-lattice addressing characterized in the <a href="xor-spread.html">companion explainer</a>. (1) <b>Persistent weights</b>: W stays resident, and the per-MAJ weight reload (per-column write, 3 host round-trips) becomes one in-DRAM clone from a backup row at a safe pair offset. (2) <b>Coset activation update</b>: the 10 activation wrRows (5×x + 5×zero) collapse to 4 wrRows + 2 in-tuple coset doubleACTs with the same 5/5/5 vote balance — the balance is a hard rule (the unbalanced 7W/4x/4z variant returns 99.7%/97.9% bad segments). Fused into one per-MAJ program: <b>0.357→0.089 ms/MAJ (3.99×, die A)</b>, 0.556→0.085 (6.53×, die B), verified bit-exact every iteration (0/204,800 bad segments per die, iters=100).`,
-      `<b>July 2026, opt-in in the server.</b> The same two levers behind <code>PIM_FUSED_COSET=1</code> — a real win, but <b>opt-in: the server default is 0</b>, and BitNet production runs it OFF: <b>9.7–9.8→6.4–6.9 ms/matmul</b> (bank 0) and 9.5–9.7→6.1 (4-bank) = <b>1.45–1.6×</b>, every returned result bit-exact against the host reference. On the real model (BitNet b1.58-2B, layer 0's seven projections in DRAM, 4-bank, 8 tokens): <b>117.2→71.8 s wall = 1.63×</b> (PIM request time 112.5→70.2 s); both arms answer "Paris". These are write-side (wcol) wins against a small slice; the read-side path is untouched — and the binding wall is not "bytes on the bus" but the per-execute round-trip <em>latency</em>, which only phase-2 (Scene 11) finally attacks.`,
-    ];
-    return c[step];
-  },
-  codeRef(step) {
-    if (step >= 5) {
-      return `<span class="src">code: app/test_fused_maj.cpp (tool A/B)</span>
-<span class="cm">A  = production shape: per-col write W +</span>
-<span class="cm">     [broadcast, 11 uniform wrRows, frac×3,</span>
-<span class="cm">      MAJ3, read]</span>
-<span class="cm">B2 = fused: clone backup→Rfirst + [broadcast,</span>
-<span class="cm">     5 wrRows + 2 coset doubleACTs, frac×3,</span>
-<span class="cm">     MAJ3, read] — 5/5/5 balance kept</span>
-<span class="hl">iters=100: 0.357/0.556 → 0.089/0.085 ms/MAJ</span>
-<span class="hl">= 3.99× / 6.53×; 0/204,800 bad per die</span>
-
-<span class="src">code: app/test_bitnet_server.cpp (PIM_FUSED_COSET)</span>
-<span class="cm">coset activation update in the MAJ3 body;</span>
-<span class="cm">x on {1,5,9,13}+{4}, zeros on {2,6,10,14}+{8}</span>
-<span class="cm">opt-in — server default 0 (BitNet prod: OFF)</span>
-
-<span class="src">code: python/ab_fused_server.py</span>
-<span class="cm">same --seed → byte-identical requests;</span>
-<span class="cm">baseline vs PIM_FUSED_COSET=1 arm:</span>
-<span class="hl">1.45–1.6×/matmul; real model 1.63×/8-tok run</span>`;
-    }
-    return `<span class="src">code: test_bitnet_server.cpp:228-300</span>
-<span class="cm">emit_bank_combined_body — the 8 phases per MAJ:</span>
-<span class="cm">  1. RowCopy   (doubleACT)</span>
-<span class="cm">  2. Multi-RowCopy (doubleACT)</span>
-<span class="cm">  3. wrRow × K  (set up replicas)</span>
-<span class="cm">  4. Frac × K</span>
-<span class="cm">  5. MAJ APA   (doubleACT)</span>
-<span class="cm">  6. READ row buffer  → DRAM bus</span>
-
-<span class="src">code: test_bitnet_server.cpp:541 (host POPCNT)</span>
-segment_popcount(row_buf, out, n);
-<span class="cm">runs on host after each MAJ readback</span>
-
-<span class="src">paper: POPCNT3 §1 + §3</span>
-<span class="cm">"off-chip data transfer the primary performance</span>
-<span class="cm"> bottleneck" for PuD accumulation</span>
-<span class="cm">→ proposed fix: compute POPCNT3 INSIDE DRAM</span>
-<span class="cm">  using MAJX with reference rows</span>
-<span class="cm">→ measured: 27×–348× vs A100 GPU on bulk</span>
-<span class="cm">  bitwise accumulation, depending on kernel size</span>
-<span class="cm">  (348× at K=7×N=65536; 27× at K=127×N=65536)</span>
-<span class="cm">  Their setup: 256 parallel banks (4 DIMMs × 64)</span>`;
-  }
-};
-
-// =============================================================
-// SCENE 10 — The merge: killing the readout wall (NEW July 2026)
-// =============================================================
-const sceneMerge = {
-  title: 'Scene 10 — The merge: in-DRAM accumulation, and why readout bytes are not the wall',
-  steps: 5,
-  render(step) {
-    clearScene();
-    if (step === 0) {
-      sceneRoot.appendChild(text(500, 25, 'the byte hypothesis: every popcount input crosses the bus as a full row — so collapse the bytes?', 'label hl'));
-      sceneRoot.appendChild(rect(120, 90, 760, 120, '', { fill: '#1d2230', stroke: '#ffd479', rx: 4 }));
-      sceneRoot.appendChild(text(500, 118, 'one BitNet output lane at d_in = 2560 needs K = 2560 product rows popcounted', 'label'));
-      sceneRoot.appendChild(text(500, 146, 'host-popcount path: 2560 × 8 KiB row reads per lane batch', 'label hl'));
-      sceneRoot.appendChild(text(500, 174, '(Scene 9 named TWO costs: the readout byte volume AND the round-trip latency)', 'label dim'));
-      sceneRoot.appendChild(text(500, 260, 'July 2026: the MVDRAM-reproduction machinery (companion explainer) was turned on', 'label'));
-      sceneRoot.appendChild(text(500, 284, 'our own ternary LLM\'s readout — the two project tracks MERGED', 'label hl cyan'));
-      sceneRoot.appendChild(text(500, 330, 'two independent roads collapse those bytes; both built + measured — the wall\'s response is the finding', 'label hl'));
-      sceneRoot.appendChild(text(320, 380, 'Road A — sum IN DRAM', 'label hl'));
-      sceneRoot.appendChild(text(320, 402, '(faithful to a real PIM substrate)', 'label dim'));
-      sceneRoot.appendChild(text(680, 380, 'Road B — sum in FPGA logic', 'label hl'));
-      sceneRoot.appendChild(text(680, 402, '(exact, rig-specific)', 'label dim'));
-    }
-    else if (step === 1) {
-      sceneRoot.appendChild(text(500, 25, 'Road A: a carry-save tree of dual-track full adders, entirely in DRAM', 'label hl'));
-      sceneRoot.appendChild(text(500, 60, 'carry = MAJ3(a,b,c)   ·   sum = MAJ5(a,b,c,¬carry,¬carry)   — K product rows → ceil(log₂(K+1)) result rows', 'label'));
-      const rows = [
-        ['K',  'lanes exact', 'result-bit err', 'rows read (in-DRAM vs host)', 'reduction'],
-        ['8',  '99.73%', '0.111%', '4 vs 8',  '2.0×'],
-        ['16', '99.47%', '0.182%', '5 vs 16', '3.2×'],
-        ['32', '98.98%', '0.341%', '6 vs 32', '5.3×'],
-        ['64', '98.64%', '0.488%', '7 vs 64', '9.1×'],
-      ];
-      const tx = 110, ty = 110, cw = [70, 150, 170, 280, 120], rh = 34;
-      for (let r = 0; r < rows.length; r++) {
-        let x = tx;
-        for (let c = 0; c < rows[r].length; c++) {
-          sceneRoot.appendChild(rect(x, ty + r*rh, cw[c], rh, '', { fill: r === 0 ? '#1d2230' : '#131722', stroke: '#2a2f3d' }));
-          sceneRoot.appendChild(text(x + cw[c]/2, ty + r*rh + rh/2, rows[r][c], r === 0 ? 'label hl' : 'label'));
-          x += cw[c];
-        }
-      }
-      sceneRoot.appendChild(text(500, ty + rows.length*rh + 40, 'measured on silicon, screened columns, ZERO+2 reference policy (die A, s78 tuple)', 'label dim'));
-      sceneRoot.appendChild(text(500, ty + rows.length*rh + 75, 'extrapolating the K/ceil(log₂(K+1)) law to BitNet\'s K = 2560:  12 result rows instead of 2560  =  213×', 'label hl cyan'));
-      sceneRoot.appendChild(text(500, ty + rows.length*rh + 100, 'the carry track stays ~exact (MAJ3), so errors do not cascade — the tree is non-accumulating by construction', 'label dim'));
-    }
-    else if (step === 2) {
-      sceneRoot.appendChild(text(500, 25, 'the honest economics: readout-ROW reduction ≠ wall-time win (yet)', 'label hl'));
-      const items = [
-        ['as measured today (host-marshalled operands)', 'in-DRAM tile is ~320× SLOWER than packed readout at K=64 (0.706 s vs ≈2.2 ms) — loading each adder\'s operands moves MORE bus data than the readout it saves', '#ff6b6b'],
-        ['measured primitive rates (packed programs)', 'row read 34.2 µs   ·   MAJ-only doubleACT 2.6 µs   →   crossover condition 3·t_MAJ < t_read holds with 4.4× margin once operands are RESIDENT', '#ffd479'],
-        ['fully-resident faithful tile (built + measured)', '58 ops/product ≈ 4–6× slower than packed readout on THIS host-round-trip rig, single-bank; bank-parallel ×4 + sparsity ≈ par. Value = mechanism fidelity + portability', '#22c1c3'],
-        ['on a streaming PIM controller (the portable claim)', 'an op costs ~100 ns of command issue, a readout costs an 8 KB transfer — 58 ops/product wins decisively. This is where the 213× becomes real', '#3a86ff'],
-      ];
-      const x0 = 90, y0 = 80, dy = 108;
-      for (let i = 0; i < items.length; i++) {
-        const y = y0 + i*dy;
-        sceneRoot.appendChild(rect(x0, y, 820, dy - 14, '', { fill: '#1d2230', stroke: items[i][2], 'stroke-width': 1.5, rx: 4 }));
-        sceneRoot.appendChild(text(x0 + 18, y + 20, items[i][0], 'label hl', 'start'));
-        const words = items[i][1].split(' ');
-        const third = Math.ceil(words.length / 3);
-        sceneRoot.appendChild(text(x0 + 18, y + 44, words.slice(0, third).join(' '), 'label', 'start'));
-        sceneRoot.appendChild(text(x0 + 18, y + 62, words.slice(third, 2*third).join(' '), 'label', 'start'));
-        sceneRoot.appendChild(text(x0 + 18, y + 80, words.slice(2*third).join(' '), 'label', 'start'));
-      }
-    }
-    else if (step === 3) {
-      sceneRoot.appendChild(text(500, 25, 'Road B: an FPGA-side popcount accumulator (ACCUM_XBP, build-8b bitstream)', 'label hl'));
-      sceneRoot.appendChild(rect(140, 80, 720, 150, '', { fill: '#1d2230', stroke: '#22c1c3', rx: 4 }));
-      sceneRoot.appendChild(text(500, 108, 'the readback engine popcounts the row AS IT STREAMS BY and drains one 32-bit total', 'label'));
-      sceneRoot.appendChild(text(500, 136, '8 KiB per matmul readback  →  4 B   =   2048×, bit-EXACT — FLASHED + silicon-validated both dies (07-22)', 'label hl'));
-      sceneRoot.appendChild(text(500, 164, 'validated on both hynix dies (b2 + b0): 0/2048 exact; ladder + DIFF suites clean', 'label dim'));
-      sceneRoot.appendChild(text(500, 192, '(co-resident fix: the stock pop_count4.v undercounts nibble 0xE — found in HDL review, fixed)', 'label dim'));
-      sceneRoot.appendChild(text(500, 280, 'production A/B verdict (the point of building it):', 'label hl'));
-      sceneRoot.appendChild(text(500, 310, 'recv collapses 24.8 → 6.9 ms/req (~3.6×) — REAL and measured', 'label'));
-      sceneRoot.appendChild(text(500, 336, 'but exec inflates 8.6 → 40 ms (each execute still spawns a receiver + XDMA wake): net +8% wall', 'label'));
-      sceneRoot.appendChild(text(500, 362, '→ NET-NEGATIVE in production — the per-EXECUTE round-trip is the binding term, not the drained bytes', 'label hl cyan'));
-      sceneRoot.appendChild(text(500, 410, 'so Road B is the cleanest proof of the Scene-9 thesis: collapsing readout bytes does NOT move the wall on a host-round-trip rig', 'label dim'));
-    }
-    else if (step === 4) {
-      sceneRoot.appendChild(text(500, 25, 'the decision (ADR-005): keep BOTH roads, publish the comparison, never blend', 'label hl'));
-      const cols = [
-        ['', 'Road A — in-DRAM adder', 'Road B — ACCUM_XBP (build-8b)'],
-        ['mechanism', 'CSA tree of dual-track adders in DRAM', 'FPGA-side popcount aggregator'],
-        ['readout reduction', '213× rows (K=2560)', '2048× bytes (8 KiB → 4 B)'],
-        ['exactness', '98.6–99.7% lane (MAJ5 error)', 'bit-EXACT, both dies'],
-        ['bitstream', 'none needed (runs today)', 'flashed build-8b (validated)'],
-        ['production A/B', '≈par, needs a streaming substrate', 'NET-NEGATIVE (+8% wall)'],
-        ['what it shows', 'faithful MVDRAM-style in-DRAM accumulation', 'readout bytes are NOT the wall'],
-      ];
-      const tx = 80, ty = 60, cw = [180, 330, 330], rh = 36;
-      for (let r = 0; r < cols.length; r++) {
-        let x = tx;
-        for (let c = 0; c < 3; c++) {
-          sceneRoot.appendChild(rect(x, ty + r*rh, cw[c], rh, '', { fill: r === 0 ? '#1d2230' : '#131722', stroke: '#2a2f3d' }));
-          sceneRoot.appendChild(text(x + cw[c]/2, ty + r*rh + rh/2, cols[r][c], r === 0 || c === 0 ? 'label hl' : 'label'));
-          x += cw[c];
-        }
-      }
-      sceneRoot.appendChild(text(500, ty + cols.length*rh + 30, 'a real DRAM-PIM ASIC has no FPGA popcount logic → the reproduction claim rides Road A only', 'label'));
-      sceneRoot.appendChild(text(500, ty + cols.length*rh + 52, 'Road B is flashed + silicon-validated but production net-negative (+8%) — KEPT as the cost-model proof, not the deployed path', 'label'));
-      sceneRoot.appendChild(text(500, ty + cols.length*rh + 76, 'packing cuts round-trips (the wall); the roads cut bytes (banked until trips are cut) — the real end-state cuts BOTH', 'label hl cyan'));
-      sceneRoot.appendChild(text(500, ty + cols.length*rh + 100, 'where the byte-vs-trip thread leads: an on-die orchestrator that ENDS the round-trip', 'label hl'));
-      sceneRoot.appendChild(text(500, ty + cols.length*rh + 118, '— Rung-2a probe 27/27 byte-exact (Verilator 07-27), build-27 in flight', 'label hl'));
-    }
-  },
-  caption(step) {
-    const c = [
-      `<b>The two project tracks merged in July 2026.</b> Scene 9 named two costs — the readout <em>byte</em> volume and the round-trip <em>latency</em>. The MVDRAM reproduction (see the <a href="mvdram.html">companion explainer</a>) built exactly the machinery that collapses the bytes: an in-DRAM adder. Applying it to our own ternary LLM's readout is the merge — plus a second, FPGA-side road built in parallel. What happened to the wall when the bytes collapsed is the point of this scene.`,
-      `<b>Road A works on silicon.</b> A carry-save tree of dual-track full adders (carry=MAJ3, sum=MAJ5 with the inverted carry twice) reduces K product rows to ceil(log₂(K+1)) result rows read out. Measured: <b>98.6–99.7% of output lanes exact at K=8..64</b>, readout reduced 2.0×→9.1×, which extrapolates to <b>213× at BitNet's K=2560</b>. The carry track is essentially error-free MAJ3 and sum bits never feed forward, so the tree does not accumulate error — the deeper reason this is viable on commodity DRAM at all.`,
-      `<b>Stated honestly: rows saved is not (yet) time saved.</b> In the host-marshalled shape measured first, loading each adder's operands costs more bus traffic than the readout it saves — ~320× slower at K=64. The measured packed-program primitive rates (34.2 µs/row-read vs 2.6 µs/MAJ) prove the crossover flips once operands are <em>resident</em>; the fully-resident faithful tile was then built and measured at 58 ops/product — still 4–6× slower than packed readout <em>on this host-round-trip FPGA rig</em>, ≈par with bank-parallelism + sparsity. Its demonstrated value is the mechanism and its portability: on a streaming PIM controller (~100 ns/op, no per-op host round-trip) 58 ops beats an 8 KB transfer decisively.`,
-      `<b>Road B shipped — and confirmed bytes aren't the wall.</b> An FPGA-side accumulator (ACCUM_XBP, build-8b) popcounts the readback stream and returns one 32-bit total: <b>8 KiB → 4 B (2048×), bit-exact</b>, flashed and silicon-validated on both hynix dies (0/2048 exact, 07-22). En route it surfaced a real HDL bug (stock pop_count4.v undercounts nibble 0xE, fixed). But the production A/B is <b>net-negative (+8% wall)</b>: the recv collapse is real (24.8→6.9 ms/req, ~3.6×) yet exec inflates to eat it, because each execute still pays a host round-trip. Road B is the cleanest proof of the Scene-9 thesis — on a host-orchestrated rig the <em>round-trip count</em> is the wall, and collapsing readout bytes does not move it.`,
-      `<b>Keep both — they answer different questions.</b> Road A carries the DRAM-PIM reproduction claim (a real PIM substrate has no FPGA logic); Road B is the exact, rig-bound accumulator — <em>flashed and silicon-validated, but production net-negative (+8%)</em>, which is exactly why it is worth keeping: it is the cleanest proof that readout bytes are not the wall. Both compose with multi-body packing (~2.3× from amortizing per-program dispatch): packing removes round-trips (the wall), the roads remove bytes (banked until the trips are cut). Where that thread actually leads is an on-die orchestrator that ends the host round-trip entirely — first evidence is now on the bench: a <b>Rung-2a</b> probe returns <b>27/27 byte-exact</b> integer partials against a CPU oracle in Verilator (07-27), with build-27 in flight.`,
-    ];
-    return c[step];
-  },
-  codeRef(step) {
-    return `<span class="src">code: app/test_popcount_indram.cpp (Road A)</span>
-<span class="cm">CSA tree of dual-track FAs over K product rows</span>
-<span class="hl">K=8..64: 99.73→98.64% lanes exact;</span>
-<span class="hl">readout K → ceil(log2(K+1)) rows = 213× @ K=2560</span>
-
-<span class="src">code: app/test_packed_maj.cpp (primitive rates)</span>
-<span class="cm">packed M=29 bodies: read 34.2 µs, MAJ 2.6 µs</span>
-<span class="cm">multi-body packing ~2.3× (7688-inst programs)</span>
-
-<span class="src">code: app/test_resident_tile.cpp (resident tile)</span>
-<span class="cm">58 ops/product measured; sim-gated schedule</span>
-
-<span class="src">hdl: ACCUM_XBP build-8b + pop_count4.v 0xE fix (Road B)</span>
-<span class="cm">8 KiB→4 B (2048×) bit-exact; FLASHED + silicon-</span>
-<span class="cm">validated both dies; production A/B = +8% (net-neg)</span>
-
-<span class="src">rtl: on-fabric orchestrator (Rung-2a, build-27)</span>
-<span class="cm">probe 27/27 byte-exact vs CPU oracle (Verilator 07-27)</span>
-
-<span class="src">docs: ADR-005 readout-killer decision</span>
-<span class="cm">Road A = reproduction claim; Road B = cost-model proof;</span>
-<span class="cm">publish comparison, never blend</span>`;
-  }
-};
-
-// =============================================================
-// SCENE 11 — The production arc (NEW July 2026)
-// =============================================================
-const sceneArc = {
-  title: 'Scene 11 — The production arc: campaign 1 (632 → 47.5 s/tok), then the −64.7% stack',
-  steps: 7,
-  render(step) {
-    clearScene();
-    const arc = [
-      ['May 2026 baseline', 632, '#6b8ec9'],
-      ['8K IMEM + fused coset (+4 bug fixes)', 360.8, '#3a86ff'],
-      ['clone-dead law → unvoted', 137.1, '#22c1c3'],
-      ['steady-state (48-token) rate', 80.5, '#ffd479'],
-      ['dual-DIMM, balanced V2 split', 47.5, '#f97316'],
-    ];
-    if (step === 0) {
-      sceneRoot.appendChild(text(500, 25, 'full-model BitNet b1.58-2B, all 30 layers × 7 projections through DRAM — seconds per token', 'label hl'));
-      const bx = 400, by0 = 80, bh = 56, scale = 0.72;
-      for (let i = 0; i < arc.length; i++) {
-        const y = by0 + i * (bh + 26);
-        const w = Math.max(10, arc[i][1] * scale);
-        sceneRoot.appendChild(text(bx - 14, y + bh/2, arc[i][0], 'label', 'end'));
-        sceneRoot.appendChild(rect(bx, y, w, bh, '', { fill: arc[i][2], opacity: 0.8, rx: 3 }));
-        sceneRoot.appendChild(text(bx + w + 14, y + bh/2, `${arc[i][1]} s/tok`, 'label hl', 'start'));
-      }
-      sceneRoot.appendChild(text(500, by0 + 5*(bh+26) + 14, '13.3× in one campaign — and the model\'s ANSWER got cleaner at every hop ("Paris", every config)', 'label hl cyan'));
-    }
-    else if (step === 1) {
-      sceneRoot.appendChild(text(500, 25, '632 → 360.8 (1.75×): the 8K-IMEM bitstream + the fused coset body — and four host bugs', 'label hl'));
-      sceneRoot.appendChild(text(500, 62, 'levers: 8192-instruction IMEM (one-variable rebuild) + PIM_FUSED_COSET (Scene 9 steps 6-7)', 'label'));
-      const bugs = [
-        ['1. relative pool-file path', 'silently fell back to an unscreened stride pool OUTSIDE the calibrated window → all weights in wrong rows', 'fix: absolute paths; unreadable explicit config is now FATAL, never a fallback'],
-        ['2. id()-keyed bitplane cache', 'the allocator recycles freed arrays\' addresses → later positions read earlier positions\' stale activations (deterministic, prompt-shape-dependent)', 'fix: content-keyed cache'],
-        ['3. V2-scratch / LOAD collision', 'scratch rows drawn over the whole pool destroyed LOAD-resident weights at full-model scale only', 'fix: reserved scratch tail (PIM_V2_SCRATCH)'],
-        ['4. mis-scoped voting extras', 'the env subarray window forced wrong-subarray pools onto the extra voting calibs → every voting trip was garbage', 'fix: window scoped per-calib'],
-      ];
-      const x0 = 70, y0 = 96, dy = 106;
-      for (let i = 0; i < bugs.length; i++) {
-        const y = y0 + i*dy;
-        sceneRoot.appendChild(rect(x0, y, 860, dy - 12, '', { fill: '#1d2230', stroke: '#ff6b6b', rx: 4 }));
-        sceneRoot.appendChild(text(x0 + 16, y + 19, bugs[i][0], 'label hl', 'start'));
-        sceneRoot.appendChild(text(x0 + 16, y + 43, bugs[i][1].slice(0, 105), 'label', 'start'));
-        if (bugs[i][1].length > 105) sceneRoot.appendChild(text(x0 + 16, y + 61, bugs[i][1].slice(105), 'label', 'start'));
-        sceneRoot.appendChild(text(x0 + 16, y + 81, bugs[i][2], 'label cyan', 'start'));
-      }
-      sceneRoot.appendChild(text(500, y0 + 4*dy + 8, 'silicon was clean throughout — every one was host-side. New rule: no production change is validated without one FULL-MODEL run', 'label dim'));
-    }
-    else if (step === 2) {
-      sceneRoot.appendChild(text(500, 25, '360.8 → 137.1 (2.6×): the clone-dead law dissolves the voting tax', 'label hl'));
-      const rows = [
-        ['config', 's/tok', 'output'],
-        ['voted, May pool (the T4 headline)', '360.8', '‘Paris’ + wander'],
-        ['UNVOTED, May pool', '134.8', 'garbage — voting looked load-bearing'],
-        ['UNVOTED, clone-ok pool', '137.1', '‘Paris’, on-topic, grammatical'],
-        ['voted, clone-ok pool', '372.5', 'BYTE-IDENTICAL text to unvoted'],
-      ];
-      const tx = 90, ty = 70, cw = [400, 110, 310], rh = 36;
-      for (let r = 0; r < rows.length; r++) {
-        let x = tx;
-        for (let c = 0; c < 3; c++) {
-          sceneRoot.appendChild(rect(x, ty + r*rh, cw[c], rh, '', { fill: r === 0 ? '#1d2230' : '#131722', stroke: '#2a2f3d' }));
-          sceneRoot.appendChild(text(x + cw[c]/2, ty + r*rh + rh/2, rows[r][c], r === 0 ? 'label hl' : (r === 3 ? 'label cyan' : 'label')));
-          x += cw[c];
-        }
-      }
-      sceneRoot.appendChild(text(500, ty + rows.length*rh + 32, 'why voting SEEMED necessary: ~17% of rows cannot RowClone into the tuple (partial clones)', 'label'));
-      sceneRoot.appendChild(text(500, ty + rows.length*rh + 56, 'and the May pool construction ANTI-selected them: clone-dead rows have fault-sweep degree 0', 'label'));
-      sceneRoot.appendChild(text(500, ty + rows.length*rh + 80, '→ 108/294 pool rows + 9/16 scratch-tail rows were partial-clone rows; voting was papering over them', 'label hl'));
-      sceneRoot.appendChild(text(500, ty + rows.length*rh + 112, 'the law is closed-form and held-out-validated 2,496/2,496 (companion explainer, Scene 6) — pools are now built by predicate', 'label hl cyan'));
-    }
-    else if (step === 3) {
-      sceneRoot.appendChild(text(500, 25, '137.1 → 80.5: not a lever — an honest measurement at steady state', 'label hl'));
-      sceneRoot.appendChild(rect(140, 90, 720, 200, '', { fill: '#1d2230', stroke: '#ffd479', rx: 4 }));
-      sceneRoot.appendChild(text(500, 120, 'the 8-token benchmark shape carries fixed costs: prefill + weight loading', 'label'));
-      sceneRoot.appendChild(text(500, 148, 'a 48-token generation amortizes them: marginal rate 80.5 s/token', 'label hl'));
-      sceneRoot.appendChild(text(500, 176, 'text stayed stable and on-topic across all 48 tokens (‘Paris’ every QA cycle)', 'label'));
-      sceneRoot.appendChild(text(500, 204, 'voting re-tested at this scale: no benefit — off by default on clone-ok pools', 'label'));
-      sceneRoot.appendChild(text(500, 232, 'production config: clone-ok pools + unvoted + fused + resident consts', 'label dim'));
-      sceneRoot.appendChild(text(500, 260, '(8-tok and 48-tok figures are DIFFERENT quantities — both reported, never mixed)', 'label dim'));
-    }
-    else if (step === 4) {
-      sceneRoot.appendChild(text(500, 25, '80.5 → 47.5 (1.91× per token-matmul): the second DIMM, actually balanced', 'label hl'));
-      const rows = [
-        ['run', 'wall', 'DIMM-0 traffic', 'DIMM-2 traffic'],
-        ['dual-DIMM, first attempt', '90.3 s/tok (WORSE)', '15,510 calls / 23.5 GB', '628 calls / 51 MB'],
-        ['dual-DIMM, balanced', '47.5 s/tok', '15,209 / 11,731.1 MB', '15,151 / 11,732.1 MB'],
-      ];
-      const tx = 60, ty = 70, cw = [240, 200, 230, 230], rh = 40;
-      for (let r = 0; r < rows.length; r++) {
-        let x = tx;
-        for (let c = 0; c < 4; c++) {
-          sceneRoot.appendChild(rect(x, ty + r*rh, cw[c], rh, '', { fill: r === 0 ? '#1d2230' : '#131722', stroke: '#2a2f3d' }));
-          sceneRoot.appendChild(text(x + cw[c]/2, ty + r*rh + rh/2, rows[r][c], r === 0 ? 'label hl' : 'label'));
-          x += cw[c];
-        }
-      }
-      sceneRoot.appendChild(text(500, ty + 3*rh + 28, 'the defect: streamed (V2) requests — 98% of production traffic — were hardwired to server[0]', 'label'));
-      sceneRoot.appendChild(text(500, ty + 3*rh + 52, 'a single-DIMM-era line the multi-DIMM plumbing never touched; DIMM 2 sat starved', 'label dim'));
-      sceneRoot.appendChild(text(500, ty + 3*rh + 84, 'fix: split every streamed request\'s contraction dim across DIMMs (concurrent halves, host adds partial sums)', 'label hl'));
-      sceneRoot.appendChild(text(500, ty + 3*rh + 108, 'per token-matmul 70.2 → 36.8 s = 1.91×, at 96% of the ideal-halving bound; text byte-identical', 'label hl cyan'));
-      sceneRoot.appendChild(text(500, ty + 3*rh + 140, 'bytes balanced to 0.01% across the two dies', 'label dim'));
-    }
-    else if (step === 5) {
-      sceneRoot.appendChild(text(500, 25, 'the through-line: every speed hop came with equal-or-better output', 'label hl'));
-      const items = [
-        ['deterministic wrongness = logic, never noise', 'byte-identical wrong output across runs pointed at the cache bug, the pool paths, the label collision — silicon was exonerated each time by a discriminator, not by assumption'],
-        ['drift physics found + hardened against', 'resident rows drift under same-subarray traffic (deposit physics, not decay); refresh restores CHARGE, not CONTENT — this predicted the resident-constants regression, fixed by a per-request content rewrite (~0.5 ms)'],
-        ['the cleanest outputs came LAST', 'the fastest configs produce the cleanest recorded text — a 13.3× speedup with correctness improving, because most of the "noise" was bugs and physics with names'],
-      ];
-      const x0 = 80, y0 = 80, dy = 128;
-      for (let i = 0; i < items.length; i++) {
-        const y = y0 + i*dy;
-        sceneRoot.appendChild(rect(x0, y, 840, dy - 16, '', { fill: '#1d2230', stroke: '#22c1c3', 'stroke-width': 1.5, rx: 4 }));
-        sceneRoot.appendChild(text(x0 + 18, y + 24, items[i][0], 'label hl', 'start'));
-        const words = items[i][1].split(' ');
-        const third = Math.ceil(words.length / 3);
-        sceneRoot.appendChild(text(x0 + 18, y + 50, words.slice(0, third).join(' '), 'label', 'start'));
-        sceneRoot.appendChild(text(x0 + 18, y + 70, words.slice(third, 2*third).join(' '), 'label', 'start'));
-        sceneRoot.appendChild(text(x0 + 18, y + 90, words.slice(2*third).join(' '), 'label', 'start'));
-      }
-      sceneRoot.appendChild(text(500, y0 + 3*dy + 12, 'and the arc did NOT stop here — a second campaign followed (next step):', 'label dim'));
-      sceneRoot.appendChild(text(500, y0 + 3*dy + 30, 'activation-quant, phase-2 send-ahead, and the second model family', 'label dim'));
-    }
-    else if (step === 6) {
-      sceneRoot.appendChild(text(500, 25, 'the second campaign (past 07-20): activation-quant + phase-2 — the current frontier', 'label hl'));
-      const rows = [
-        ['production stack (full-model, dimm2 V2 path)', 's wall', 'vs K=8'],
-        ['K=8, plain, no-stream  (before-everything baseline)', '973.2', '—'],
-        ['+ K=6 activation quant', '762.3', '−21.7%'],
-        ['+ fused-coset  (opt-in)', '623.5', '—'],
-        ['+ phase-2 send-ahead', '343.7', '−64.7%'],
-      ];
-      const tx = 110, ty = 58, cw = [500, 130, 150], rh = 32;
-      for (let r = 0; r < rows.length; r++) {
-        let x = tx;
-        for (let c = 0; c < 3; c++) {
-          sceneRoot.appendChild(rect(x, ty + r*rh, cw[c], rh, '', { fill: r === 0 ? '#1d2230' : (r === rows.length-1 ? '#12291b' : '#131722'), stroke: '#2a2f3d' }));
-          sceneRoot.appendChild(text(x + cw[c]/2, ty + r*rh + rh/2, rows[r][c], r === 0 ? 'label hl' : (r === rows.length-1 ? 'label cyan' : 'label')));
-          x += cw[c];
-        }
-      }
-      const yb = ty + rows.length*rh;
-      sceneRoot.appendChild(text(500, yb + 24, 'new headline: K6 + fused + phase-2 = −64.7% (973.2 → 343.7 s, still "…Paris") — supersedes 632→47.5 / 13.3×', 'label hl cyan'));
-      sceneRoot.appendChild(text(500, yb + 48, 'phase-2 send-ahead is the FIRST lever to cut recv (112 → 57 ms, −26.3%, silicon build-26, now the production default)', 'label'));
-      sceneRoot.appendChild(text(500, yb + 70, 'K-quant (PIM_ACT_K) shipped all 3 families, token-identical, client-only:  1-bit −21.7%  ·  ternary −22.2%  ·  BitNet-2B −32.2%', 'label'));
-      sceneRoot.appendChild(text(500, yb + 92, 'second family Bonsai-1.7B (Qwen3 g128): 1-bit single-track ladder 100 → 18.7 s/tok = 5.36× stacked', 'label dim'));
-      sceneRoot.appendChild(text(500, yb + 122, 'two bets that rode this lattice closed NEGATIVE since 07-20 — recorded, not hidden:', 'label hl'));
-      sceneRoot.appendChild(text(500, yb + 144, 'M3 coset-deposit — body recomputes its row, shadow never read; retracted (PR #16, merged 07-28), machinery excised (−286 lines)', 'label'));
-      sceneRoot.appendChild(text(500, yb + 166, 'X-master-clone — RowClone seed is charge-shared (x′≠x, corr ≈0.94–0.97', 'label'));
-      sceneRoot.appendChild(text(500, yb + 184, 'depth-flat at production density); −9.9% retracted, V2S hard-gated', 'label'));
-    }
-  },
-  caption(step) {
-    const c = [
-      `<b>One campaign, 13.3×.</b> The full model (BitNet b1.58-2B, every ternary linear of all 30 layers computed in DRAM) went from 632 s/token (May) to 47.5 s/token (July 20) in four hops. Each hop has a name, a mechanism, and a log — and none of them traded correctness for speed. The answer to "What is the capital of France?" stayed "Paris" at every hop, with the cleanest text coming from the fastest configs.`,
-      `<b>Hop 1 — infrastructure + fused coset, and the bug quartet.</b> The 8K-IMEM bitstream removed the 2048-instruction program ceiling, and the coset-addressed fused MAJ body (Scene 9) landed in production. En route, the full model failed while every layer-0 test passed — four stacked host-side bugs (config fallback, stale cache, pool collision, mis-scoped voting), each found by a discriminating experiment and fixed. <b>Silicon was clean the whole time.</b> The standing rule since: layer-0 validation cannot see pool-scale bugs; every production change gets one full-model run.`,
-      `<b>Hop 2 — the voting economics, dissolved by a law.</b> 3× voting (2.7× cost) had looked load-bearing: unvoted runs produced garbage. The clone-dead law (companion explainer) showed why: ~17% of rows can't be RowClone-loaded into the compute tuple, and the May pool construction had <em>preferentially selected</em> exactly those rows — the same weak coupling that makes a row clone-dead hides it from the fault sweep. On a clone-clean pool (built by the law's predicate), unvoted retains Paris-class output at 137.1 s/tok, and the voted arm produces <b>byte-identical text</b> — the tax bought nothing anymore. <span class="ex">EXAMPLE of scientific honesty: the voted 372.5 run is reported alongside, not hidden.</span>`,
-      `<b>Hop 3 — measuring instead of claiming.</b> 137.1 (8-token) and 80.5 (48-token marginal rate) are different quantities: the short benchmark carries prefill + weight-load overhead that a longer generation amortizes. Reporting the steady-state rate honestly required running 48 tokens and confirming text stability throughout. Voting was re-tested at this scale too: no benefit on clone-ok pools.`,
-      `<b>Hop 4 — the second DIMM was there all along.</b> The first dual-DIMM attempt made things WORSE (90.3 s/tok): the streamed-request path — 98% of production traffic — was hardwired to the first server by a single-DIMM-era line, so DIMM 2 got 0.4% of the bytes. The fix splits every streamed request's contraction dimension across DIMMs as concurrent partial sums (the same y=Σ math the resident split already used). Result: <b>47.5 s/tok, 1.91× per token-matmul, 96% of the ideal-halving bound</b>, traffic balanced to 0.01%, output byte-identical.`,
-      `<b>Why correctness rose with speed.</b> Three standing practices: (1) byte-identical wrong output across runs is treated as logic, never as silicon noise — that discipline found every bug in the quartet; (2) the drift physics (see companion explainer Scene 7: traffic-induced deposits that refresh cannot undo, because refresh restores charge, not content) was characterized before it was mitigated, and it <em>predicted</em> the one regression it later caused in production (resident constant rows), which was fixed with a per-request rewrite; (3) laws replaced screening — pools, clone sources, and coset addressing are now computed from closed-form predicates validated on held-out silicon. The result is a system that got 13.3× faster while its recorded outputs got cleaner.`,
-      `<b>The arc did not stop at 47.5.</b> A second campaign — past 07-20, and now on a second model family — redefined the frontier. Two levers landed. <b>Activation-quant</b> (<code>PIM_ACT_K</code>) sends fewer bitplanes per activation — client-side, no bitstream, token-identical, gated on per-op correlation rather than token identity — for <b>−21.7%</b> (1-bit) / <b>−22.2%</b> (ternary) / <b>−32.2%</b> (BitNet-2B). <b>Phase-2 send-ahead</b> is the first lever to actually cut <code>recv</code> (112 → 57 ms, <b>−26.3%</b>, silicon-validated on build-26, now the production default). Stacked on the dimm2 full-model path: <b>K6 + fused + phase-2 = −64.7%</b> (973.2 → 343.7 s, still "…Paris") — which supersedes 632→47.5 / 13.3× as the current headline (a separate measurement series, K=8 baseline). And the second family, Bonsai-1.7B, carries its own weight-quant ladder to <b>5.36× stacked</b> (100 → 18.7 s/tok). The honest negatives are load-bearing: two bets that rode the co-activation lattice closed <em>negative</em> and are recorded as such — <b>M3 coset-deposit</b> (the body recomputes its own row, so the deposited shadow is never read; 99.4% of "deposits" were d=0 no-ops; retracted in PR #16 (merged 07-28), machinery excised, −286 lines) and <b>X-master-clone</b> (the RowClone'd activation seed sits at charge-shared, not write-driven, levels, so x′≠x; the corruption is depth-independent, corr ≈0.94–0.97 flat across depths 8–80 rounds at production density; the brief −9.9% was a max-tokens-1 gate, retracted, and V2S is now hard-gated). The same discipline that produced −64.7% is what killed the two that didn't work.`,
-    ];
-    return c[step];
-  },
-  codeRef(step) {
-    return `<span class="src">the arc, with primary records</span>
-<span class="hl">632</span>    May baseline (2048-IMEM, voted)
-<span class="hl">360.8</span>  8K + fused (RESULT.md add. 18/19/19b)
-<span class="hl">137.1</span>  clone-ok unvoted (add. 22; o8 logs)
-<span class="hl">80.5</span>   48-tok steady state (O2 close)
-<span class="hl">47.5</span>   dual-DIMM split-V2 (add. 25)
-
-<span class="src">second campaign (past 07-20)</span>
-<span class="hl">973.2→343.7</span>  K6+fused+phase-2 = −64.7% "…Paris"
-<span class="hl">−26.3%</span>  phase-2 build-26 (recv 112→57 ms, default)
-<span class="hl">5.36×</span>  Bonsai 1-bit ladder (100 → 18.7 s/tok)
-<span class="cm">M3 retracted (PR #16 merged 07-28, −286 lines); X-master closed</span>
-<span class="cm">negative (charge-shared seed x′≠x, V2S hard-gated)</span>
-
-<span class="src">code: python/pim_linear.py</span>
-<span class="cm">content-keyed bitplane cache (bug 2 fix);</span>
-<span class="cm">d_in-split V2 dispatch + ENOSPC latch (hop 4)</span>
-
-<span class="src">code: app/test_bitnet_server.cpp</span>
-<span class="cm">V2 scratch reserve; per-calib window scoping;</span>
-<span class="cm">fatal-on-unreadable pool file; per-request</span>
-<span class="cm">const rewrite (drift hardening)</span>
-
-<span class="src">code: app/clone_law.py</span>
-<span class="cm">the clone-dead predicate (held-out 2496/2496)</span>
-
-<span class="src">data: dimm2_fault_sweep_subs_2026_07_18/</span>
-<span class="cm">o8_fullmodel_cloneok_{unvoted,voted}.log:</span>
-<span class="cm">8 tok in 1096.7 s / 2979.9 s, same text</span>`;
-  }
-};
-
-// =============================================================
-// SCENE 12 — AI-memory wishlist
-// =============================================================
-const scene10 = {
-  title: 'Scene 12 — Wishlist: what AI-specific DRAM would change',
-  steps: 7,
-  render(step) {
-    clearScene();
-    sceneRoot.appendChild(text(500, 25, 'each item maps to a specific bottleneck or limitation', 'label hl'));
-
-    const wishlist = [
-      ['1. In-DRAM POPCNT + partial accumulation',
-       'addresses: readout BYTE volume — wall-neutral on our host-round-trip rig, a win on a streaming substrate (Scene 9/10)',
-       'prior art: POPCNT3 paper — 27×–348× vs A100 GPU on bulk bitwise accumulation (depending on kernel size)'],
-      ['2. First-class MAJ-of-K instruction in the DDR command set',
-       'addresses: today\'s out-of-spec timing tricks + per-chip calibration burden',
-       'SiMRA shows Samsung supports no multi-row activation; instruction-set support would standardise across vendors'],
-      ['3. Larger guaranteed K for many-row activation',
-       'addresses: today\'s max K = 32 (row-decoder predecoder count, SiMRA §7.1)',
-       'more replication per pass → more reliable MAJ + more parallel compute per cycle'],
-      ['4. Native fractional-value cells',
-       'addresses: vendor variability of the Frac primitive (FracDRAM observes Micron/Elpida/Nanya reject it)',
-       'native V_DD/2 cell support eliminates the back-to-back-PRE workaround'],
-      ['5. Cell uniformity binning for PuD-grade DRAM',
-       'addresses: today\'s required K (replication factor) is dominated by sense-amp threshold scatter under process variation',
-       'tighter per-cell uniformity → smaller K needed for reliable MAJ → fewer setup writes per op, more compute density'],
-      ['6. Deterministic per-chip behaviour',
-       ['addresses: residual per-part characterization — a closed-form selection law',
-        'now predicts working tuples (1691/1691, both dies)'],
-       'deterministic spec → the last per-part table comes from the data sheet, not an empirical sweep'],
-    ];
-
-    const x0 = 80;
-    const itemH = 70;
-    const y0 = 80;
-
-    for (let i = 0; i < wishlist.length; i++) {
-      const y = y0 + i * (itemH + 10);
-      const active = step >= i + 1 || step === 0;
-      sceneRoot.appendChild(rect(x0, y, 840, itemH, '', {
-        fill: '#1d2230',
-        stroke: active ? '#22c1c3' : '#2a2f3d',
-        'stroke-width': active ? 2 : 1,
-        rx: 4,
-        opacity: step === 0 ? 0.5 : (step > i + 1 ? 0.4 : (step === i + 1 ? 1 : 0.7))
-      }));
-      sceneRoot.appendChild(text(x0 + 20, y + 18, wishlist[i][0], 'label hl', 'start'));
-      const d1 = Array.isArray(wishlist[i][1]) ? wishlist[i][1] : [wishlist[i][1]];
-      if (d1.length === 1) {
-        sceneRoot.appendChild(text(x0 + 20, y + 38, d1[0], 'label', 'start'));
-        sceneRoot.appendChild(text(x0 + 20, y + 56, wishlist[i][2], 'label dim', 'start'));
-      } else {
-        d1.forEach((ln, j) => sceneRoot.appendChild(text(x0 + 20, y + 34 + j*16, ln, 'label', 'start')));
-        sceneRoot.appendChild(text(x0 + 20, y + 34 + d1.length*16, wishlist[i][2], 'label dim', 'start'));
-      }
-    }
-  },
-  caption(step) {
-    const c = [
-      `<b>Six wishlist items.</b> Each one points at a specific bottleneck or limitation established in earlier scenes — no speculative items.`,
-      `<b>1. In-DRAM POPCNT.</b> Today every MAJ ships a full row to the host. If the chip computes POPCNT internally and returns the count itself, the bus payload per accumulation collapses to log-of-K bits per column. Already demonstrated on COTS DDR4 by POPCNT3 (NeurIPS 2024): 27×–348× throughput vs an A100 GPU across kernel sizes. Our own July 2026 merge (Scene 10) built and silicon-validated that road on stock DDR4 — but on this host-orchestrated rig it is wall-neutral to net-negative (+8%), because the round-trip <em>count</em>, not the byte payload, is the wall. The payload collapse becomes a real win only on a controller-native / streaming substrate that removes the per-execute round-trip.`,
-      `<b>2. First-class MAJ instruction.</b> The current APA approach uses timing violations the chip wasn't designed to support — so Samsung doesn't do multi-row activation at all, and the working timing values vary across vendors. A dedicated instruction in the DDR command set removes the calibration burden and the vendor lottery.`,
-      `<b>3. Larger guaranteed K.</b> SiMRA's row-decoder hypothesis caps K at 2^(predecoders) = 32 in current chips. Increasing the predecoder count would raise K, which both raises reliability (more replication per MAJ) and parallel compute per cycle.`,
-      `<b>4. Native V_DD/2 cells.</b> Today Frac is a timing-trick that works only on some vendors. Native support (an instruction to set a cell to V_DD/2) makes the "neutral row" trick robust and portable.`,
-      `<b>5. Cell uniformity binning for PuD-grade DRAM.</b> The reason today's MAJ needs replication (Scene 6) is sense-amp threshold scatter under process variation — a small bitline perturbation might not cross the threshold reliably. Tighter per-cell uniformity (binned at manufacture) shrinks the required K, which shrinks the per-row setup work (writes + Fracs) needed before each MAJ and packs more compute into the same row width.`,
-      `<b>6. Determinism.</b> Early on we ran multi-million-tuple sweeps per DIMM to find (R_F, R_S, K open rows) triples that produce reliable MAJs. That is now largely a solved characterization: a closed-form <em>selection law</em> predicts the working tuples with <b>1691/1691 zero exceptions on both hynix dies</b> (including a virgin, never-calibrated bank), and calibration <em>transfers</em> by copy + byte-verify — 16/16 banks classification-identical, the 3,941-fault set byte-identical across both dies and a rig change. What remains is per-part: a chip designed for PuD could publish the guaranteed triples in its data sheet, removing even that.`,
-    ];
-    return c[step];
-  },
-  codeRef() {
-    return `<span class="src">cross-refs</span>
-
-<span class="hl">1. In-DRAM POPCNT</span>
-   → Scene 9: round-trip count is the wall (bytes hide)
-   → POPCNT3 paper §3 (demonstrated on COTS DDR4)
-   → our merge: built + silicon-validated, +8% here
-
-<span class="hl">2. First-class MAJ instruction</span>
-   → SiMRA Lim. 1 (Samsung no multi-row activation)
-   → SiMRA Lim. 2 (K ∈ {2,4,8,16,32}, not user-controlled)
-
-<span class="hl">3. Larger K</span>
-   → SiMRA §7.1 (predecoder hypothesis, max 2^5 = 32)
-
-<span class="hl">4. Native fractional cells</span>
-   → FracDRAM §V-A (Micron/Elpida/Nanya reject Frac)
-
-<span class="hl">5. Cell uniformity binning</span>
-   → Scene 6: replication exists b/c of process variation
-   → SiMRA §7.2 (perturbation vs threshold scatter)
-
-<span class="hl">6. Determinism / less calibration</span>
-   → selection law: 1691/1691 both dies (predicts tuples)
-   → calib transfer: copy + byte-verify, 16/16 banks
-   → SiMRA: per-chip variation throughout`;
-  }
-};
-
-// =============================================================
-// SCENE 11 — Closing thought
-// =============================================================
-const scene11 = {
-  title: 'Scene 13 — Closing: using something in the way it was not intended',
-  steps: 1,
-  render(step) {
-    clearScene();
-    sceneRoot.appendChild(text(500, 30, 'the whole technique is engineered out-of-spec behaviour', 'label hl'));
-    // image: 1408x768 native, fit width 880 → height ≈ 480
-    const imgW = 880, imgH = Math.round(imgW * 768 / 1408);
-    const imgX = (1000 - imgW) / 2;
-    const imgY = 60;
-    sceneRoot.appendChild(el('image', {
-      x: imgX, y: imgY, width: imgW, height: imgH,
-      href: 'coda_creativity.png',
-      preserveAspectRatio: 'xMidYMid meet'
-    }));
-    sceneRoot.appendChild(text(500, imgY + imgH + 30, 'SiMRA · FracDRAM · FCDRAM · POPCNT3 — all violating JEDEC, all returning real capability', 'label dim'));
-  },
-  caption(step) {
-    return `<b>Every primitive in this explainer breaks the DDR4 specification on purpose.</b> RowCopy violates tRP. Multi-row activation violates tRP and tRRD. MAJ-of-K violates both. Frac interrupts the sense-amp before it resolves. None of these are bugs the manufacturer left in; they are behaviours the silicon has but the spec disallows. The SAFARI line of papers — and the work that builds on it — is a systematic search for what the silicon actually does outside the spec, with the discipline of paper-grade characterisation. <em>Using DRAM in a way it was not intended is not a bug; it's where the next layer of capability comes from.</em>`;
-  },
-  codeRef() {
-    return `<span class="src">the philosophy in one line</span>
-<span class="cm">JEDEC defines what the chip is allowed to do.</span>
-<span class="cm">Process variation defines what the chip can do.</span>
-<span class="cm">The gap is where in-DRAM compute lives.</span>
-
-<span class="src">three papers, one technique family</span>
-<span class="hl">SiMRA</span>       multi-row activation, MAJ-of-K, Multi-RowCopy
-<span class="hl">FracDRAM</span>    fractional cell voltages via Frac
-<span class="hl">FCDRAM</span>      NAND/NOR + many-input AND/OR via
-            neighbour-subarray open-bitline sharing
-
-<span class="src">none of them re-purposed DRAM</span>
-<span class="cm">all three used commercial off-the-shelf DDR4</span>
-<span class="cm">and discovered what the silicon could do that</span>
-<span class="cm">the spec sheet didn't list</span>`;
-  }
-};
-
-// =============================================================
-// Scene registry + driver
-// =============================================================
-const SCENES = [scene1, scene2, scene3, scene4, scene5, scene6, scene7, scene8, scene9, sceneMerge, sceneArc, scene10, scene11];
-let curScene = 0, curStep = 0, playTimer = null;
-
-function renderNav() {
-  nav.innerHTML = '';
-  SCENES.forEach((s, i) => {
-    const b = document.createElement('button');
-    b.textContent = `${i+1}. ${s.title.replace(/^Scene \d+ — /, '')}`;
-    if (i === curScene) b.classList.add('active');
-    b.onclick = () => { curScene = i; curStep = 0; render(); };
-    nav.appendChild(b);
+  tb.addEventListener('click', function(){
+    var cur = root.getAttribute('data-theme');
+    var isDark = cur ? (cur==='dark')
+      : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    apply(isDark ? 'light' : 'dark');
   });
-}
 
-function render() {
-  renderNav();
-  const s = SCENES[curScene];
-  titleEl.textContent = s.title;
-  s.render(curStep);
-  captionEl.innerHTML = s.caption(curStep);
-  codeEl.innerHTML = s.codeRef(curStep) || '<span class="cm">(general DRAM, no project-specific link)</span>';
-  stepNumEl.textContent = (curStep + 1);
-  stepMaxEl.textContent = s.steps;
-  sceneFoot.textContent = `Scene ${curScene+1} of ${SCENES.length}`;
-  document.getElementById('prevBtn').disabled = (curScene === 0 && curStep === 0);
-  document.getElementById('nextBtn').disabled = (curScene === SCENES.length-1 && curStep === s.steps-1);
-}
+  /* ---------- the instruction walk ---------- */
+  // Eight real rows from tuple s61, fixed vertical order (ascending address).
+  // A = F0, B = CC, C = AA are the three distinct operand values; MAJ = E8.
+  var ADDR = [38408, 38412, 38424, 38428, 38472, 38488, 38920, 38988];
+  var SOURCE = 38424; // first-activated row (the copy source)
+  var MARK = { written:'│', copied:'↳', deposited:'⤳', voted:'✓', read:'→', idle:'·' };
 
-document.getElementById('prevBtn').onclick = () => {
-  if (curStep > 0) curStep--;
-  else if (curScene > 0) { curScene--; curStep = SCENES[curScene].steps - 1; }
-  render();
-};
-document.getElementById('nextBtn').onclick = () => {
-  const s = SCENES[curScene];
-  if (curStep < s.steps - 1) curStep++;
-  else if (curScene < SCENES.length - 1) { curScene++; curStep = 0; }
-  render();
-};
-document.getElementById('playBtn').onclick = () => {
-  const btn = document.getElementById('playBtn');
-  if (playTimer) {
-    clearInterval(playTimer); playTimer = null; btn.textContent = '▶ Play';
-  } else {
-    btn.textContent = '⏸ Pause';
-    playTimer = setInterval(() => {
-      const s = SCENES[curScene];
-      if (curStep < s.steps - 1) curStep++;
-      else if (curScene < SCENES.length - 1) { curScene++; curStep = 0; }
-      else { clearInterval(playTimer); playTimer = null; btn.textContent = '▶ Play'; return; }
-      render();
-    }, 2800);
+  // Per-step state for each of the eight rows: [role, value].
+  // dash = empty. Roles drive colour via the shared row-bar CSS.
+  var STEPS = [
+    { kind:'setup', title:'The compute group',
+      rows:{ 38408:['idle','—'],38412:['idle','—'],38424:['idle','—'],38428:['idle','—'],
+             38472:['idle','—'],38488:['idle','—'],38920:['idle','—'],38988:['idle','—'] },
+      cap:'Eight rows in one subarray, empty for now. They are part of a 16-row group that one instruction '
+        + 'will vote over. Watch them keep their addresses while their roles and values change. '
+        + 'Row <b>38424</b> is the one the vote opens first — the <b>source</b>.' },
+
+    { kind:'write', title:'The host writes the activations',
+      rows:{ 38408:['written','AA'],38412:['written','CC'],38424:['idle','—'],38428:['written','AA'],
+             38472:['written','CC'],38488:['written','AA'],38920:['idle','—'],38988:['idle','—'] },
+      cap:'The host sends the activation bytes over the link and they are <b>written</b> into their rows '
+        + '(blue). The weight rows are still empty — those arrive by copying, not writing, next.' },
+
+    { kind:'clone', title:'The weights arrive by copying',
+      rows:{ 38408:['written','AA'],38412:['written','CC'],38424:['copied','F0'],38428:['written','AA'],
+             38472:['written','CC'],38488:['written','AA'],38920:['copied','F0'],38988:['copied','F0'] },
+      cap:'A resident weight row is <b>copied</b> into the three weight rows (cyan) — weights arrive by '
+        + 'copying, not by host writes, and one copy command can fill several rows at once. Row 38424 is the '
+        + '<b>source</b> the vote opens first. <em>Which</em> rows a copy fills, and the exact timing that '
+        + 'separates a copy from a vote, are in the <a href="xor-spread.html">mechanism explainer</a>.' },
+
+    { kind:'vote', title:'The vote',
+      rows:{ 38408:['voted','E8'],38412:['voted','E8'],38424:['voted','E8'],38428:['voted','E8'],
+             38472:['voted','E8'],38488:['voted','E8'],38920:['voted','E8'],38988:['voted','E8'] },
+      cap:'Now the pair fires at <b>vote</b> timing. The rows share charge and the sense amps resolve, bit '
+        + 'by bit, the majority of the operand values — here three rows hold <span class="mono">F0</span>, '
+        + 'two hold <span class="mono">CC</span>, three hold <span class="mono">AA</span>, and the majority '
+        + 'is <span class="mono">E8</span>. The result is written back into <b>every</b> open row (violet). '
+        + 'Why <span class="mono">E8</span> wins bit by bit is the figure in the '
+        + '<a href="xor-spread.html">mechanism explainer</a>.' },
+
+    { kind:'read', title:'Read the answer back',
+      rows:{ 38408:['voted','E8'],38412:['voted','E8'],38424:['voted','E8'],38428:['voted','E8'],
+             38472:['voted','E8'],38488:['voted','E8'],38920:['voted','E8'],38988:['read','E8'] },
+      cap:'One result row is <b>read</b> back to the host (green). Better still, the yes-votes can be '
+        + '<b>counted inside the DRAM</b> first, so only a small number crosses the link instead of a whole '
+        + 'row. That count feeds the running dot-product total.' },
+
+    { kind:'iterate', title:'Next chunk — the loop',
+      rows:{ 38408:['written','AA'],38412:['written','CC'],38424:['idle','—'],38428:['written','AA'],
+             38472:['written','CC'],38488:['written','AA'],38920:['idle','—'],38988:['idle','—'] },
+      cap:'The group resets and the next chunk of the same projection loads in. A projection is many '
+        + 'thousands of these steps; one token is hundreds of thousands across all the layers. Add up all '
+        + 'the counts and you have the layer’s output — and, many layers later, the next word.' }
+  ];
+
+  var walk = document.getElementById('walk');
+  var rowsEl = document.getElementById('wrows');
+  var extraEl = document.getElementById('wextra');
+  var capEl = document.getElementById('wcap');
+  var titleEl = document.getElementById('wtitle');
+  var kindEl = document.getElementById('wkind');
+  var countEl = document.getElementById('wcount');
+  var prevB = document.getElementById('wprev');
+  var nextB = document.getElementById('wnext');
+  var dotsEl = document.getElementById('wdots');
+  var idx = 0;
+
+  // Build the eight persistent row-bars once; steps only mutate role + chip.
+  var bars = {};
+  ADDR.forEach(function(a){
+    var d = document.createElement('div');
+    d.className = 'rowbar';
+    d.setAttribute('data-role','idle');
+    if(a===SOURCE) d.setAttribute('data-source','1');
+    var addr = document.createElement('span'); addr.className='addr'; addr.textContent=a;
+    var role = document.createElement('span'); role.className='role';
+    var chip = document.createElement('span'); chip.className='chip'; chip.textContent='—';
+    d.appendChild(addr); d.appendChild(role); d.appendChild(chip);
+    rowsEl.appendChild(d);
+    bars[a] = { el:d, role:role, chip:chip };
+  });
+
+  // Build the step dots.
+  STEPS.forEach(function(s,i){
+    var b = document.createElement('button');
+    b.className='dot'; b.setAttribute('role','tab');
+    b.setAttribute('aria-label','Step '+(i+1)+': '+s.title);
+    b.addEventListener('click', function(){ go(i); });
+    dotsEl.appendChild(b);
+  });
+
+  function roleLabel(r){ return (MARK[r]||'') + ' ' + r; }
+
+  // The bit-by-bit vote derivation (the single binary figure) lives in the
+  // mechanism explainer only, per the single-source rule (style_spec 2.5).
+
+  function go(n){
+    idx = Math.max(0, Math.min(STEPS.length-1, n));
+    var s = STEPS[idx];
+    kindEl.textContent = s.kind;
+    titleEl.textContent = s.title;
+    countEl.textContent = 'Step '+(idx+1)+' of '+STEPS.length;
+    ADDR.forEach(function(a){
+      var st = s.rows[a] || ['idle','—'];
+      var r = st[0], v = st[1];
+      var b = bars[a];
+      b.el.setAttribute('data-role', r);
+      b.role.textContent = roleLabel(r);
+      var wasWrong = false; // this page shows only the lawful walk; no .wrong chips here
+      b.chip.className = 'chip' + (wasWrong ? ' wrong':'');
+      b.chip.textContent = v;
+    });
+    extraEl.innerHTML = '';
+    capEl.innerHTML = s.cap;
+    prevB.disabled = (idx===0);
+    nextB.disabled = (idx===STEPS.length-1);
+    Array.prototype.forEach.call(dotsEl.children, function(d,i){
+      d.setAttribute('aria-current', i===idx ? 'true':'false');
+    });
   }
-};
 
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'ArrowRight') document.getElementById('nextBtn').click();
-  if (e.key === 'ArrowLeft') document.getElementById('prevBtn').click();
-  if (e.key === ' ') { e.preventDefault(); document.getElementById('playBtn').click(); }
-});
+  prevB.addEventListener('click', function(){ go(idx-1); });
+  nextB.addEventListener('click', function(){ go(idx+1); });
 
-render();
+  // Left / Right arrows drive the walk (they don't fight vertical page scroll).
+  document.addEventListener('keydown', function(e){
+    if(e.key==='ArrowRight'){ if(idx<STEPS.length-1){ go(idx+1); e.preventDefault(); } }
+    else if(e.key==='ArrowLeft'){ if(idx>0){ go(idx-1); e.preventDefault(); } }
+  });
+
+  go(0);
+})();
 </script>
 </body>
 </html>

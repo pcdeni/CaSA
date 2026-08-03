@@ -186,7 +186,7 @@ closure rows follow.
 | Screening becomes a computed predicate | [editorial: consequence]; operationalized in [code:app/test_safe_load.cpp] |
 | Cross-die determinism: the per-member CSVs are byte-identical across the two dies (only the device-path preamble differs) | [data:docs/data/selection-law/selection_timing_b0.csv vs selection_timing_b2.csv] (diff = 2 preamble lines) |
 | Hence a placement discipline computed on one die transfers to another of the same design | [editorial: direct consequence of the byte-identical law data] |
-| MAJ3 self-pollution: on one module, a tuple rated 100% reliable has 2 of 16 open rows silently overwritten during every MAJ, absorbed by a 14-vs-2 majority | [study §4, provenance note] |
+| Copy-timing operand deposit: at copy timing (or drifted timing) the co-activation deposits the first-activated row into other tuple members, so a subsequent vote runs over a substituted operand set; on all three of our dies the clean vote at the operating point does not deposit — the deposit is placed by a copy-timing preparation/load or drift, never by the vote itself | [study §4, provenance note] |
 | Column-static error models (incl. reliable-column screening) cannot represent the effect — it depends on which rows are co-activated, not the column | [study §4, closing paragraph] |
 | All-MAJ3 accumulation: carry-save popcount from MAJ3 only, 99.98% e2e with safe placement; no MAJ5 → no Frac/calibration dependency for the adder | [code:app/test_mvdram_compute_rows_safe.cpp] (18-MAJ3-gate DAG); [study §4 table, §8]; MAJ5 dependency of their adder: [paper §II-C1] |
 
