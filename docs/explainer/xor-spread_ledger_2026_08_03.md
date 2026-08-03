@@ -120,3 +120,16 @@ overwrites its own operands. This ledger covers the rebuilt content only.
 - The multi-timing instrument-composition methodology point is **not** in this
   artifact; it lives once in the peer doc (`docs/RELATED_SYSTEMS.md`), per the
   single-source rule.
+
+## Post-probe additions (2026-08-03 evening, fourdie_fracprobe campaign)
+
+- "All four dies" clean-vote claim: direct X/Y operand readback, bare AND
+  MajOps-faithful (frac×3) programs, 2 same-process repeats/arm, benders
+  0/1/2/3, outside sentinels clean, lane-fault brackets 8192/8192
+  ([claim:C70], [claim:C71]; fourdie_fracprobe_2026_08_03/RESULT.md).
+- Tie carve-out (fixed per-region tie polarity; ~3% vs ~79% same-die contrast;
+  polarity does not follow the first row's content — swap-proven)
+  ([claim:C72]; fourdie_fracprobe_2026_08_03/RESULT.md §tie-probes).
+- Uncalibrated-pair destruction at vote timing (mixed ~52% state, no
+  directional copy; same pair deposits byte-exact at copy timing)
+  ([claim:C73]; fourdie_fracprobe_2026_08_03/RESULT.md §A-EXT).

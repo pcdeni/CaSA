@@ -498,8 +498,22 @@ practices follow.
   map: the same cell can score reliable or unreliable depending only on where the
   swept program left the coset.
 
+A second, independent trap — dissected on our silicon — scores **tie polarity**
+rather than vote reliability. Trials that embed filler rows at full strength
+(e.g. all-ONE reference rows the recipe assumes are charge-weakened, an
+assumption some silicon does not honor) manufacture exact per-bit ties. At an
+exact tie the sense amplifiers resolve by a fixed, row-region-specific polarity
+— not by operand content (swap-tested: flipping the first row's data does not
+change the direction). A scorer comparing against an expected value then reads
+that fixed polarity as instability. Measured on one of our Micron modules: one
+tuple's stability score collapses to ~3% at the clean operating point while a
+control tuple in a region of opposite polarity scores ~79% — same die, same
+program, reproduced across all four banks; direct operand readback under the
+identical program shape shows zero deposits. So a low fanout-4 "MAJ
+reliability" score can be pure tie-polarity accounting.
+
 Applied to the comparison in this document: the zero-perfect-MAJ5 verdict (§2.6)
-and the MAJX ratings that feed it come from the standard bundled-timing
-methodology, so they bound *that* methodology's result — a per-timing,
-spread-aware re-screen could move them. The mechanism itself (the two regimes,
+and the MAJX ratings that feed it come from the standard bundled-timing,
+full-strength-filler methodology, so they bound *that* methodology's result — a
+per-timing, spread-aware, tie-aware re-screen could move them. The mechanism itself (the two regimes,
 the coset, the selection law) is in the [mechanism explainer](explainer/xor-spread.html).
