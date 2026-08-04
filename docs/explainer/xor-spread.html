@@ -321,7 +321,7 @@ counted in command slots, and watch what the same command pair does to the same 
 <div class="dial" id="dial">
   <h3>What one command pair does, as a function of its timing</h3>
   <div class="tck">Axis: extra <b>first hold</b>, in command slots (NOP). One slot = <b>tCK = 1.5&nbsp;ns</b>
-  — the ns value sits under each tick. Measured on a fixed 16-row set we label
+  — the ns value sits under each tick. Measured on a fixed 16-row set
   in bank&nbsp;0 of one of our SK&nbsp;hynix DDR4 modules.</div>
 
   <div class="track">
@@ -636,8 +636,7 @@ the peer doc.</p>
 
 <h2><span class="n">8</span>Provenance and credit</h2>
 <p>The multi-row co-activation itself — one command pair opening a lattice of rows and driving them to
-the source's value — is <strong>SiMRA's own Multi-RowCopy</strong>, and the credit is theirs
-(<a href="https://github.com/CMU-SAFARI/DRAM-Bender/issues/12">DRAM-Bender&nbsp;#12</a>). What this page
+the source's value — is <strong>SiMRA's own Multi-RowCopy</strong>. What this page
 adds is the <strong>address algebra</strong> — that the opened rows are exactly the family the pair's
 differing bundles span (the <em>coset</em>), the <strong>product rule</strong> (the <em>selection
 law</em>) for how many open, and the consequence that a majority vote can run, silently, over a
