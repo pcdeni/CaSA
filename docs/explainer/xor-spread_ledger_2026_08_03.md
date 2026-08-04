@@ -29,8 +29,8 @@ bender 0, SK hynix, bank 0), never as universal laws.
 
 | Claim | Source |
 |---|---|
-| A row address is decoded by a hierarchical decoder; low bits are split across predecoder units, each driving wordlines | [paper:SiMRA §7.1] (hierarchical row decoder / local predecoders) |
-| Address relationships are named by the differing bit; the four generators are bit 2 = +4, bit 4 = +16, bit 6 = +64, bit 9 = +512 | [repro §2] (generators {4,16,64,512}); [example] — this tuple's offsets |
+| A row address is decoded by a hierarchical decoder; the low bits are split across predecoder units ("bundles"), each driving wordlines | [paper:SiMRA §7.1] (hierarchical row decoder / local predecoders) |
+| The position's ten bits arrive in six bundles — bit 9 \| 8-7 \| 6-5 \| 4-3 \| 2-1 \| bit 0 — one wire per bundle-value; a row opens when all six of its wires are on | [mem:selection_law] (pair-groups (1,2)(3,4)(5,6)(7,8), bits 0/9 singleton; zero-exception fits); [data:docs/data/selection-law/selection_timing_b0.csv, selection_timing_b2.csv] |
 
 ## §2 — The double activation (one command pair)
 
@@ -56,15 +56,17 @@ bender 0, SK hynix, bank 0), never as universal laws.
 |---|---|
 | A = F0, B = CC, C = AA; per-bit majority MAJ(F0,CC,AA) = E8 | [repro §2] (worked constants; bit-aligned majority table); arithmetic majority |
 
-## §5 — The coset + the selection law
+## §5 — Which rows open — count the differing bundles
 
 | Claim | Source |
 |---|---|
-| The copy lands in the coset of the pair's generators: 16 rows = every subset-sum of {4,16,64,512} on base 38408 (source 38424, second 38988) | [repro §2] (the 16-row table); [log:kubo_maj_campaign_b0.log] (16-row list, idx 0–15) |
-| The source's four single-generator neighbours are 38408 (bit 4), 38428 (bit 2), 38488 (bit 6), 38936 (bit 9) | [repro §4]; [log:kubo_maj_campaign_b0.log] (substituted idx {0,3,6,10} = these four rows) |
-| Selection law: on SK hynix the subarray-local bits group as {1,2}{3,4}{5,6}{7,8} with bits 0, 9 singleton; a candidate A⊕S fires iff for every group g, S∩g ∈ {∅, d∩g} | [mem:selection_law]; [data:docs/data/selection-law/selection_timing_b0.csv, selection_timing_b2.csv] |
+| 38424 = block 38400 + position 24; 38988 = block 38400 + position 588; same block, and only positions matter (block-relative addressing) | arithmetic (38400 + 24/588); [mem:selection_law] (law operates on block-local bits); [code:calibration/calib_dimm0.txt] (s61 line: this pair, these 16 members) |
+| Positions 24 and 588 differ in four bundles (bit 9, 6-5, 4-3, 2-1); rows opened = the product of lit wires per bundle = 2·1·2·2·2·1 = 16 — exactly the calibration family 38408…39004 | [mem:selection_law] (fires iff per group the member takes either row's group-value — the product rule restated); [repro §2] (the 16-row table); [log:kubo_maj_campaign_b0.log] (16-row list, idx 0–15) |
+| The source's four nearest neighbours (one bundle-swap each) are 38408 (bundle 4-3), 38428 (2-1), 38488 (6-5), 38936 (bit 9) | [repro §4]; [log:kubo_maj_campaign_b0.log] (substituted idx {0,3,6,10} = these four rows) |
+| One differing bundle → 2 rows (clean copy: one source, one destination); two bits inside one bundle → still 2 rows, the in-between values structurally unaddressable | [mem:selection_law] (S∩g ∈ {∅, d∩g}: multi-bit-per-group cases in the zero-exception fits); [data:docs/data/selection-law/] |
+| Five differing bundles → 32 rows, measured with zero exceptions; six → 64 is the arithmetic maximum (not measured) | [data:docs/data/selection-law/] (k = 1..5 member observations, 1691/1691 per die); 64 = arithmetic |
 | The law accounts for 1691/1691 observed rows on each of two SK hynix dies, zero exceptions | [data:docs/data/selection-law/] (1691 member rows/die, zero exceptions); [mem:selection_law] |
-| For s61 each generator sits alone in its group, so all 16 combinations fire | [repro RESULT "Geometry"] (coset == the 16 open rows); [mem:selection_law] (firing count = 2^(#units d touches)) |
+| Sixteen is the calibrated family size (vote reliability), with the four differing bundles chosen one per bundle so every mix is addressable | [example] (calibration choice, s61 geometry); [repro RESULT "Geometry"] |
 | Digital selection (bank-invariant, byte-exact, deterministic across power cycles and rigs), analog firing (timing/charge gated) | [mem:selection_law] (timing-invariant selection, 8 timing combos); [claim:C65] (firing timing-gated); [mem:cross_die_determinism] |
 | A Micron die shows the same physics with a different grouping | [claim:C68] (D3 Micron deposit real + timing-gated); [mem:selection_law] "DIMM 1/3 … no clean partition" |
 
@@ -93,7 +95,7 @@ bender 0, SK hynix, bank 0), never as universal laws.
 | Claim | Source |
 |---|---|
 | The multi-row co-activation is SiMRA's own Multi-RowCopy; credit is theirs | [issue:https://github.com/CMU-SAFARI/DRAM-Bender/issues/12] (SiMRA co-author confirmation); [repro RESULT "Provenance framing"] |
-| Our contribution: the address algebra (coset of the pair's generators), the selection law, and the vote-over-substituted-operands consequence | [mem:xor_spread_provenance]; [mem:selection_law]; [claim:C66] |
+| Our contribution: the address algebra (the family the differing bundles span — the coset), the product rule for how many open (the selection law), and the vote-over-substituted-operands consequence | [mem:xor_spread_provenance]; [mem:selection_law]; [claim:C66] |
 | Candidate selection byte-identical across our two SK hynix modules (two different part numbers) | [mem:cross_die_determinism] (byte-identical fault set across two SKUs + a rig change) |
 | External exchange: DRAM-Bender #12 and SiMRA-DRAM #1 | [issue:https://github.com/CMU-SAFARI/DRAM-Bender/issues/12]; [issue:https://github.com/CMU-SAFARI/SiMRA-DRAM/issues/1] |
 
