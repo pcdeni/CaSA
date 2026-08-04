@@ -76,23 +76,23 @@ Ledger created 2026-07-17, same date as the deck. Companion ledgers:
 | A part that performs no PUD cannot execute any part of MVDRAM's method, as purchased today | [study §3, §5] |
 | Not a claim that their measurements are wrong; consistent with severe inter-module variance within one part number given their 16-module screening | [study §5]; [paper fn. 3]; variance interpretation [editorial] |
 | Date codes / SPD dumps requested from the authors | [study §6.1] |
-| Result A unaffected by the Result B reversal | [study §8] |
+| Result A (no PUD on the named part) is independent of the chained-dataflow result (Result B) | [study §8] |
 
-## Scene 5 — Result B: June's collapse, July's reversal
+## Scene 5 — Result B: the chained dataflow, and the placement it requires
 
 | Claim | Source |
 |---|---|
-| June: faithful computation-rows dataflow (their Fig 2) 6.1% end-to-end; per-op MAJ 50.3% (coin flip) | [study §4, table]; [code:app/test_mvdram_compute_rows.cpp] (the June-shape reproducer) |
-| June: on-the-fly encoding 11.3% vs 99.9% for the identical GeMV with host-written products | [study §4, table] |
-| June: RowClone-loading a calibrated 16-row tuple 50.1%; minimal 4-row tuple 75%; mitigations (full-restore, non-shadow source) no improvement | [study §4, table] |
-| Every MVDRAM mechanism worked in isolation; chaining did not (June state) | [study §4] |
+| Naive chain: faithful computation-rows dataflow (their Fig 2) 6.1% end-to-end; per-op MAJ 50.3% (coin flip) | [study §4, table]; [code:app/test_mvdram_compute_rows.cpp] (the un-placed reproducer) |
+| Naive chain: on-the-fly encoding 11.3% vs 99.9% for the identical GeMV with host-written products | [study §4, table] |
+| Naive chain: RowClone-loading a calibrated 16-row tuple 50.1%; minimal 4-row tuple 75%; mitigations (full-restore, non-shadow source) no improvement | [study §4, table] |
+| Every MVDRAM mechanism works in isolation; a naive chain corrupts | [study §4] |
 | Cause: the XOR-spread (deposit into lattice siblings of the source); real, deterministic, unmentioned by the paper | [study §4]; [code:app/test_spread.cpp], [code:app/test_fault_sweep.cpp] |
-| June's model ("source-specific vulnerability") was wrong; the published June verdict ("general copy-based dataflow not achievable") is withdrawn | [study §8]; June model description [code:app/test_safe_load.cpp] (header recaps the June post-mortem) |
+| Corruption is a function of the pair offset, not the source row, so it is fixed by placement rather than by mitigation; an earlier public verdict ("general copy-based dataflow not achievable") is superseded (study §8) | [study §8]; [code:app/test_safe_load.cpp] |
 | Mechanism settled as Multi-RowCopy's co-activation lattice; selection law | [issue:https://github.com/CMU-SAFARI/DRAM-Bender/issues/12]; [issue:https://github.com/CMU-SAFARI/SiMRA-DRAM/issues/1]; [code:app/test_selection_timing.cpp] + [data:docs/data/selection-law/] |
-| July: corruption during a RowClone into a co-activated group is a function of the pair offset src⊕dst; generator-subset-free offsets are clean by construction | [study §8]; [code:app/test_safe_load.cpp] |
-| Measured: 20/20 safe external loads clean; unsafe-offset controls corrupt exactly the predicted rows; full 16-row tuple loaded with 8 doubleACTs, 16/16 (June: 5/16) | [code:app/test_safe_load.cpp] (phases 1, 2, 4) |
+| Spread-aware: corruption during a RowClone into a co-activated group is a function of the pair offset src⊕dst; generator-subset-free offsets are clean by construction | [study §8]; [code:app/test_safe_load.cpp] |
+| Measured: 20/20 safe external loads clean; unsafe-offset controls corrupt exactly the predicted rows; full 16-row tuple loaded with 8 doubleACTs, 16/16 | [code:app/test_safe_load.cpp] (phases 1, 2, 4) |
 | Same DAG (popcount-4 carry-save, 18 MAJ3 gates), placement-only change: write-load 1.59 ms/gate @ 99.99% → safe unfused 0.89 @ 99.87% → fused 0.68 @ 99.81%; faithful dataflow 99.98% e2e on the safe-placement reproducer | [study §8, table]; [code:app/test_mvdram_compute_rows_safe.cpp] |
-| June's 6.1% was our own addressing artifact — corrected in public with dated supersession banners | [study §8] |
+| The 6.1% naive-chain figure is an addressing artifact of un-placed loading; the corrected result is in the study with dated supersession (§8) | [study §8] |
 | Two-die fastpath A/B: write-load 1.585/1.574 ms/gate @ 99.990%/99.974% e2e; fused clone-load 0.683/0.705 @ 99.808%/99.814% = 2.32×/2.23× (die A = bender 2, die B = bender 0) | [code:app/test_mvdram_fastpath_ab.cpp]; [data:docs/data/mvdram-repro/fastpath_ab_b2.log] (die A), [data:docs/data/mvdram-repro/fastpath_ab_b0.log] (die B) |
 | Fast in-DRAM loading costs ~0.17% end-to-end; fusing costs nothing | [study §8] (accuracy-cost statement); arithmetic from the fastpath logs (99.990−99.808 / 99.974−99.814 ≈ 0.17 pp) |
 
@@ -102,33 +102,32 @@ One row per scoreboard entry; "paper" column then "ours" column.
 
 | Scoreboard row | Paper source | Our source |
 |---|---|---|
-| Reliable-column fraction: 83–95% vs 87–88% (June) → 94–95% strict all 8 banks (July ZERO policy) | [paper Table I] | [study §4, table] (June); RESULT.md addendum 10 §C + colmasks_maj5_zero_2026_07_17/ (per-bank winners 1919–1954/2048 — verified against majx select-mode logs) |
+| Reliable-column fraction: 83–95% vs 94–95% strict all 8 banks (ZERO reference policy) | [paper Table I] | RESULT.md addendum 10 §C + colmasks_maj5_zero_2026_07_17/ (per-bank winners 1919–1954/2048 — verified against majx select-mode logs) |
 | RowCopy: strict on screened part vs 8192/8192 deterministic (commodity) | [paper fn. 3] | [study §4, table]; [code:app/test_rowclone_smoke.cpp] |
-| Dual-track adder: error-free after Frac[34]+calib[48] vs mechanism-exact — strictly error-free on 94.8% of cols (ZERO+2), 16-bit chain carry 0.0000% | [paper §VII] | RESULT.md addendum 8b (1942/2048 = 94.8% adder-strict on screen) + addendum 13 ([data:sublattice_broadcast_2026_07_17/chain_b2_s78_16bit.csv]: carry 0.0000% all 16 positions, sum 0.009–0.068%) ; June 99.94% row retained in [study §4] |
+| Dual-track adder: error-free after Frac[34]+calib[48] vs mechanism-exact — strictly error-free on 94.8% of cols (ZERO+2), 16-bit chain carry 0.0000% | [paper §VII] | RESULT.md addendum 8b (1942/2048 = 94.8% adder-strict on screen) + addendum 13 ([data:sublattice_broadcast_2026_07_17/chain_b2_s78_16bit.csv]: carry 0.0000% all 16 positions, sum 0.009–0.068%) ; the 99.94% single-op row retained in [study §4] |
 | — all-MAJ3 variant 99.98% | n/a (their adder uses MAJ5) [paper §II-C1] | [code:app/test_mvdram_compute_rows_safe.cpp]; [study §4 table ("in-DRAM carry-save popcount tree 99.97–99.98%") + §8] |
-| On-the-fly encoding: PHYSICAL (July 20) — clone-created products, 3.0× faster, 94.7% unvoted at 4096² | [paper §V, Fig 6] | [code:mvdram-repro/lane2_gemv_server.cpp] (LANE2_ENCODE=clone); [data:mvdram-repro/o7_logs_2026_07_20/R3b_clone_4096_depthscreen.log] (11.9 s, 3877/4096 = 94.65% — verified 2026-07-20) vs R1 (38.4 s) |
+| On-the-fly encoding: PHYSICAL — clone-created products, 3.0× faster, 94.7% unvoted at 4096² | [paper §V, Fig 6] | [code:mvdram-repro/lane2_gemv_server.cpp] (LANE2_ENCODE=clone); [data:mvdram-repro/o7_logs_2026_07_20/R3b_clone_4096_depthscreen.log] (11.9 s, 3877/4096 = 94.65% — verified 2026-07-20) vs R1 (38.4 s) |
 | Bit-sparsity skip: measured — commands ∝ density (9.0→5.1/pass at 100→50%); zero-skip in all server modes; B2 table's measured-density arm quantifies it at model dims | [paper §V-D] | RESULT.md addendum 17 §4 (gemv-encoded); [data:mvdram-repro/b2_results/20260719_233500/] (paper50 vs measured arms) |
 | Horizontal layout + row-wise aggregation: reproduced | [paper §VI, Fig 7–10] | [study §4, table]; [code:app/test_mvdram_gemv_inplace.cpp] |
-| Computation-rows dataflow: 99.98% with safe placement (June 6.1% reversed) | [paper Fig 2] (as characterized in [study §4]) | [code:app/test_mvdram_compute_rows_safe.cpp]; [study §8] |
+| Computation-rows dataflow: 99.98% with safe placement (vs 6.1% naive chain) | [paper Fig 2] (as characterized in [study §4]) | [code:app/test_mvdram_compute_rows_safe.cpp]; [study §8] |
 | Fast in-DRAM operand movement: 2.2–2.3×/gate vs host-write shape; 3.0×/GeMV in the fused clone server mode | [paper Fig 3] (profile assumption) | [code:app/test_mvdram_fastpath_ab.cpp]; [data:docs/data/mvdram-repro/fastpath_ab_b*.log] (1.585/0.885/0.683 b2; 1.574/0.898/0.705 b0 — re-verified 2026-07-20); lane2 clone A/B (o7 logs) |
 | Partial sums to processor: per-32-block integer partials → FIRST EXACT FP32, bit-exact vs CPU on the real Llama-2-7B blk.0.attn_q tensor | [paper §II-C2, §VII] | [code:mvdram-repro/lane2_gemv_server.cpp] (GEMV_PARTIALS 0x4D563003) + [code:mvdram-repro/lane2_partials_fp32.py]; [data:mvdram-repro/o7_logs_2026_07_20/R4_fp32_realtensor.log] (524,288/524,288 int-exact; 4096/4096 fp32 bit-identical — verified 2026-07-20) |
 | Their e2e protocol: sampled interception, 36 verified ops across 4 models × both precisions, 99.58–99.99% int-exact unvoted, outputs CPU-exact by construction | [paper §VIII-A] | [code:mvdram_bench/llama.cpp shim mvdram-pim.{h,c}]; [data:mvdram_bench/smoke_2026_07_19/silicon/e2e_*_ops.log] (36 ops counted, range re-derived 2026-07-20: min 99.5759%, max 99.9928%) |
 
-## Scene 7 — The three gaps of July 17: two closed, one remains (RETITLED + UPDATED 2026-07-20)
+## Scene 7 — The three gaps: two closed, one remains
 
-Original (07-17) rows retained below for the gap definitions; the 07-20
-closure rows follow.
+Gap definitions retained below; the closure rows follow.
 
 | Claim (07-20) | Source |
 |---|---|
 | Gap 1 CLOSED: MAJ5 is conditioning-sensitive; the dominant knob is the reference row's INIT, not pulse count | RESULT.md addendum 8 (frac-maj5-exe sweeps) |
 | ZERO-init 963 strict cols vs ~200 frac'd-ONE on the marginal subarray (≈5×); ZERO+2 on the good subarray: 1915 strict / 2010 soft95 of 2048 (600-run confirm) | [data:sublattice_broadcast_2026_07_17/frac_maj5_b0_s72.csv, frac_maj5_b2_s86_confirm.log] (confirm rows re-read 2026-07-20: n_frac=2 t_frac=0 ZERO → strict=1915 soft95=2010) |
 | Per-bank MAJ5 colmasks 94–95% strict on all 8 banks of both compute dies | RESULT.md addendum 10 §C; colmasks_maj5_zero_2026_07_17/maj5_best_b{0,2}_bank{0-3}.txt |
-| Exact dual-track adder strictly error-free on 1942/2048 = 94.8% of s86 under ZERO+2; June "chain collapse" attributed to frac'd-ONE on unscreened cols | RESULT.md addenda 8b + 13 |
+| Exact dual-track adder strictly error-free on 1942/2048 = 94.8% of s86 under ZERO+2; the earlier chain shortfall is attributed to frac'd-ONE on unscreened cols | RESULT.md addenda 8b + 13 |
 | MAJ3 is conditioning-INSENSITIVE (flat 78/78 configs); frac does NOT rescue the geometry-limited die (corr −0.44) — two dead ends closed | RESULT.md addendum 7 ([data:frac_sweep_b2_s72.csv, frac_sweep_b1_s24.csv]) |
 | Gap 2 CLOSED at declared sampled scope: llama.cpp hook + lane2 server + 36 verified ops + B2 table | Scene 8 rows (primary) |
 | Gap 3 REMAINS with a measured size: 32000×4096 qb2 paper50 cell 17.04 s vs their 0.19 ms ≈ 9×10⁴ | [data:mvdram-repro/b2_results/20260719_233500/b2_gemv_table.md] (17.04±0.31 — verified 2026-07-20) ÷ [paper §VIII-B] |
-| Staged answer: seq_engine 100% command-bus utilization in Verilator; 8K-IMEM multi-body packing measured ~2.3× | memory record dram_bender_seq_engine; RESULT.md addendum 15 |
+| Fetch-side direction: seq_engine 100% command-bus utilization in Verilator; 8K-IMEM multi-body packing measured ~2.3× | memory record dram_bender_seq_engine; RESULT.md addendum 15 |
 
 ### Original 07-17 gap definitions (retained)
 
@@ -197,11 +196,11 @@ closure rows follow.
 | The reference-policy law (card 5): rows as in Scene 7 gap-1 closure | Scene 7 closure rows (primary) |
 | The clone-dead law (card 6): closed form; held-out 2,496/2,496 pre-committed; die 2: 2,494/2,496 zero false-dead; converts screening into computation | xor_spread_explainer_ledger.md Scene 6 rows (primary); [code:app/clone_law.py] |
 
-## Scene 11 (was Scene 9) — Verdict (UPDATED 2026-07-20)
+## Scene 11 (was Scene 9) — Verdict
 
-| Claim (07-20 additions) | Source |
+| Claim | Source |
 |---|---|
-| July 18–20 completions line: mechanism-exact adder (94.8%), four-model protocol at sampled scope (36 ops), first exact fp32 | Scenes 7–9 rows above (primary) |
+| Completions line: mechanism-exact adder (94.8%), four-model protocol at sampled scope (36 ops), first exact fp32 | Scenes 7–9 rows above (primary) |
 | Energy caveat retained verbatim: 30.5×/3.04× CACTI-estimated MVDRAM side vs measured baselines (RAPL/tegrastats) — asymmetric method the paper itself states | [paper Fig 14, Fig 17] |
 | The measured streaming gap ≈9×10⁴ quoted in the verdict | Scene 7 gap-3 row (primary) |
 
@@ -209,8 +208,7 @@ closure rows follow.
 
 | Claim | Source |
 |---|---|
-| Revised verdict: MVDRAM's method is achievable on commodity DDR4 — but only with spread-aware addressing the paper does not discuss, on silicon its own screening would have rejected | [study §8] |
-| June's "not achievable" is withdrawn | [study §8] |
+| Verdict: MVDRAM's method is achievable on commodity DDR4 — but only with spread-aware addressing the paper does not discuss, on silicon its own screening would have rejected; an earlier "not achievable" verdict is superseded (study §8) | [study §8] |
 | Our spread characterization is the requirement specification, not a refutation | [study §8] |
 | Part-number lottery: named part 0/60,000 ×2 new units; their own screening kept 1 of 16 | [study §3]; [paper fn. 3] |
 | "Unmodified DRAM in practice means unmodified, hand-screened DRAM" | [editorial], grounded in the row above |
