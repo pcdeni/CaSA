@@ -29,7 +29,7 @@ left — is a sim-validated target.
 |---|---|
 | Start of campaign | **632 s** |
 | Today | **45 s** |
-| Target: DDR-PHY-bound floor | **0.02–0.04 s** (sim-validated) |
+| Target: DDR-PHY-bound floor |  |
 
 ## Seven flagship models, on unmodified DDR4
 
@@ -66,7 +66,7 @@ The software side of the demonstration:
   (format documented; you produce your own for new DIMMs).
 - **`api-patches/`** / **`shim-patches/`** — unified diffs for the
   SiMRA/DRAM-Bender API and the llama.cpp mulmat shim.
-- **`docs/`** — hardware, calibration, methodology, related systems, and the
+- **`docs/`** — AI style diary and the
   [explainers](https://pcdeni.github.io/CaSA/explainer/).
 
 This builds directly on prior research from the
