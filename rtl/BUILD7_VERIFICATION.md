@@ -1,7 +1,7 @@
 # build-7 (SEG_POP) RTL verification — verdict: CORRECT, Verilator-proven
 
 Task: SEG_POP readback mode (per-32b-segment popcount → 2048 B/row, 4×
-collapse, keeps the vertical layout — `docs/PRODUCTION_ROADB_DESIGN.md`).
+collapse, keeps the vertical layout).
 This doc is the correctness review + simulation gate BEFORE any bitstream.
 
 ## Files changed (vs build-6, authored against the box's authoritative source)

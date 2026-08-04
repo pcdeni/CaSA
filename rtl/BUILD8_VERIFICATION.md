@@ -1,9 +1,9 @@
 # build-8 (ACCUM_XBP) RTL verification — verdict: CORRECT, Verilator-proven
 
-Task: the cross-bit-plane accumulator (`docs/ACCUM_XBP_DESIGN.md`) — fold
+Task: the cross-bit-plane accumulator — fold
 the host's place-value sum Σ_b 2^i·pc_b into the readback engine, so a
 group's n_bitplanes per-plane readbacks collapse to ONE drained vector.
-The step-5 partition move from `METHOD_MVDRAM_LENS.md`; a round-trip cut
+The step-5 partition move of the MVDRAM design method; a round-trip cut
 at the RTL level (recv wakes ÷ n_bitplanes), composing with SEG_POP.
 
 ## Files changed (vs build-7)
@@ -141,4 +141,4 @@ accumulate execute, not a speculative rewrite): spawn no receiver for
 no-c2h accumulate executes — if exec returns to baseline the
 arithmetic flips to ~1.8×. The higher-value RTL direction remains the
 streaming fetch that amortizes the executes themselves
-(docs/CONTROLLER_NATIVE.md, Rung 1).
+(the Rung-1 streaming fetch).

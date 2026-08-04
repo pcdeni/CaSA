@@ -1,7 +1,6 @@
 # build-9 (Rung-1 streaming fetch) RTL verification — Verilator-PROVEN
 
-The ping-pong IMEM streaming fetch (`docs/STREAMING_FETCH_DESIGN.md`,
-`CONTROLLER_NATIVE.md` Rung 1): hide the ~150–200 µs per-program
+The ping-pong IMEM streaming fetch (Rung 1): hide the ~150–200 µs per-program
 fetch-idle by loading program N+1 into an idle IMEM bank while N
 executes. This is the only readout-side lever left that attacks the
 *binding* term — the per-execute round-trip (reconfirmed net-negative by

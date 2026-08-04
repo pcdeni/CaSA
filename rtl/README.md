@@ -1,6 +1,6 @@
 # rtl/ — the DIFF-accum readback engine (Road B) and its validation harness
 
-The FPGA-side half of Road B (ADR-005): `readback_engine.v` for the
+The FPGA-side half of Road B: `readback_engine.v` for the
 DRAM-Bender BCU1525 QUAD bitstream, extended with **POPCOUNT_ACCUM_MODE**
 — in DIFF mode the readback path no longer streams row data; it
 accumulates `popcount(rd_data XOR ddr_wdata)` across a whole program and
@@ -37,8 +37,8 @@ per row read). READ mode is bit-identical to stock.
 Build 6 flashed and validated on the BCU1525: 9/9 accum suite exact +
 toggle-back READ sanity, 60/60-program endurance at the configuration
 that starved at 9 on build 5, and **65,000 totals delivered in order
-with zero sentinel mismatches** in the lane2 GeMV integration
-(`docs/ROADB_2026_07.md`). Data: `docs/data/roadb/`.
+with zero sentinel mismatches** in the lane2 GeMV integration.
+Data: `docs/data/roadb/`.
 
 ## Host-side counterpart
 
@@ -97,7 +97,7 @@ out-of-band per program. FLUSH_ACC drains the 128 words as one message
 and zeroes the accumulator. A group's n_bitplanes per-plane readbacks
 become **one** drained vector — a round-trip cut (recv wakes ÷
 n_bitplanes) the same shape SEG_POP was for bytes, and the step-5
-partition move of `docs/METHOD_MVDRAM_LENS.md`.
+partition move of the MVDRAM design method.
 
 - Files: `readback_engine_build8.v`, `frontend_build8.v` (control words
   +8 SET mode / +9 SET_ACC_WEIGHT payload `{neg,shift}` / +10 FLUSH_ACC),

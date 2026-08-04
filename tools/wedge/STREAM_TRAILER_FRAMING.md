@@ -751,8 +751,7 @@ as "records 1-3 corrupted".
 
 With build17 labelling measured exact (user=32 / maint=392), the sole
 remaining streaming defect is trailer POSITION, i.e. `rbf_empty` used as
-a record boundary. That is item 2 of the contract in
-golden_ref_2026_07_25/DRAM_BENDER_STREAMING_ANALYSIS.md.
+a record boundary. That is item 2 of the streaming-path contract.
 
 ## 28. The real lesson, stated properly
 
@@ -762,7 +761,7 @@ patch fixes one thing without breaking another. Six patches produced
 byte-identical output precisely because two sources of truth (the old
 heuristics and the new structure) were both live.
 
-The corrective artifact is DRAM_BENDER_STREAMING_ANALYSIS.md: the path
+The corrective artifact is the streaming-path analysis: the path
 end to end, the state each stage holds, the single unstated precondition
 ("one program in flight, drained before the next"), which assumptions
 streaming voids, the minimal contract that replaces it, and a verdict on

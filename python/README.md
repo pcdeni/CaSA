@@ -55,7 +55,7 @@ python3 run_bitnet_pim.py --max-tokens 4 --bank "0" \
     --prompt "What is the capital of Hungary?"
 
 # All 7 layer-0 projections on PIM, multi-bank Path C (1.28× faster
-# than single-bank, with mild output drift — see docs/METHODOLOGY.md).
+# than single-bank, with mild output drift — see docs/RELATED_SYSTEMS.md §4).
 python3 run_bitnet_pim.py --max-tokens 8 --projs all --bank "0,1,2,3" \
     --prompt "What is the capital of Hungary? Answer in one sentence."
 ```
@@ -82,4 +82,4 @@ in and out of PIM without reloading the model.
 - Output diverges between single-bank and multi-bank runs because
   different calibrated tuples have different per-cell flaky
   patterns. For exact reproducibility (e.g., the demo punchline),
-  pin to one bank. See `docs/METHODOLOGY.md`.
+  pin to one bank. See `docs/RELATED_SYSTEMS.md` §4.
