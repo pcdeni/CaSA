@@ -33,17 +33,15 @@ verification discipline behind every number, both explainers link out to the
 peer doc, **[Related systems and methodology](../RELATED_SYSTEMS.md)** — the
 single home for those. Live lever status is in **[the roadmap](../ROADMAP.md)**.
 
-## Companion: the MVDRAM reproduction study
+## MVDRAM: the closest published peer
 
-A separate deck presents the [MVDRAM reproduction study](../MVDRAM_REPRODUCTION.md)
-interactively — what MVDRAM claims, what reproduces on the commodity silicon we
-own, and what does not (the named part performs no PUD in our hands; the chained
-MAJ5 adder does not reach bit-exactness on any module we own). It owns the
-*reproduction*; the peer doc owns the *comparison*.
-
-**▶ [pcdeni.github.io/CaSA/explainer/mvdram.html](https://pcdeni.github.io/CaSA/explainer/mvdram.html)**
-
-Claim-to-source ledger: [`mvdram_explainer_ledger.md`](mvdram_explainer_ledger.md).
+MVDRAM has one home here, not two. The **comparison** — MVDRAM mechanism by
+mechanism, what the paper claims and what reproduces on the commodity silicon we
+own (the named part performs no PUD in our hands; the chained MAJ5 adder does not
+reach bit-exactness on any module we own) — lives in the peer doc,
+[Related systems and methodology](../RELATED_SYSTEMS.md) (§2). The full
+hardware-reproduction **study** is [MVDRAM_REPRODUCTION.md](../MVDRAM_REPRODUCTION.md).
+The former interactive deck now redirects to those two.
 
 ## How these were built
 

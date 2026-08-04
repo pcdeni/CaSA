@@ -75,9 +75,8 @@ section is the map.
 
 > A full hardware reproduction of MVDRAM — including two new units of the exact
 > DRAM part the paper names (SK Hynix HMA851U6CJR6N-UHN0) — is documented
-> separately in **[MVDRAM_REPRODUCTION.md](MVDRAM_REPRODUCTION.md)** (and the
-> [reproduction study deck](explainer/mvdram.html)). Two results from it frame
-> everything below: the **named part performs no PUD in our hands** (0 of 60,000
+> separately in **[MVDRAM_REPRODUCTION.md](MVDRAM_REPRODUCTION.md)**. Two results
+> from it frame everything below: the **named part performs no PUD in our hands** (0 of 60,000
 > random pairs on two units), and MVDRAM's **chained MAJ5 adder does not reach
 > bit-exactness on any PUD-capable module we own**. The comparison here takes the
 > paper's claims at face value; the reproduction study carries the silicon
@@ -201,7 +200,7 @@ differs from their table; that is stated when either number is published.)
   the [mechanism explainer](explainer/xor-spread.html); its consequence for the
   error model is §2.5.
 
-### 2.5 The error model — corrected
+### 2.5 The error model — a second, deterministic channel
 
 MVDRAM's error model is **column-static**: a column is reliable or it is not,
 independent of operands. We measure a second, deterministic error channel that
@@ -234,6 +233,15 @@ placement rather than by timing. The same coupling, placed deliberately, is a
 free 1-to-M broadcast — the asset side, treated in the
 [mechanism explainer](explainer/xor-spread.html) and in the
 [roadmap](ROADMAP.md).
+
+**Independent corroboration** comes from the MVDRAM authors' own group:
+**PuDGhost** (Kubo et al. / SAFARI, [arXiv:2606.19119](https://arxiv.org/abs/2606.19119))
+measures non-operand data corrupting many-row-activation outputs on 96 SK Hynix
+chips (up to ~48 % at 16-row concurrent-column activation) and ships mitigations
+for it — the read-direction (environment → output) analog of this deposit
+channel. The write-direction case stated here — a copy-timing deposit that
+substitutes an operation's *own* operands — is complementary to it, and per-column
+screening sees neither.
 
 *(Selection is digital, the firing is analog: which coset members are candidates
 is byte-exact and deterministic across power cycles, banks, and rigs; whether a
