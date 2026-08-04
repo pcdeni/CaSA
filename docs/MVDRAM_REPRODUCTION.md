@@ -22,9 +22,13 @@ llama.cpp). All four share one kernel (signed q-bit × r-bit GeMV) differing onl
 in dimensions → our 2-bit & 4-bit kernel validation covers all four at the
 compute level. Ternary (BitNet) is the simpler q=2 special case.
 
-Residual everywhere ≈ 0.01–0.1% = transient MAJ5 cell noise; grows with op
-count; reduced by 3× voting; within the tolerance low-bit LLMs are built for.
-This is bit-exact evidence MVDRAM's own paper does not report.
+Residual everywhere ≈ 0.01–0.1%, confined to weakly-marginal columns that
+pass the screen: columns are qualified by an op-matched screen (3 trials,
+AND-ed) and computation uses reliable columns only — the same per-column
+screening policy MVDRAM applies (their 83–95% reliable). Optional 3× result
+voting removes the residual at 3× wall; unvoted it is within the tolerance
+low-bit LLMs are built for. This is bit-exact evidence MVDRAM's own paper
+does not report.
 
 **Depth-vs-noise characteristic (measured):** error scales with the number of
 MAJ ops in the computation. Integrated GeMV: N=4/q=2/r=2 = 99.91% (no vote);
@@ -192,7 +196,7 @@ Q2_K under /home/deni/mvdram_bench/models, 39 GB):
 - llama-cli in this checkout spins an interactive prompt loop at stdin
   EOF even with --no-conversation (burned a 27 GB log before diagnosis);
   use llama-bench (or pipe a real tty) for hands-off runs.
-Next: Lane-2 GeMV server (Road-A in-DRAM kernel per ADR-005) + MVDRAM_PIM=1
+Next: Lane-2 GeMV server (Road-A in-DRAM kernel) + MVDRAM_PIM=1
 interception → their protocol at documented reduced scope (their 256 tok ×
 10 runs × 8 model/quant combos at our per-op rate is multi-day; scope and
 state the deviation per the honesty convention).
@@ -223,8 +227,8 @@ Measured (random data, host numpy/int64 reference in lane2_client_smoke.py):
 
 - Bring-up shape unvoted: 8.4K FA / 16.9K MAJ / 287K execs / ~2.2 ms per
   FA; residual = 2–3 outputs/4096 on weakly-marginal screened lanes with
-  run-to-run-varying |err| (transient, the known cell-noise envelope —
-  June gemvn was 99.87–99.96% of lane-samples). 3× voting recovers it
+  run-to-run-varying |err| on weakly-marginal screened lanes (gemvn
+  99.87–99.96% of lane-samples). 3× result voting recovers it
   fully at 3× wall. Screen: 1784 → ~1660 segments after 3-trial op-match
   (capacity ~53K outputs/pass; M=4096 uses 128).
 - How to run: `cd /home/deni/Claude/mvdram-repro && make && python3
@@ -343,7 +347,8 @@ standalone client — no llama.cpp in the loop; (2) 4096↔11008 and
 capacity (server accepts M≤53K already; K=11008 needs LOAD/GEMV tiling
 over K≤16384 — fits); (3) the resident/RowClone-encoded fast path and
 per-block partial-sum return (exact fp32 reconstruction) remain the
-honest gaps to their §V-E/§VII shape, both documented in PAPER_CONTRAST.md.
+honest gaps to their §V-E/§VII shape, both documented in the MVDRAM
+comparison (`RELATED_SYSTEMS.md` §2).
 
 ## 2026-07-19 — B1 host-side remainder: Q2_K + q6_K head + 11008 dims in the shim (dry-run-validated; silicon smoke staged, NOT run)
 
@@ -554,7 +559,7 @@ All three phase-1 deviations of lane2-gemv-server are now implemented as
 env-gated modes (defaults byte-preserve phase-1 behavior; R1 below
 revalidates it), A/B'd on silicon at the paper contrast shape (4096×4096,
 q4, r=1, 50%-density activations, seed 42, bender 2 / bank 0 / the s86
-subarray). Logs: o7_logs_2026_07_20/. PAPER_CONTRAST §2 rows updated.
+subarray). Logs: o7_logs_2026_07_20/.
 
 **(a) §V-C RowClone-encoded on-the-fly products — `LANE2_ENCODE=clone`.**
 The activation bit now selects the RowCopy SOURCE and the product is
@@ -592,7 +597,8 @@ rows; every intermediate rail is silicon-formed.
   corrector. PIM_VOTE3 is unavailable in clone mode (the result clone-out
   is fused into the gate). Their "error-free" columns rest on Frac +
   calibration [48] + 16-module screening (footnote 3) — the same gap
-  PAPER_CONTRAST §3 documents, now with a GeMV-scale number attached.
+  the MVDRAM comparison (`RELATED_SYSTEMS.md` §2) documents, now with a
+  GeMV-scale number attached.
 
 **(b) Fig-15/§VII in-DRAM dual-track complements — `LANE2_DUALTRACK=1`.**
 LOAD_MATRIX now also prepares the inverted matrix bitplanes (~W — the
@@ -677,13 +683,12 @@ with ggml's own scalar vec_dot_q4_0_q8_0 order and association.
 
 ## 2026-07-21 — Road B closes, and re-opens the paper's own dataflow
 
-The FPGA popcount accumulator (Road B, the rig-specific arm ADR-005
-keeps strictly apart from the reproduction's headline numbers) is now
+The FPGA popcount accumulator (Road B, the rig-specific arm kept
+strictly apart from the reproduction's headline numbers) is now
 complete on silicon: three builds of the readback engine, the last
 fixing a buffer_space conservation leak that also exists in stock
 DRAM-Bender streaming DIFF mode, then 65,000-program sessions with zero
-stream-integrity faults. Full story: [`ROADB_2026_07.md`](ROADB_2026_07.md),
-sources in `rtl/` + `api-patches/0003`.
+stream-integrity faults. Sources in `rtl/` + `api-patches/0003`.
 
 The reproduction-relevant part is what it did to the dataflow choice.
 With per-read totals nearly free, the optimal GeMV shape inverts from
