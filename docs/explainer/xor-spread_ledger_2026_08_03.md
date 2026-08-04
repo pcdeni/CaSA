@@ -49,7 +49,7 @@ overwrites its own operands. This ledger covers the rebuilt content only.
 
 | Claim | Source |
 |---|---|
-| One command pair, two physics selected by timing: clean majority vote at the operating point; the same pair becomes a multi-row copy a few slots away | [claim:C65]; [repro §4 "How the deposit was placed"] |
+| One command pair, two physics selected by timing: clean majority vote at the operating point; the same pair becomes a multi-row copy a few slots away | [claim:C65]; [repro §4] |
 | First-hold (t12) map on bender 0 / s61: clean vote at 0–1 slots, tie at 2, full copy at ≥3 (every non-source operand takes the source's value byte-exact) | [claim:C65]; [log:kubo_maj_probe_b0.log] (t12=0/1 → 15 vote clean; t12=2 → mixed/tie; t12≥3 → 15 overwritten by the source, byte-exact 2048/2048) |
 | The vote/tie/copy boundary is measured on three dies (2× SK hynix + 1 Micron); the copy never fires at the clean vote point; where it begins is per-die | [claim:C67] (D2 SK hynix), [claim:C68] (D3 Micron), [claim:C65] (b0); [repro §4]; overall verdict [repro RESULT "OVERALL at-(0,0) VERDICT"] |
 | Second knob — the PRE→2nd-ACT gap (t23): a clean 2-row copy needs ≥ 4 NOP slots = 6.0 ns (tCK = 1.5 ns); below that the copy is multi-row | [claim:C64]; [log:kubo_demo_b0_run1.log] (t23 ≤3 → 3/3 contaminated; t23 ≥4 → 3/3 clean; header "t23=4 = Kubo 6ns clean boundary") |
@@ -144,13 +144,11 @@ overwrites its own operands. This ledger covers the rebuilt content only.
 - Recruitment containment: recruited rows ⊆ selection-law coset in ≥98% of
   trials, exact for all ≤3-unit offsets — the law extends to bare-doubleACT
   recruitment at vote AND copy timing ([claim:C75]).
-- The A-EXT event recharacterized: 8-row lawful coset {38416, 38424, 38512,
-  38520, 38544, 38552, 38640, 38648} jointly resolved to ONE shared value =
-  the EQUAL-WEIGHT per-bit majority of all participants' pre-fire contents
+- A-EXT: the 8-row lawful coset {38416, 38424, 38512, 38520, 38544,
+  38552, 38640, 38648} jointly resolves to ONE shared value = the
+  EQUAL-WEIGHT per-bit majority of all participants' pre-fire contents
   (non-tie purity 1.000000 at coset ≤4 / 0.99996 at 8; 100% reproducible;
-  exact ties → fixed per-region polarity; the earlier "analog blend /
-  matches-no-boolean" reading was a double analysis artifact: byte-granular
-  comparison + wrong hardcoded tie polarity) ([claim:C76-revised],
+  exact ties → fixed per-region polarity) ([claim:C76-revised],
   [claim:C78]; votepoint_closure_2026_08_03/RESULT.md).
 - Die-family scope: Micron dies do not follow the hynix law (19% exact) and
   often fail to co-activate at (0,0) (27/120 untouched) — different decoder
