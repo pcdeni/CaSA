@@ -322,7 +322,7 @@ counted in command slots, and watch what the same command pair does to the same 
   <h3>What one command pair does, as a function of its timing</h3>
   <div class="tck">Axis: extra <b>first hold</b>, in command slots (NOP). One slot = <b>tCK = 1.5&nbsp;ns</b>
   — the ns value sits under each tick. Measured on a fixed 16-row set we label
-  <span class="mono">s61</span>, in bank&nbsp;0 of one of our SK&nbsp;hynix DDR4 modules.</div>
+  in bank&nbsp;0 of one of our SK&nbsp;hynix DDR4 modules.</div>
 
   <div class="track">
     <div class="zones">
@@ -368,31 +368,6 @@ On every one, a well-timed operation never <em>imports</em> a foreign value: the
 few slots away, and where it begins is a per-die number (SK&nbsp;hynix here: copy at 3 slots; the
 Micron dies' copy regime begins a few slots later, around slot 5).
 </div>
-
-<p>But "clean" has an honest scope, and a model-free census — unique fingerprints on every row of
-a ~640-row window, hundreds of <em>random</em> uncalibrated pairs, no assumptions about where effects
-may land — pins it down: on the SK&nbsp;hynix dies, a vote-timing operation <strong>always
-co-activates the pair's whole coset</strong> — the rows the selection law names — and resolves them
-<em>together</em>, to one shared value. Zero of 200 random pairs leave the rows untouched;
-70–73% recruit rows beyond the two named. A vote is "clean" when the co-activated rows already
-agree — which is exactly what calibration and operand replication arrange, so a calibrated majority
-comes back looking untouched. Give the co-activated rows <em>disagreeing</em> data and the same
-operation rewrites them all with the joint result: one uncalibrated pair here leaves its entire
-8-row coset holding one shared value — the <strong>equal-weight per-bit majority</strong> of
-everything the eight rows hold, exact on every clear-majority bit, with exact ties falling to a
-fixed per-region preference. The same pair at copy timing deposits byte-exactly into the
-same 8 rows. Same coset, same law; the timing picks vote-together versus copy-from-source, and
-both outcomes are deterministic.</p>
-
-<p>Two further edges. At an exact per-bit tie — half the co-activated rows say 1, half say 0 — the
-sense amplifiers fall back to a fixed preference that varies by row region and does not follow
-anyone's data (flip the first row's content and the tie resolves the same way). An instrument that
-manufactures ties — for example filler rows the recipe assumes are charge-weakened but the silicon
-leaves at full strength — will misread that fixed preference as instability: on one of our Micron
-dies this drops one tuple's characterization score to ~3% at the clean operating point while a
-sibling tuple in a region of opposite tie preference scores ~79%. And the co-activation mechanism
-itself is die-family-scoped: the Micron dies do not follow the hynix selection law and often fail
-to co-activate at vote timing at all — a different decoder regime, not a cleaner vote.</p>
 
 <h3>A second knob: the gap to the second activation</h3>
 <p>The other knob — the <strong>gap</strong> after PRE, before the second ACT — controls a different
@@ -494,9 +469,7 @@ two generators share one group, they lock together, and fewer than the full set 
 
 <div class="callout credit">
 <span class="lbl">Digital selection, analog firing.</span> <em>Which</em> rows are candidates is a property
-of the decoder wiring: bank-invariant, byte-exact, and identical across power cycles and rigs. On our
-two SK&nbsp;hynix dies this rule accounts for <strong>1691 of 1691</strong> observed rows with zero
-exceptions. <em>Whether</em> a candidate actually receives the copy is the analog part — set by the
+of the decoder wiring: bank-invariant, byte-exact, and identical across power cycles and rigs. <em>Whether</em> a candidate actually receives the copy is the analog part — set by the
 timing and charge of §3. A different manufacturer's die (Micron) shows the same physics with a
 different grouping.
 </div>
@@ -577,8 +550,7 @@ not by the timing.</p>
   <li><strong>Or exploit it as broadcast.</strong> Put the value you <em>want</em> replicated on the
   source row and the coset fills itself. Production uses this: the fused-coset activation path replaces
   a per-row rewrite with one write plus one broadcasting pair, and runs today —
-  <strong>measured 1.63×/token</strong> on our production server (a measured example). Broadcasting a
-  weight into its whole coset is validated and queued.</li>
+  <strong>measured 1.63×/token</strong> on our production server.</li>
 </ul>
 <p>This is why the short "dirty" calibration timing from §3 is kept on purpose. Widening the gap would
 suppress the extra deposits — but those extra deposits are free copies. Keep the short timing; make the
@@ -593,10 +565,7 @@ adds is the <strong>address algebra</strong> — that the touched rows are exact
 generators — the <strong>selection law</strong> for which members fire, and the consequence that a
 majority vote can run, silently, over a substituted operand set.</p>
 <p>The candidate selection is byte-identical across our two SK&nbsp;hynix modules (two different part
-numbers), and a Micron die reproduces the same physics with a different grouping. Our exchange with the
-SiMRA authors is at
-<a href="https://github.com/CMU-SAFARI/DRAM-Bender/issues/12">DRAM-Bender&nbsp;#12</a> and
-<a href="https://github.com/CMU-SAFARI/SiMRA-DRAM/issues/1">SiMRA-DRAM&nbsp;#1</a>.</p>
+numbers), and a Micron die reproduces the same physics with a different grouping.</p>
 
 <hr class="rule">
 
@@ -608,13 +577,13 @@ SiMRA authors is at
   </a>
   <a class="linkcard" href="../ROADMAP.md">
     <div class="t">What's next →</div>
-    <div class="d">The live ledger of levers — including broadcast weight loading, queued.</div>
+    <div class="d">The live ledger of open levers.</div>
   </a>
 </div>
 
 <footer>
-  <p>Every chip-specific number on this page is a measured example on named silicon (a fixed 16-row set
-  we label <span class="mono">s61</span>, bank&nbsp;0, on one of our SK&nbsp;hynix DDR4 modules), not a universal law. The
+  <p>Every chip-specific number on this page is a measured example on named silicon (a fixed 16-row set in
+  bank&nbsp;0 of one of our SK&nbsp;hynix DDR4 modules), not a universal law. The
   reproducer and raw logs live in the repository. Self-contained page — no external requests; renders
   identically from a local file or GitHub&nbsp;Pages.</p>
 </footer>

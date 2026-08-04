@@ -235,14 +235,10 @@ compute step, see the mechanism explainer <a href="xor-spread.html">One command 
   interesting part is <em>where</em> the multiplications happen. In a normal computer the memory only
   <em>stores</em> numbers; a separate processor fetches them and does the math. Here the memory
   <strong>does the math</strong>. The weights of the neural network sit in the memory as charge, and the
-  memory's own analog behaviour is coaxed into computing with them in place.</p>
+  memory's own analog behaviour is coaxed into computing with them in place — and the answer comes back out as ordinary binary, not an analog reading.</p>
   <p>Nothing about the memory is modified. These are commodity DDR4 sticks, the same parts in any desktop.
   What is unusual is the <em>timing</em> of the commands sent to them — a controlled rule-break, explained
   in the next few sections, that turns a storage array into a tiny, massively parallel calculator.</p>
-  <div class="note"><span class="t">Same physics as a memory attack, opposite purpose</span>
-  The effects used here are close cousins of RowHammer and other disturbance phenomena — cases where
-  mistimed memory access changes data. This is authorized research that steers the same physics
-  <em>on purpose</em>, to compute rather than to corrupt.</div>
 </section>
 
 <!-- ============================================================ 2 -->
@@ -307,7 +303,7 @@ compute step, see the mechanism explainer <a href="xor-spread.html">One command 
     <div class="axis"><span>0</span><span>1</span><span>2</span><span>3</span><span>4 (6.0&nbsp;ns)</span><span>…</span></div>
     <div class="bnd">The exact gap between the two commands (in empty command slots) decides what happens.
     This page lives at the <b>VOTE</b> point. Widen the gap past the boundary — <b>4 slots, 6.0&nbsp;ns</b> —
-    and the very same pair of commands stops voting and starts <em>copying</em> one row into the others.</div>
+    and the very same pair of commands stops voting and starts <em>copying</em> one row into the others — all inside the chip, without occupying the memory bus.</div>
   </div>
   <div class="note link"><span class="t">Why the exact gap matters, and how it can go wrong</span>
   The vote-versus-copy dial, the address rule for <em>which</em> rows open, and the good/bad tables live in
@@ -354,8 +350,7 @@ compute step, see the mechanism explainer <a href="xor-spread.html">One command 
     good/bad tables are in the <a href="xor-spread.html">mechanism explainer</a>.</p>
   </div>
 
-  <p class="small">The addresses are real: a fixed 16-row compute group (our label
-  <span class="mono">s61</span>) in bank&nbsp;0, on one of the project's SK&nbsp;hynix modules. The first
+  <p class="small">The addresses are real: a fixed 16-row compute group in bank&nbsp;0, on one of the project's SK&nbsp;hynix modules. The first
   row the vote opens is <span class="mono">38424</span> (marked
   <span style="color:var(--role-source)">● source</span>); the two rows the command actually names are
   <span class="mono">38424</span> and <span class="mono">38988</span>.</p>
@@ -414,8 +409,7 @@ compute step, see the mechanism explainer <a href="xor-spread.html">One command 
   each time it happens, no matter how few bytes ride along. With thousands of programs per token, the wall is
   the <em>number of trips</em>, not the physics inside the chip.</p>
   <p>This is why one of the levers is to <strong>count the yes-votes inside the DRAM</strong> before sending
-  anything back — the answer that crosses the link shrinks from a whole memory row to a handful of numbers.
-  The intuition is here: only cutting the trip <em>count</em> moves the wall.</p>
+  anything back — the answer that crosses the link shrinks from a whole memory row to a handful of numbers.</p>
 </section>
 
 <!-- ============================================================ 9 -->
@@ -473,7 +467,7 @@ compute step, see the mechanism explainer <a href="xor-spread.html">One command 
   });
 
   /* ---------- the instruction walk ---------- */
-  // Eight real rows from tuple s61, fixed vertical order (ascending address).
+  // Eight real rows from the compute group, fixed vertical order (ascending address).
   // A = F0, B = CC, C = AA are the three distinct operand values; MAJ = E8.
   var ADDR = [38408, 38412, 38424, 38428, 38472, 38488, 38920, 38988];
   var SOURCE = 38424; // first-activated row (the copy source)
