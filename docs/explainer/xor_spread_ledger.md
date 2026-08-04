@@ -14,7 +14,7 @@
   because the scene now carries them too).
 
 Scene renumbering 2026-07-20 (two scenes inserted after Scene 5): old
-6→8 (self-pollution), 7→9 (success-rate signature), 8→10 (why it
+6→8 (the copy-timing operand deposit), 7→9 (success-rate signature), 8→10 (why it
 matters), 9→11 (two responses). Scenes 1–2, 4, 8–10 are otherwise
 unchanged from the original deck (their chip-specific figures are
 labelled as examples or as this project's own sweep measurements in the
