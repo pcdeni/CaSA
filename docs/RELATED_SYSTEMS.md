@@ -19,7 +19,7 @@ command pair this whole family of work is built on — activate a row, hold the
 array open, force it closed, activate a second row
 (`ACT … first hold … PRE … gap … ACT`). The mechanism and its two timing
 regimes (a clean majority **vote** versus a multi-row **copy**) are the subject
-of the [mechanism explainer](explainer/xor-spread.html); this document treats
+of the [mechanism explainer](https://pcdeni.github.io/CaSA/explainer/xor-spread.html); this document treats
 them as known and links there rather than re-deriving them. Two more terms
 recur below: a **calibrated tuple** is the small, fixed set of rows co-activated
 for one vote, and **MAJ-N** is the majority over N such co-activated rows (MAJ3
@@ -197,7 +197,7 @@ differs from their table; that is stated when either number is published.)
 - **The coset / co-activation spread governs everything on our dies** (selection
   law; MVDRAM_REPRODUCTION addendum 5). The paper never mentions it — either
   their screened part is low-spread, or screening + Frac masked it. Details in
-  the [mechanism explainer](explainer/xor-spread.html); its consequence for the
+  the [mechanism explainer](https://pcdeni.github.io/CaSA/explainer/xor-spread.html); its consequence for the
   error model is §2.5.
 
 ### 2.5 The error model — a second, deterministic channel
@@ -207,7 +207,7 @@ independent of operands. We measure a second, deterministic error channel that
 this model cannot express, and it is worth stating precisely.
 
 **The correct statement.** The double activation has two timing regimes (the
-[timing dial](explainer/xor-spread.html)). At the majority-vote operating point
+[timing dial](https://pcdeni.github.io/CaSA/explainer/xor-spread.html)). At the majority-vote operating point
 it resolves a **clean vote**; a few command slots more of first hold and the
 same pair becomes a **multi-row copy** that deposits the first-activated row's
 data into the coset of the pair's address difference. On every module we own —
@@ -231,7 +231,7 @@ may be mild in this respect — unknown; ours measurably is not. The fix is
 `calibration/`), which composes with their layout and neutralizes the deposit by
 placement rather than by timing. The same coupling, placed deliberately, is a
 free 1-to-M broadcast — the asset side, treated in the
-[mechanism explainer](explainer/xor-spread.html) and in the
+[mechanism explainer](https://pcdeni.github.io/CaSA/explainer/xor-spread.html) and in the
 [roadmap](ROADMAP.md).
 
 **Independent corroboration** comes from the MVDRAM authors' own group:
@@ -353,7 +353,7 @@ standards:
 
 - **Native lane — token-exact, live on silicon:** BitNet-b1.58-2B, Bonsai-ternary,
   Bonsai-1-bit. These run token-for-token identical to their reference on the
-  card (BONSAI_SILICON_2026_07_20; the BitNet full-model run answers "Paris").
+  card (the BitNet full-model run answers "Paris").
 - **Mainstream lane — numerics-exact via the sampled end-to-end protocol:**
   Llama2-7B, Llama2-13B, Llama3-8B, Phi-4. These are validated by exact per-block
   integer partials reconciled to an FP32 reference through the sampled-e2e
@@ -473,8 +473,7 @@ one is periphery, not a new cell):
 are, in order, readout → operand movement → command issue → and only then the
 bus — and every one is a periphery fix, not a cell fix. (Characterization
 transfers across banks and same-model dies, so scaling from 4 banks to 16 needs a
-cheap margin re-screen, not re-derivation — bank-similarity audit in
-BANK_AUDIT_2026_07.)
+cheap margin re-screen, not re-derivation — confirmed by the bank-similarity audit.)
 
 ---
 
@@ -524,4 +523,4 @@ Applied to the comparison in this document: the zero-perfect-MAJ5 verdict (§2.6
 and the MAJX ratings that feed it come from the standard bundled-timing,
 full-strength-filler methodology, so they bound *that* methodology's result — a
 per-timing, spread-aware, tie-aware re-screen could move them. The mechanism itself (the two regimes,
-the coset, the selection law) is in the [mechanism explainer](explainer/xor-spread.html).
+the coset, the selection law) is in the [mechanism explainer](https://pcdeni.github.io/CaSA/explainer/xor-spread.html).

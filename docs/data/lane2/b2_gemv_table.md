@@ -2,7 +2,7 @@
 
 Generated 2026-07-20 00:31 on bender 2 bank 0 s86; rb=1, iters=5.
 
-Conventions: paper dims (SVIII-A); arm `paper50` = their 50% bit-sparsity inputs; arm `measured` = real Llama-2-7B activation plane densities from the B1 runs. Deviations (documented): 5 iters vs their 1000; single module / single screened tuple vs their 4-module N<=128 partitioning; host-round-trip execution vs their SV-E streaming (PAPER_CONTRAST.md S4). CPU column = same-host numpy int64 GeMV over identical ints (single-thread); same-host llama.cpp CPU baselines: 7B Q4_0 pp8 55.7 t/s, tg4 14.2-14.9 t/s (llama-bench, 6 threads, REPRODUCTION.md 2026-07-18). Their headline for 32000x4096 @ 2-bit weights, 1-bit vector: 0.19 ms (0.14 in-DRAM + 0.05 aggregation).
+Conventions: paper dims (SVIII-A); arm `paper50` = their 50% bit-sparsity inputs; arm `measured` = real Llama-2-7B activation plane densities from the B1 runs. Deviations (documented): 5 iters vs their 1000; single module / single screened tuple vs their 4-module N<=128 partitioning; host-round-trip execution vs their SV-E streaming (RELATED_SYSTEMS.md §2). CPU column = same-host numpy int64 GeMV over identical ints (single-thread); same-host llama.cpp CPU baselines: 7B Q4_0 pp8 55.7 t/s, tg4 14.2-14.9 t/s (llama-bench, 6 threads, REPRODUCTION.md 2026-07-18). Their headline for 32000x4096 @ 2-bit weights, 1-bit vector: 0.19 ms (0.14 in-DRAM + 0.05 aggregation).
 
 | shape (KxM) | qb | rb | arm | density | GeMV s (mean+/-std) [min,max] | CPU ms | int-exact % (mean/min) | iters |
 |---|---|---|---|---|---|---|---|---|

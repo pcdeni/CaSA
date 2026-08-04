@@ -14,23 +14,21 @@ motivates it — the roadmap is itself evidence-first.
    per-segment popcount bytes (byte-aligned 4×, chosen over the sketched
    1536 B packing for trivial host unpack), READ/DIFF bit-identical to the
    plain readback mode, WNS +0.118 ns. Production wiring `PIM_SEGPOP=1`
-   in `app/test_bitnet_server.cpp`; full-model A/B in
-   `docs/ROADB_2026_07.md` §7. Design:
-   `docs/PRODUCTION_ROADB_DESIGN.md`, `rtl/README.md`.
+   in `app/test_bitnet_server.cpp`; RTL design in `rtl/README.md`.
 2. **seq_engine pipeline integration** — DESIGNED (`rtl/SEQ_ENGINE.md`),
    deliberately sequenced AFTER SEG_POP (recv 3.1ms > exec 1.0ms).
    Mixed-stream Verilator non-regression A/B is the flash gate.
 3. **Streaming/queued execution — "controller-native on our card"** —
-   UPGRADED (see `docs/CONTROLLER_NATIVE.md`, the full investigation).
-   MVDRAM's testbed was DRAM Bender on an Alveo U200 — the same
+   UPGRADED.
+   MVDRAM's testbed is DRAM Bender on an Alveo U200 — the same
    soft-MC class as ours; "controller-native" is their §V-E *execution
    regime* (the DDR command bus never waits for the host), and it is
    achievable here: ping-pong IMEM pair + a fetch stage that loads the
    idle bank during EXECUTE, back-pressured by `buffer_space`. The
    host becomes a pure producer at PCIe bandwidth (~0.3 % used — our
    problem was only ever latency). This is where the round-trip lever
-   family converges, and the last 2–3 orders per `PAPER_CONTRAST.md`
-   gap 2 live. Ladder above/below it: pipelined issue (software
+   family converges, and the last 2–3 orders (the §V-E streaming gap in
+   `docs/RELATED_SYSTEMS.md` §2) live. Ladder above/below it: pipelined issue (software
    bridge), on-fabric orchestrator (soft core; 1 round-trip per
    projection — the end-state demo), and the honest Rung-4 boundary
    (commodity MCs expose no command-level control; every published
@@ -49,8 +47,7 @@ motivates it — the roadmap is itself evidence-first.
    0 errors over 11,500 requests** (would expect ~3 if present) — the
    RTL blocker is gone. UNBLOCKED for production enable — flipping the
    `PIM_STREAM_PIPE` default is a production-behavior change and is
-   USER-GATED. See `docs/SESSION_2026_07_27.md` §1,
-   `docs/PHASE2_PIPE_2026_07_24.md`.
+   USER-GATED.
 3a3. **On-fabric orchestrator (Rung-2) — first probe PASSES.** ✅
    **Verilator 27/27 byte-exact**: a closed-loop top wires the existing
    `seq_engine` → a deterministic SiMRA DRAM model → the existing exact
@@ -60,10 +57,9 @@ motivates it — the roadmap is itself evidence-first.
    seeds). Feasibility established: the fabric CAN drive a
    host-command-free projection loop and return exact integer partials.
    Not yet a soft core / ISA / allocator — those remain the Rung-2 build.
-   See `docs/SESSION_2026_07_27.md` §4.
 
-0. **ACCUM_XBP: cross-bit-plane accumulator** — DESIGNED
-   (`docs/ACCUM_XBP_DESIGN.md`). In-fabric place-value sum: one 8 KB
+0. **ACCUM_XBP: cross-bit-plane accumulator** — DESIGNED.
+   In-fabric place-value sum: one 8 KB
    drain per group instead of 8 per-plane drains (recv wakes ÷8,
    ~1.6× projected on the measured wake-dominated recv). Verification
    gate = the SEG_POP discipline verbatim. Note: the driver-side
@@ -93,18 +89,17 @@ motivates it — the roadmap is itself evidence-first.
    documented anti-pattern; the MM3D packed path is the proven
    pattern). Estimated 2–4× on the handler → ~2–3× wall. Gate:
    layer-0 exact, then full-model token-identity.
-   Method context for both: `docs/METHOD_MVDRAM_LENS.md`.
 
 4. **LANE2_WRES clone-resident products** — DONE: 59 µs/gate
    resident vs 150–180 pcwrite (~2.7×/product); fidelity trade and
-   capacity limits documented in `docs/ROADB_2026_07.md` §5.
+   capacity limits characterized.
 5. **Plane-packed multi-read totals** — DONE: the multi-read
    accum regime validated EXACT (all-resident numpy-exact,
    byte-identical); per-plane-gate 32–53 µs vs 59–65 at moderate M;
    wall-neutral until residency capacity grows. The bring-up also
    surfaced a silent-skip integrity hazard now fixed with
-   `oversize_skips()` observability — read `docs/ROADB_2026_07.md` §6
-   before building accum-total systems on this stack.
+   `oversize_skips()` observability — check it before building
+   accum-total systems on this stack.
 6. **M3 coset-broadcast operand fan-out** —
    ⚠ **SUPERSEDED: production-negative.** The server
    `PIM_BCAST_LOAD` integration was measured on silicon and contributes
@@ -113,8 +108,8 @@ motivates it — the roadmap is itself evidence-first.
    request wall regardless. Kept at default 0, slated for removal. The gate-1
    numbers below stand only as a *standalone-harness primitive demonstration*
    and do **not** reach the request wall.
-   **FIRST GATE PASSED, both dies** (`docs/M3_COSET_FANOUT_DESIGN.md` §First
-   gate; tool `app/test_m3_scratch_ab.cpp`, logs `docs/data/m3/`). One
+   **FIRST GATE PASSED, both dies** (tool `app/test_m3_scratch_ab.cpp`,
+   logs `docs/data/m3/`). One
    coset `doubleACT` loads the scratch row(s) byte-exactly from a
    pool-resident source: 20/20 (k=1) + 20/20 (k=2: 1 op → 3 rows) per
    die, zero leak, all timings, **265.8× fewer instructions / ~4× wall**
@@ -128,7 +123,7 @@ motivates it — the roadmap is itself evidence-first.
    the ceiling math for a compute-issue lever on a readout-bound wall.
    Confirms readout-first sequencing. Gotcha recorded: any
    `PIM_INLINE_BITPLANES>1` batch disables pack4 structurally
-   (duplicate-bank serial fallback). `docs/UTILIZATION.md` addendum.
+   (duplicate-bank serial fallback).
 8. **Dual-subarray LOAD pools** — IDEA. Server helpers exist (bc_pool_idx
    dual mode). Doubles residency ⇒ shifts V2→MM3D traffic (where
    PACK_ROUNDS works). Needs a second calibrated subarray + pool layouts
@@ -150,12 +145,11 @@ motivates it — the roadmap is itself evidence-first.
     2048/2048, XM on corr 0.951). The server hard-gates X-master off;
     default-off everywhere. Only revivable if the seed can be made
     write-driven-equivalent (charge-sharing physics argues no).
-    `docs/SESSION_2026_07_27.md` §3.
 
 ## C. Characterization / science (learn + enable)
 
-11. **Bank-similarity audit** — TRANCHE 1 CONFIRMED
-    (`docs/BANK_AUDIT_2026_07.md`): four never-calibrated banks under a
+11. **Bank-similarity audit** — TRANCHE 1 CONFIRMED:
+    four never-calibrated banks under a
     verbatim-transferred calib produce classification-identical spread
     tables (350/350 rows × 14 primitive cases); even the flake fringe is
     deterministic and bank-invariant; the null control shows zero
@@ -171,7 +165,7 @@ motivates it — the roadmap is itself evidence-first.
     long offset is block-relative); parts need lattice re-derivation.
     16-bank scale-out is now a config exercise.
 13. **16-bank / multi-subarray scale-out** — IDEA, after 11. The idle
-    spatial parallelism from docs/UTILIZATION.md (die ~99.99% idle).
+    spatial parallelism (die ~99.99% idle).
     Constraints known: tFAW/tRRD scheduling (pack4 machinery), per-bank
     pools, c2h contention.
 14. **640/1024 boundary atlas** — IDEA. Map sense-amp-segment vs
@@ -198,7 +192,6 @@ motivates it — the roadmap is itself evidence-first.
     correlation. Threshold (corr ≥ 0.98) provisional pending a real
     corruption-run calibration. RULE recorded: gate mask/weight/pool
     changes on numerics, never on token identity.
-    `docs/SESSION_2026_07_27.md` §2.
 
 ## D. Model / application levers
 
@@ -227,9 +220,9 @@ motivates it — the roadmap is itself evidence-first.
 
 ## E. Publication / story (repo = go-to for in-memory LLM)
 
-20. **Explainer HTML scenes for the throughput/method material** — ledger
-    rows recorded (`docs/explainer/pim_explainer_ledger.md`); the scenes
-    need their own careful pass.
+20. **Explainer HTML scenes for the throughput/method material** — claim
+    ledgers live at `docs/explainer/index_ledger_2026_08_03.md` and
+    `docs/explainer/xor-spread_ledger_2026_08_03.md`.
 21. **256-token sampled e2e writeup** — RUN; fold the verdict table into
     MVDRAM_REPRODUCTION when done.
 
@@ -238,23 +231,21 @@ motivates it — the roadmap is itself evidence-first.
 - Phase-2 send-ahead (`PIM_STREAM_PIPE`) VALIDATED on silicon —
   full-model −26.3% (2529.1 → 1863.1 s), recv 112 → 57 ms, token-exact,
   0 stalls/decay/errors over 11,500 requests; RTL blocker gone. UNBLOCKED,
-  USER-gated to enable. `docs/SESSION_2026_07_27.md` §1. (Streaming ALONE
+  USER-gated to enable. (Streaming ALONE
   is wall-neutral; phase-2 is the recv attack — see lever 3/3a.)
 - V2 output-numerics gate BUILT (`numerics_gate/v2_oracle.py`
   + `PIM_VERIFY_ROUNDS`) — real `MAGIC_V2` path, sim 8/8 bit-exact, working
   negative control; gate is CORRELATION-based (corr 0.997–0.9998 stable
-  where raw per-op bit-exactness is process-dependent).
-  `docs/SESSION_2026_07_27.md` §2. (Lever #29.)
+  where raw per-op bit-exactness is process-dependent). (Lever #29.)
 - X-master-clone evaluated → CLOSED NEGATIVE for production: the RowClone'd
   x seed lands at charge-shared (not write-driven) levels, corrupting output
   at production mask density on both tracks; server hard-gates it off,
-  default-off everywhere. `docs/SESSION_2026_07_27.md` §3. (Lever #28.)
+  default-off everywhere. (Lever #28.)
 - Rung-2a on-fabric orchestrator probe — Verilator 27/27
   byte-exact (fabric-driven projection loop returns exact integer partials,
   no host command). Feasibility of a host-command-free loop established.
-  `docs/SESSION_2026_07_27.md` §4.
 - Road-B lane2 integration (product dataflow 1.4–28×; accum
-  crossover ~50K products; 65K totals 0 faults) — `docs/ROADB_2026_07.md`.
+  crossover ~50K products; 65K totals 0 faults).
 - 1-bit single-track V2S (18.7 s/tok, 1.81×, ladder 5.36×).
 - MAJ5 ZERO+2 chain A/B — honest negative (99.51 vs 99.90;
   SiMRA ONE+3 stands).

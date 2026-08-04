@@ -1,7 +1,7 @@
 # Lane-2 GeMV server + llama.cpp binding design (B1 phase 2)
 
 2026-07-18. Lane 2 only: their models, their conventions, Road-A in-DRAM
-accumulation (ADR-005). Never blended with the BitNet production server.
+accumulation. Never blended with the BitNet production server.
 
 2026-07-20 (task O7) — the three phase-1 fidelity deviations are CLOSED as
 env-gated server modes (defaults preserve the phase-1 behavior exactly):
@@ -36,7 +36,7 @@ multi-day per model. Reproduction shape we run instead:
   inputs) — measured, not sampled.
 - Deviation statement in the writeup: sampled e2e + full per-op
   verification + their protocol semantics; not their wall-clock e2e
-  (structural gap = §V-E streaming, documented in PAPER_CONTRAST.md).
+  (structural gap = §V-E streaming, documented in `RELATED_SYSTEMS.md` §2).
 
 ## Server (lane2-gemv-server)
 - Location: mvdram-repro tree (NOT BitNet/). Wraps the validated Lane-2

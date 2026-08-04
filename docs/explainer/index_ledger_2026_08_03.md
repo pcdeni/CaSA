@@ -8,8 +8,7 @@ measured log, or a claim-register entry. The one chip-specific worked example
 (tuple `s61`, bank 0, an SK hynix module) is labelled in the page as real,
 named silicon.
 
-**Supersedes** `pim_explainer_ledger.md` for the rebuilt content (that file is
-kept as prior provenance for the retired 13-scene deck). The rebuilt explainer
+The explainer
 is a nine-section plain-language walk; its central object is a six-step
 instruction walk (setup → write → clone → vote → read → iterate). It re-explains
 none of the mechanism owned by the mechanism explainer — the coset, the
@@ -85,7 +84,7 @@ live in `xor-spread.html`, linked, never restated here.
 
 | Claim | Source |
 |---|---|
-| In DRAM: every layer's projection matrix-multiplies run as votes and counts. On CPU: softmax, norms, sampling, tokenizer/embedding — the same split every PUD system makes | [doc:METHODOLOGY.md] / `docs/RELATED_SYSTEMS.md` §4 (all 210 BitLinear in DRAM; non-BitLinear on CPU) |
+| In DRAM: every layer's projection matrix-multiplies run as votes and counts. On CPU: softmax, norms, sampling, tokenizer/embedding — the same split every PUD system makes | `docs/RELATED_SYSTEMS.md` §4 (all 210 BitLinear in DRAM; non-BitLinear on CPU) |
 | One token is hundreds of thousands of votes across all layers (order-of-magnitude, non-numeric) | [editorial: order of magnitude]; softened |
 
 ## §08 — The wall (intuition only)

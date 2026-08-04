@@ -8,12 +8,6 @@ measured log, or a claim register entry. Chip-specific numbers are labelled in
 the explainer itself as measured examples on named silicon (tuple `s61`,
 bender 0, SK hynix, bank 0), never as universal laws.
 
-**Supersedes** the July deck's ledger `xor_spread_ledger.md` (kept as prior
-provenance for the retired 11-scene deck). The rebuilt explainer drops the
-scene structure and the two scene framings the overhaul corrects — the claim
-that the spread ignores timing, and the claim that the vote unconditionally
-overwrites its own operands. This ledger covers the rebuilt content only.
-
 ## Source tiers
 
 - **[paper:SiMRA]** — Yüksel et al., *Simultaneous Many-Row Activation in
@@ -89,9 +83,9 @@ overwrites its own operands. This ledger covers the rebuilt content only.
 | Claim | Source |
 |---|---|
 | The same coupling is a free one-to-many copy; hazard vs asset is decided by placement, not timing | [repro §4 "The spread is a tool"]; [code:app/test_safe_load.cpp] |
-| Neutralize by placement: offsets whose generators avoid the coset are corruption-free by construction (20/20 clean safe loads; unsafe offsets corrupt exactly the predicted rows) | [code:app/test_safe_load.cpp]; [doc:LATTICE_ADDRESSING_2026_07 §2]; prior ledger `xor_spread_ledger.md` Scene 11 |
-| Exploit as broadcast: the fused-coset activation path is in production, measured 1.63×/token on the real model (both arms answer "Paris") | [code:python/run_bitnet_pim.py] + [code:app/test_bitnet_server.cpp] (A/B, env-gated coset path); prior ledger `xor_spread_ledger.md` Scene 11 (117.2 → 71.8 s = 1.63×); [mem:bitnet_fused_coset_production] |
-| Broadcast weight loading validated + queued | [doc:LATTICE_ADDRESSING_2026_07 §1] (sub-lattice broadcast, bit-exact); [doc:ROADMAP.md] (queued lever) |
+| Neutralize by placement: offsets whose generators avoid the coset are corruption-free by construction (20/20 clean safe loads; unsafe offsets corrupt exactly the predicted rows) | [code:app/test_safe_load.cpp]; [doc:RELATED_SYSTEMS.md §5 the coset + selection law] |
+| Exploit as broadcast: the fused-coset activation path is in production, measured 1.63×/token on the real model (both arms answer "Paris") | [code:python/run_bitnet_pim.py] + [code:app/test_bitnet_server.cpp] (A/B, env-gated coset path); measured 117.2 → 71.8 s = 1.63×; [mem:bitnet_fused_coset_production] |
+| Broadcast weight loading validated + queued | [doc:RELATED_SYSTEMS.md §5] (sub-lattice broadcast, bit-exact); [doc:ROADMAP.md] (queued lever) |
 | Keeping the short "dirty" calibration timing on purpose (widening the gap suppresses the free copies) | [repro §4]; [claim:C64] |
 
 ## §8 — Provenance and credit
