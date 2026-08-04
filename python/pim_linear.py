@@ -95,6 +95,19 @@ MAGIC_MM3D = 0xB17EF004   # MATMUL_HANDLE (subsequent calls)
 MAGIC_V2G = 0xB17EF005    # V2 with per-group partial response (PIM_GROUP_RESP=1)
 MAGIC_V2S = 0xB17EF006    # V2 single-track (PIM_1BIT_SINGLE=1): pos masks only
 MAGIC_V2GS = 0xB17EF007   # V2 grouped + single (request batching, PIM_REQ_BATCH)
+# [2026-08-04 XBATCH client] PIM_DESC_XBATCH_CLIENT=1: batch each projection's
+# independent same-x MM3D sub-handle requests into ONE MAGIC_FUSE frame
+# (call sites #1-#3 below; engages on real model runs, prefill AND generation).
+# Pair with PIM_DESC_XBATCH=1 server-side for the desc-serve super-session;
+# without the server env the frame is served per-sub (identical answers).
+# Default OFF: all call sites take their original per-request loops.
+_XBATCH_CLIENT = os.environ.get('PIM_DESC_XBATCH_CLIENT', '0') == '1'
+MAGIC_FUSE = 0xB17EF008   # P1 RUNG-2 request fusion (PIM_REQ_FUSE=N): N whole
+                          # slice sub-requests in ONE pipe transaction. Pure
+                          # delivery framing — server loops the unchanged
+                          # per-request dispatch, so per-bank DRAM ops are
+                          # byte-identical (trace-equiv L3). Wins only the
+                          # per-request-fixed pipe+gap overhead. Default off.
 
 
 def _xbp_weighted_popcount(x_bp_sub):
@@ -197,6 +210,26 @@ class PimServer:
                 raise RuntimeError("PIM server pipe wrote 0 bytes")
             sent += n
 
+    def request_fused(self, bodies, expect_resp_len_each=8192):
+        """[2026-08-04 XBATCH client] Send N complete request bodies as ONE
+        MAGIC_FUSE frame ([MAGIC_FUSE][u32 N] + N x ([u32 sublen][body])) and
+        return the N responses (list of expect_resp_len_each byte strings, in
+        order). Server side: with PIM_DESC_XBATCH=1 an all-MM3D frame is served
+        by ONE desc-serve super-session per bank (process_matmul_desc_batch);
+        otherwise the server's unchanged per-sub dispatch loop serves each body
+        and the concatenated responses are identical — so this transport is
+        CORRECT regardless of the server env, and faster when XBATCH is on.
+        Numerics gate: v2_oracle --batch N (2026-08-04, 512/512 model shape)."""
+        if len(bodies) == 1:
+            return [self.request(bodies[0], expect_resp_len=expect_resp_len_each)]
+        frame = struct.pack('<II', MAGIC_FUSE, len(bodies))
+        for b in bodies:
+            frame += struct.pack('<I', len(b)) + b
+        resp = self.request(frame,
+                            expect_resp_len=len(bodies) * expect_resp_len_each)
+        return [resp[i * expect_resp_len_each:(i + 1) * expect_resp_len_each]
+                for i in range(len(bodies))]
+
     def request(self, body_bytes, expect_resp_len=8192):
         """Send one request, return `expect_resp_len` bytes of response.
         For matmul (v2 / MATMUL_HANDLE): 8192 bytes (default).
@@ -239,6 +272,80 @@ class PimServer:
                 return got
             except (BrokenPipeError, OSError) as e:
                 raise RuntimeError(f"PIM server died: {e}") from None
+
+    # ---------- [#65 2026-08-04] runtime CONFIG-UPDATE (bank16_config) ----------
+    # DESIGN LAW: the bank set / per-bank residency state / windows are host-
+    # supplied AND changeable at runtime with no server restart. These talk the
+    # MAGIC_CONFIG protocol the bitnet-proj-server-bank16 twin added (default-off
+    # on the production binary: it just returns "unknown magic" and the txn errors,
+    # so callers must target the bank16 twin). The conveyor/prefetch scheduler
+    # (task #67) drives set_bank_state() at steady state; reconfigure() is the
+    # heavier full-membership change. All additive — legacy call paths untouched.
+    MAGIC_CONFIG = 0xB17EF00A
+    CFG_QUERY, CFG_RECONFIG, CFG_SET_STATE = 1, 2, 3
+    # BankState enum (matches the server): ACTIVE=0 STAGING=1 STORAGE=2 FREE=3.
+    ST_ACTIVE, ST_STAGING, ST_STORAGE, ST_FREE = 0, 1, 2, 3
+
+    def _config_txn(self, frame):
+        """Send one MAGIC_CONFIG frame, read the variable-length reply
+        ([u32 status][u32 n] + n×[i32 dimm][i32 bank][u32 state][u32 pool_size]
+        [u32 win_start][u32 win_end]). Returns (status, [dict,...]). Uses the
+        same stdin/stdout lock as request() so it serialises against matmuls —
+        i.e. it lands BETWEEN complete requests, which is the server's
+        'when it may apply' contract."""
+        with self.lock:
+            self._write_all(self.proc.stdin, struct.pack('<I', len(frame)))
+            self._write_all(self.proc.stdin, frame)
+            self.proc.stdin.flush()
+            hdr = b""
+            while len(hdr) < 8:
+                c = self.proc.stdout.read(8 - len(hdr))
+                if not c:
+                    raise RuntimeError("PIM server closed stdout during config txn")
+                hdr += c
+            status, n = struct.unpack('<II', hdr)
+            body = b""
+            need = n * 24
+            while len(body) < need:
+                c = self.proc.stdout.read(need - len(body))
+                if not c:
+                    raise RuntimeError("PIM server closed stdout mid config table")
+                body += c
+        table = []
+        for i in range(n):
+            dimm, bank, state, pool, ws, we = struct.unpack(
+                '<iiIIII', body[i*24:(i+1)*24])
+            table.append({'dimm': dimm, 'bank': bank, 'state': state,
+                          'pool_size': pool, 'win_start': ws, 'win_end': we})
+        return status, table
+
+    def query_config(self):
+        """Return the server's current per-bank config table (list of dicts)."""
+        frame = struct.pack('<II', self.MAGIC_CONFIG, self.CFG_QUERY)
+        return self._config_txn(frame)[1]
+
+    def reconfigure(self, bank_specs):
+        """Full bank-set replacement at runtime (no restart). bank_specs =
+        iterable of (dimm, bank, state, win_start, win_end); use dimm=-1 to keep
+        the server's own DIMM, win 0/0 to inherit the global window. Invalidates
+        ALL resident handles (the bank set changed). Returns (status, table);
+        status 0 = applied, nonzero = rejected (old set kept)."""
+        specs = list(bank_specs)
+        frame = struct.pack('<III', self.MAGIC_CONFIG, self.CFG_RECONFIG, len(specs))
+        for (dimm, bank, state, ws, we) in specs:
+            frame += struct.pack('<iiIII', dimm, bank, state, ws, we)
+        return self._config_txn(frame)
+
+    def set_bank_state(self, changes):
+        """Steady-state per-bank state transition (the #67 conveyor primitive).
+        changes = iterable of (bank, new_state). Idle<->idle transitions are
+        metadata-only (no stop-the-world); a bank leaving ACTIVE invalidates its
+        resident scratch. Returns (status, table)."""
+        chg = list(changes)
+        frame = struct.pack('<III', self.MAGIC_CONFIG, self.CFG_SET_STATE, len(chg))
+        for (bank, state) in chg:
+            frame += struct.pack('<iI', bank, state)
+        return self._config_txn(frame)
 
     def _cleanup(self):
         try:
@@ -406,6 +513,10 @@ class PimBitLinear(nn.Module):
         self._n_token_matmuls = 0
         self._n_inner_requests = 0
         self._sub_rr = 0   # round-robin cursor for assigning subs to DIMM servers
+        self._slice_rr = 0  # PIM_DUAL_SPLIT=slice: PERSISTENT (token,slice)->server
+                            # cursor; carried across forward calls so the
+                            # odd-item remainder alternates servers instead of
+                            # always landing on server 0 (balance fix 2026-08-01).
 
         # Pre-pack per-slice (pos_mask, neg_mask, request_prefix) for every
         # output slice this linear's forward will dispatch. Weights are
@@ -432,6 +543,22 @@ class PimBitLinear(nn.Module):
         # PIM_GROUP_RESP=1 forces the dual grouped path (back-compat).
         _batch_groups = (os.environ.get('PIM_REQ_BATCH', '1') == '1'
                          or os.environ.get('PIM_GROUP_RESP') == '1')
+        # SLICE-PARTITION dual split (2026-08-01, PIM_DUAL_SPLIT=slice).
+        # Default 'groups' = today's grouped-batch V2GS split (each slice's
+        # scale-GROUPS split across servers → bytes/request halve but each
+        # server still sees the full slice COUNT). 'slice' instead dispatches
+        # every (token, d_out-slice) request WHOLE — full group set, full
+        # size — round-robin across the servers, so each server sees ~half
+        # the request COUNT at full size and the per-request-COUNT-fixed term
+        # of the wall halves too (dualdimm 2026-08-01 RESULT §E "the real
+        # prize"). Whole slices span disjoint d_out ranges → no cross-server
+        # summing; per-slice host reconstruction runs in the worker threads.
+        # Group + multi-server only; otherwise the default path is unchanged.
+        _n_srv_init = len(self._servers) if use_server else 1
+        self._slice_split = (
+            os.environ.get('PIM_DUAL_SPLIT', 'groups') == 'slice'
+            and use_server and _n_srv_init > 1
+            and self._group_scales is not None)
         for s in range(n_slices):
             a = s * D_OUT_SLICE
             b = min(a + D_OUT_SLICE, d_out)
@@ -580,6 +707,25 @@ class PimBitLinear(nn.Module):
                                       else neg_mask[c_a:c_b].tobytes())),
                     })
 
+            # 1c. Whole-slice grouped body for PIM_DUAL_SPLIT=slice: ONE
+            #     request carrying ALL scale-groups at full size (the _ns=1
+            #     shape of the grouped batch), dispatched WHOLE to a single
+            #     server per (token, slice). Prebuilt once — pos/neg mask
+            #     .tobytes() is the expensive part. Single-track eligible
+            #     slices use MAGIC_V2GS (pos only); else MAGIC_V2G (pos+neg).
+            whole_prefix = None
+            if self._slice_split:
+                _wg_magic = MAGIC_V2GS if slice_single else MAGIC_V2G
+                whole_header = (struct.pack('<I', _wg_magic)
+                                + struct.pack('<I', n_chunks * 32)
+                                + struct.pack('<I', D_OUT_SLICE)
+                                + struct.pack('<I', n_chunks)
+                                + struct.pack('<I', N_BITPLANES)
+                                + struct.pack('<I', self._group_chunks))
+                whole_prefix = (whole_header + pos_mask.tobytes()
+                                + (b'' if slice_single
+                                   else neg_mask.tobytes()))
+
             # 2. Per-sub-d_in LOAD_WEIGHTS bodies (each sub ≤ MAX_CHUNKS_PER_SUB
             #    chunks → fits inside the validated single-bank persistent
             #    ceiling). For d_in ≤ 512 this collapses to a single sub.
@@ -643,6 +789,7 @@ class PimBitLinear(nn.Module):
                 'single': slice_single,   # V2S single-track (1-bit) slice
                 'static_prefix': static_prefix_v2,
                 'v2_parts': v2_parts,   # None single-DIMM; per-server split multi
+                'whole_prefix': whole_prefix,  # PIM_DUAL_SPLIT=slice full-group body
                 'bp_factor_bytes': bp_factor_bytes,
                 'load_subs': load_subs,
                 # Stashed for int-level diff log (PIM_INT_DIFF=1).
@@ -680,7 +827,31 @@ class PimBitLinear(nn.Module):
 
         y_out_f32 = np.zeros((n_tokens, self.out_features), dtype=np.float32)
         _t_matmul_total = 0.0
-        for t in range(n_tokens):
+        if (self._slice_split and self._server is not None
+                and self._group_scales is not None):
+            # SLICE-PARTITION path (PIM_DUAL_SPLIT=slice): dispatch every
+            # (token, slice) whole request round-robin across the DIMM
+            # servers, overlapped by one worker thread per server. Returns
+            # group-scaled f32 [n_tokens, d_out] (x_scale not yet applied).
+            _ts = _time.perf_counter()
+            y_group = self._matmul_slice_split(flat, n_tokens)
+            _t_matmul_total += _time.perf_counter() - _ts
+            y_out_f32 = (y_group / flat_scale[:, :1]).astype(np.float32)
+        elif ((_fuse_n := self._fuse_eligible()) > 1
+                and self._server is not None
+                and len(self._servers) == 1
+                and self._group_scales is not None
+                and not self._slice_split
+                and all(s.get('v2_parts') for s in self._slices)):
+            # P1 RUNG-2 request fusion: batch this projection's (token, slice)
+            # V2GS requests into MAGIC_FUSE frames. Pure delivery framing —
+            # group-scaled f32 [n_tokens, d_out], x_scale not yet applied.
+            _ts = _time.perf_counter()
+            y_group = self._matmul_group_fused(flat, n_tokens, _fuse_n)
+            _t_matmul_total += _time.perf_counter() - _ts
+            y_out_f32 = (y_group / flat_scale[:, :1]).astype(np.float32)
+        else:
+          for t in range(n_tokens):
             x_int8_t = flat[t].astype(np.int8)   # int8 [in_features]
             _ts = _time.perf_counter()
             y_int = self._pim_matmul_one_token(x_int8_t)
@@ -751,6 +922,199 @@ class PimBitLinear(nn.Module):
         if self.verbose and self._n_calls % 20 == 0:
             print(f"   [pim] forward call #{self._n_calls} ({n_tokens} tokens)", flush=True)
         return y_out
+
+    @torch.no_grad()
+    def _matmul_slice_split(self, flat, n_tokens):
+        """PIM_DUAL_SPLIT=slice worker. Dispatch every (token, d_out-slice)
+        request WHOLE (full group set, full size) round-robin across the
+        DIMM servers; one long-lived worker thread per server drains its
+        bucket and overlaps the other server's XDMA round-trips. Each server
+        thus sees ~half the request COUNT at full size (attacking the
+        per-request-COUNT-fixed wall term the grouped-batch split leaves on
+        the table). Per-slice host reconstruction (single-track 2*pos-Σx,
+        in-row vote, group rescale) runs inside the worker; whole slices
+        have disjoint (token, d_out) write ranges → lock-free. Returns f32
+        [n_tokens, d_out] with group scales applied, x_scale NOT applied."""
+        import time as _time
+        d_in = self.in_features
+        n_chunks = d_in // 32
+        gc = self._group_chunks
+        n_groups = n_chunks // gc
+        n_srv = len(self._servers)
+        n_slices = len(self._slices)
+
+        # Bit-decompose every token ONCE (read-only in the workers).
+        _ts = _time.perf_counter()
+        xbps = [_pack_xbp(flat[t].astype(np.int8), n_chunks)[0]
+                for t in range(n_tokens)]
+        self._t_xbp_ms += (_time.perf_counter() - _ts) * 1000
+
+        y_group = np.zeros((n_tokens, self.out_features), dtype=np.float32)
+        # Round-robin (token, slice) work items across servers. Per-ITEM
+        # (not per-slice-index) assignment keeps BOTH servers busy even on
+        # the 1-slice projections (q/k/v/o/down): their n_tokens prefill
+        # requests alternate servers and overlap.
+        buckets = [[] for _ in range(n_srv)]
+        for t in range(n_tokens):
+            for s in range(n_slices):
+                buckets[self._slice_rr % n_srv].append((t, s))
+                self._slice_rr += 1
+        errs = [None] * n_srv
+        counts = [0] * n_srv
+
+        def _worker(si):
+            try:
+                srv = self._servers[si]
+                for (t, s) in buckets[si]:
+                    slc = self._slices[s]
+                    a, b, n_real = slc['a'], slc['b'], slc['n_real']
+                    xbp = xbps[t]
+                    body = (slc['whole_prefix'] + xbp.tobytes()
+                            + slc['bp_factor_bytes'] + struct.pack('<I', 0))
+                    resp = srv.request(
+                        body, expect_resp_len=n_groups * D_OUT_SLICE * 4)
+                    G = (np.frombuffer(resp, dtype=np.int32)
+                         .reshape(n_groups, D_OUT_SLICE).copy())
+                    if slc['single']:
+                        # V2GS: y_g = 2*y_pos_g - Σ_{c∈g} fac·pc(x_c).
+                        for gg in range(n_groups):
+                            G[gg] = 2 * G[gg] - np.int32(
+                                _xbp_weighted_popcount(
+                                    xbp[gg*gc:(gg+1)*gc]))
+                    n_copies = slc.get('n_copies', 1)
+                    if n_copies > 1:
+                        copies = G[:, :n_copies * n_real].reshape(
+                            n_groups, n_copies, n_real)
+                        if n_copies >= 3:
+                            Gv = np.median(copies, axis=1).astype(np.int32)
+                        else:
+                            Gv = ((copies[:, 0].astype(np.int64)
+                                   + copies[:, 1].astype(np.int64)) // 2
+                                  ).astype(np.int32)
+                    else:
+                        Gv = G[:, :n_real]
+                    gs_slice = slc['group_scales']   # f32 [n_real, n_groups]
+                    y_group[t, a:b] = (gs_slice * Gv.T.astype(np.float32)
+                                       ).sum(axis=1, dtype=np.float32)
+                    counts[si] += 1
+            except Exception as e:
+                errs[si] = e
+
+        _ts = _time.perf_counter()
+        threads = [threading.Thread(target=_worker, args=(si,))
+                   for si in range(n_srv)]
+        for th in threads:
+            th.start()
+        for th in threads:
+            th.join()
+        self._t_request_ms += (_time.perf_counter() - _ts) * 1000
+        for e in errs:
+            if e is not None:
+                raise e
+        self._n_inner_requests += sum(counts)
+        return y_group
+
+    @staticmethod
+    def _fuse_eligible():
+        """P1 RUNG-2: request fusion engages only for the common single-DIMM
+        grouped-batch V2GS decode path (baseline_b2 config). Any deviation
+        (LOAD mode, cross-calib vote, forced calib, group-response batching
+        off) falls back to the per-slice path — correctness first."""
+        try:
+            n = int(os.environ.get('PIM_REQ_FUSE', '1'))
+        except ValueError:
+            n = 1
+        if n <= 1:
+            return 1
+        if os.environ.get('PIM_USE_LOAD_WEIGHTS', '0') == '1':
+            return 1
+        if os.environ.get('PIM_VOTE_FULL', '0') == '1':
+            return 1
+        if os.environ.get('PIM_FORCE_CALIB') is not None:
+            return 1
+        if os.environ.get('PIM_REQ_BATCH', '1') != '1':
+            return 1
+        return n
+
+    @torch.no_grad()
+    def _matmul_group_fused(self, flat, n_tokens, fuse_n):
+        """P1 RUNG-2 request fusion (PIM_REQ_FUSE=N). Group mode, single DIMM.
+        Dispatch the (token, slice) V2GS requests in MAGIC_FUSE frames of up to
+        `fuse_n` sub-requests per pipe transaction — pure delivery framing that
+        conserves every DRAM op (byte-identical per bank) and removes only the
+        (N-1) inter-request pipe round-trips + per-request server header waits.
+        Returns f32 [n_tokens, d_out] with group scales applied, x_scale NOT
+        applied (identical to the per-slice group path; forward() divides by
+        flat_scale). Reconstruction math is verbatim from _one_calib_groups."""
+        import time as _time
+        d_in = self.in_features
+        n_chunks = d_in // 32
+        srv = self._servers[0]
+        # Bit-decompose each token once (reused across this projection's slices).
+        xbps = [_pack_xbp(flat[t].astype(np.int8), n_chunks)[0]
+                for t in range(n_tokens)]
+        y_group = np.zeros((n_tokens, self.out_features), dtype=np.float32)
+        # Flat (token, slice) job list, token-major (matches the per-slice
+        # dispatch order so the response stream and any server-side ordering
+        # are identical to the unfused path).
+        jobs = [(t, s) for t in range(n_tokens)
+                for s in range(len(self._slices))]
+        _ts = _time.perf_counter()
+        i = 0
+        while i < len(jobs):
+            batch = jobs[i:i + fuse_n]
+            i += len(batch)
+            frame = [struct.pack('<II', MAGIC_FUSE, len(batch))]
+            subs = []   # (t, slc, part, x_bp_sub, resp_len)
+            for (t, s) in batch:
+                slc = self._slices[s]
+                part = slc['v2_parts'][0]   # single-DIMM grouped batch: covers all groups
+                x_bp_sub = xbps[t][part['c_a']:part['c_b']]
+                body = (part['prefix']
+                        + x_bp_sub.tobytes()
+                        + slc['bp_factor_bytes']
+                        + struct.pack('<I', 0))   # calib_idx 0
+                ng_part = part['g_b'] - part['g_a']
+                resp_len = ng_part * D_OUT_SLICE * 4
+                frame.append(struct.pack('<I', len(body)))
+                frame.append(body)
+                subs.append((t, slc, part, x_bp_sub, resp_len))
+            total_resp = sum(x[4] for x in subs)
+            resp = srv.request(b''.join(frame), expect_resp_len=total_resp)
+            off = 0
+            for (t, slc, part, x_bp_sub, resp_len) in subs:
+                sub = resp[off:off + resp_len]
+                off += resp_len
+                ng_part = part['g_b'] - part['g_a']
+                G = (np.frombuffer(sub, dtype=np.int32)
+                     .reshape(ng_part, D_OUT_SLICE).copy())
+                if part.get('single'):
+                    gc = part['gc']
+                    for gg in range(ng_part):
+                        G[gg] = 2 * G[gg] - np.int32(
+                            _xbp_weighted_popcount(
+                                x_bp_sub[gg * gc:(gg + 1) * gc]))
+                # G is [n_groups, 2048] (this single part carries all groups).
+                n_real = slc['n_real']
+                n_copies_g = slc.get('n_copies', 1)
+                if n_copies_g > 1:
+                    copies = G[:, :n_copies_g * n_real].reshape(
+                        ng_part, n_copies_g, n_real)
+                    if n_copies_g >= 3:
+                        Gv = np.median(copies, axis=1).astype(np.int32)
+                    else:
+                        Gv = ((copies[:, 0].astype(np.int64)
+                               + copies[:, 1].astype(np.int64)) // 2
+                              ).astype(np.int32)
+                else:
+                    Gv = G[:, :n_real]
+                gs_slice = slc['group_scales']   # f32 [n_real, n_groups]
+                a, b = slc['a'], slc['b']
+                y_group[t, a:b] = (gs_slice * Gv.T.astype(np.float32)
+                                   ).sum(axis=1, dtype=np.float32)
+            self._n_inner_requests += len(batch)
+        self._t_request_ms += (_time.perf_counter() - _ts) * 1000
+        return y_group
 
     def _pim_matmul_one_token(self, x_int8):
         """Run integer ternary @ int8 matmul for one token via PIM.
@@ -882,6 +1246,35 @@ class PimBitLinear(nn.Module):
 
                         def _run_srv(si):
                             try:
+                                # [2026-08-04 XBATCH client call site #2] The
+                                # grouped-mode (Bonsai) sub-handle loop: in
+                                # LOAD mode every item is an independent MM3D
+                                # body built from the SAME x (dependency-safe);
+                                # PIM_DESC_XBATCH_CLIENT=1 sends this server's
+                                # items as ONE MAGIC_FUSE frame and routes the
+                                # responses into their group slots identically.
+                                # Default OFF = the loop below, byte-identical.
+                                if use_load_mode and _XBATCH_CLIENT:
+                                    mine = [it for it in items
+                                            if it['server_idx'] == si]
+                                    if len(mine) > 1:
+                                        bodies = []
+                                        for it in mine:
+                                            x_bp_sub = x_bitplane[
+                                                it['c_a']:it['c_b']]
+                                            bodies.append(it['mm3d_prefix']
+                                                          + x_bp_sub.tobytes()
+                                                          + bp_factor_bytes_g
+                                                          + struct.pack(
+                                                              '<I', cal_idx))
+                                        resps = self._servers[si].request_fused(
+                                            bodies)
+                                        for it, resp in zip(mine, resps):
+                                            y_p = np.frombuffer(
+                                                resp, dtype=np.int32,
+                                                count=D_OUT_SLICE)
+                                            partials[si][it['group']] += y_p
+                                        return
                                 for it in items:
                                     if it['server_idx'] != si:
                                         continue
@@ -1007,6 +1400,27 @@ class PimBitLinear(nn.Module):
                         n_srv = len(self._servers)
                         if n_srv == 1:
                             y_acc = np.zeros(D_OUT_SLICE, dtype=np.int32)
+                            # [2026-08-04 XBATCH client call site #1] The
+                            # per-projection sub-handle loop: every body is
+                            # already built from the SAME x before any response
+                            # is needed (dependency-safe by construction), so
+                            # PIM_DESC_XBATCH_CLIENT=1 sends them as ONE
+                            # MAGIC_FUSE frame (server: one desc-serve
+                            # super-session/bank with PIM_DESC_XBATCH=1).
+                            # Default OFF = the loop below, byte-identical.
+                            if _XBATCH_CLIENT and len(slc['load_subs']) > 1:
+                                bodies = []
+                                for sub in slc['load_subs']:
+                                    x_bp_sub = x_bitplane[sub['c_a']:sub['c_b']]
+                                    bodies.append(sub['mm3d_prefix']
+                                                  + x_bp_sub.tobytes()
+                                                  + bp_factor_bytes
+                                                  + struct.pack('<I', cal_idx))
+                                for resp in self._servers[0].request_fused(bodies):
+                                    y_acc += np.frombuffer(resp, dtype=np.int32,
+                                                           count=D_OUT_SLICE)
+                                self._n_inner_requests += len(bodies)
+                                return y_acc
                             for sub in slc['load_subs']:
                                 x_bp_sub = x_bitplane[sub['c_a']:sub['c_b']]
                                 body = (sub['mm3d_prefix']
@@ -1032,6 +1446,28 @@ class PimBitLinear(nn.Module):
                         # wedge a channel — see investigation).
                         _serial = os.environ.get('PIM_MULTIDIMM_SERIAL') == '1'
                         def _run_srv(si):
+                            # [2026-08-04 XBATCH client call site #3] multi-
+                            # DIMM legacy sub-handle loop; same batching as
+                            # site #1, per server. Default OFF = loop below.
+                            if _XBATCH_CLIENT:
+                                mine = [s for s in slc['load_subs']
+                                        if s['server_idx'] == si]
+                                if len(mine) > 1:
+                                    bodies = []
+                                    for sub in mine:
+                                        x_bp_sub = x_bitplane[
+                                            sub['c_a']:sub['c_b']]
+                                        bodies.append(sub['mm3d_prefix']
+                                                      + x_bp_sub.tobytes()
+                                                      + bp_factor_bytes
+                                                      + struct.pack(
+                                                          '<I', cal_idx))
+                                    for resp in self._servers[si].request_fused(
+                                            bodies):
+                                        partials[si] += np.frombuffer(
+                                            resp, dtype=np.int32,
+                                            count=D_OUT_SLICE)
+                                    return
                             for sub in slc['load_subs']:
                                 if sub['server_idx'] != si:
                                     continue

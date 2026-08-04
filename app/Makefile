@@ -211,3 +211,28 @@ stream-hw-exe: test_stream_hw.o $(SHARED_OBJS)
 # sizes x chunk boundaries. Run before trusting any streaming change.
 record-parser-test: record_parser_test.cpp
 	$(CC) $(CPPFLAGS) $< -o $@
+
+# ---- verification / oracle silicon tools (2026-08-04 consolidation) ----
+# accxbp-hw2: cross-bit-plane accumulator silicon validation (batch-accum
+#   margin ladder). Companion CPU oracle is python/v2_oracle.py.
+# accxbp-xe / segpop-xe: exact-execution oracles for the ACCXBP and SEG_POP
+#   readback paths (host-side numeric cross-check of the in-DRAM result).
+accxbp-hw2-exe: test_accxbp_hw2.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+accxbp-xe-exe: test_accxbp_xe.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+segpop-xe-exe: test_segpop_xe.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+# ---- #65+SEAMFIX merged-canonical regate twin ----
+# Builds the published canonical test_bitnet_server.cpp under a distinct name
+# (own scratch object) so a regate can A/B it without overwriting the
+# production bitnet-proj-server. The shared test_bitnet_server.o and every
+# other binary stay byte-identical. NOT in BINARIES => `make all` is unchanged.
+bitnet-proj-server-b16sf: test_bitnet_server_b16sf.o $(SHARED_OBJS)
+	$(CC) $(CPPFLAGS) $^ -o $@ $(LDFLAGS) $(BOOST)
+
+test_bitnet_server_b16sf.o: test_bitnet_server.cpp
+	$(CC) $(CPPFLAGS) -c $< -o $@
