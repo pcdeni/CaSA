@@ -54,7 +54,7 @@ Determinism: 3/3 repeats identical. Cross-die: bender 0 ≡ bender 2.
 After the money-pair doubleACT, read 8 rows OUTSIDE the tuple — the partial-bit
 neighbors of the 96 and 384 groups (local offsets 32,64,128,256,352) and far
 rows (8,512,620). **0/8 leak on both benders.** Two things proven:
-1. No pollution beyond the tuple — the deposit is contained in the sub-coset,
+1. No leak beyond the tuple — the deposit is contained in the sub-coset,
    safe for a persistent-weight pool.
 2. Group generators stay **atomic** under a sub-pair: offsets 32/64/128/256
    (the individual bits inside the 96/384 groups) never open — consistent with
@@ -127,9 +127,9 @@ bit-err/65536 (99.997%).
 - Rescue tuples: **3/7 exact, ~12.5% mean bit-err** — beat the historical
   best (old D1 s24 = 0/7, 30.7%; old D3 s51 = 1/7).
 - Fail the mixed votes (truth/AND/OR: 22–37%); pass only obvious majorities.
-- **Reason:** {1,2} = 4 adjacent rows → MAJ self-pollution hits its own
-  operands. The working s86 tuple's {1,384} keeps one operand 384 rows away.
-  DIMM 1/3 lack a **separated** generator, not clean co-activation.
+- **Reason:** {1,2} = 4 adjacent rows → no **separated** operand geometry.
+  The working s86 tuple's {1,384} keeps one operand 384 rows away.
+  DIMM 1/3 lack a separated generator, not clean co-activation.
 - Next: enumerate {small,large}-generator tuples; if none, swap from inventory.
 
 # Part 5 — Per-MAJ activation-update A/B (`test_actupdate_ab.cpp`)
@@ -164,8 +164,8 @@ weight POOL: load K weights once, refresh each active tuple by clone per token.
 Refined enumeration (rank by operand separation = largest generator): on the
 partial dies, EVERY co-activation pair spanning ≥8 rows is a non-decomposable
 (dirty) lattice — **zero** clean lattices with a generator ≥8. Their only clean
-co-activation is the adjacent {1,2} scale, which self-pollutes on mixed MAJ
-votes (Part 4). Conclusion: DIMM 1/3's "partial" status is a decoder-structure
+co-activation is the adjacent {1,2} scale, whose un-separated operands the
+mixed (non-majority) MAJ patterns cannot resolve (Part 4). Conclusion: DIMM 1/3's "partial" status is a decoder-structure
 property — they lack the separated-generator geometry MAJ3 needs — not fixable
 by tuple selection. Engineering call: use for storage/non-MAJ roles, or swap
 from inventory. (Contrast: full-PUD dies 0/2 decompose 704/704 wide tuples.)
@@ -428,8 +428,8 @@ MAJ3-limited status). Sweeping frac: **corr(n_frac, coverage) = −0.44** —
 more conditioning slightly HURTS (33.4% at n_frac=0 → ~30% by n_frac=8);
 init ONE vs ZERO ≈ equal (30.4 vs 29.9%); full range 28.4–33.4%, σ=0.75.
 **Decisive: frac cannot fix DIMM 1/3.** Physically expected — their limit
-is decoder GEOMETRY (adjacent {1,2} generator → MAJ self-pollution hits its
-own operands, `maj3_self_pollution`), and frac conditions reference-row
+is decoder GEOMETRY (adjacent {1,2} generator → no separated operand set),
+and frac conditions reference-row
 CHARGE, not which rows co-activate. Confirms the structural verdict on
 silicon and kills the "maybe frac rescues D1/D3" hope cheaply.
 
@@ -497,9 +497,9 @@ frac_maj5_b2_s86_confirm.*.
 `mvdram-adder2-exe` (new): the dual-track full adder (carry=MAJ3(a,b,c),
 sum=MAJ5(a,b,c,¬carry,¬carry)) with the reference policy parameterized and
 a self-screen at the same policy (MAJ5 strict, 50 runs), then 20 random
-(a,b,c) trials. Also tests the pollution-immune "blocked" layout (each
-input's copies grouped so positions {0,1,2} share one value → the MAJ
-self-pollution injection is a no-op; reference at position 15).
+(a,b,c) trials. Also tests the deposit-immune "blocked" layout (each
+input's copies grouped so positions {0,1,2} share one value → any first-row
+deposit into those positions is a no-op; reference at position 15).
 
 ### s86 / bender 2
 | policy, layout | screen | adder strict on screen | sum err (screened) |
@@ -524,10 +524,10 @@ self-pollution injection is a no-op; reference at position 15).
 2. **Layout question answered (user asked: is the row choice
    spread-aware?):** the tuple IS the co-activation lattice by
    construction, and loading is wrRow (no spread). The role assignment's
-   pollution exposure (reference at Rf injects into positions 1,2 during
-   the MAJ) was tested via the immune blocked layout — and **the standard
+   deposit exposure (reference at Rf could inject into positions 1,2) was
+   tested via the immune blocked layout — and **the standard
    interleaved layout wins decisively on both subarrays** (blk collapses
-   the marginal subarray 982→504 screen, 96→63% adder). Self-pollution is
+   the marginal subarray 982→504 screen, 96→63% adder). The first-row deposit is
    second-order for MAJ5; spatial interleaving of input copies across the
    tuple's extent is what matters. SiMRA's layout is already near-right;
    the missed lever was the reference POLICY, not the geometry.
