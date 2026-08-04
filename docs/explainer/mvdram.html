@@ -843,7 +843,7 @@ R2v +vote3      : 229.8 s · 99.83%
 <span class="cm">→ N ≤ ~160 per 512-row subarray</span>
 <span class="cm">(cf. paper §VII: N ≤ 128)</span>
 
-<span class="src">ambiguities: REPRODUCTION.md 2026-07-20 §O7</span>
+<span class="src">ambiguities: REPRODUCTION.md §O7</span>
 <span class="cm">4 items, each with the convention chosen</span>`;}};
 
 // SCENE 10 — what our silicon adds beyond the paper
@@ -960,8 +960,7 @@ caption(step){return[
  `<b>On the numbers.</b> Read both sides with their caveats. Theirs: the 2.18×/1.31× end-to-end is a real measured llama.cpp run — the paper's strongest evidence; the energy figures (30.5× GeMV / 3.04× per-token) are CACTI-<em>estimated</em> on the MVDRAM side against <em>measured</em> baselines (RAPL/tegrastats) — an asymmetric method the paper itself states; the GPU baseline is a Jetson Orin Nano, an edge part. Ours: correctness claims now run the full width of their protocol (36 verified ops across four models, exact fp32 on real tensors), while every performance number remains kernel-level on a round-trip-bound rig — the streaming gap, measured at ≈9×10⁴ on the head-dims cell (Scene 7/8), stands between our seconds and their 0.19 ms, and no comparison in this deck pretends otherwise.`,
 ][step];},
 codeRef(){return `<span class="src">verdict sources</span>
-<span class="cm">docs/MVDRAM_REPRODUCTION.md §5 (original),</span>
-<span class="cm">§8 (revision, 2026-07-17)</span>
+<span class="cm">docs/MVDRAM_REPRODUCTION.md §5, §8</span>
 <span class="cm">Result A: §3 + docs/data/mvdram-repro/</span>
 <span class="cm">  rcrand_b0.log, rcrand_b3.log</span>
 <span class="cm">Result B: app/test_mvdram_compute_rows_safe.cpp,</span>
