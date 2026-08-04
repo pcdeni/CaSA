@@ -1,5 +1,12 @@
 # XOR-Spread Explainer — Claim Ledger (July 2026 update; extended 2026-07-20)
 
+> ⚠ **RETIRED 2026-08-04.** This ledger gated an earlier version of the
+> mechanism deck. The live mechanism explainer is `xor-spread.html`, and its
+> publish gate is
+> **[xor-spread_ledger_2026_08_03.md](xor-spread_ledger_2026_08_03.md)**. This
+> file is kept only as prior provenance — do not treat its scope or claims as
+> current.
+
 **Scope:** this ledger covers the scenes **added or changed in the July
 2026 updates** of `xor-spread.html` (workspace copy:
 `xor_spread_explainer.html`):

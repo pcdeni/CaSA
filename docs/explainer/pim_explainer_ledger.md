@@ -1,5 +1,11 @@
 # PIM Explainer — Claim Ledger
 
+> ⚠ **RETIRED 2026-08-04.** This ledger gated the earlier PIM/system deck
+> (`pim_explainer.html`). The live system explainer is `index.html`, and its
+> publish gate is
+> **[index_ledger_2026_08_03.md](index_ledger_2026_08_03.md)**. This file is
+> kept only as prior provenance — do not treat its scope or claims as current.
+
 Every factual claim in `pim_explainer.html` must trace to one of:
 - **[textbook]** — standard DRAM operation, no specific citation needed
 - **[paper:NAME §SEC]** — sourced from a paper file in `/home/deni/Claude/papers/`

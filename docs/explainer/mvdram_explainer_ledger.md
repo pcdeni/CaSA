@@ -1,5 +1,12 @@
 # MVDRAM Reproduction Explainer — Claim Ledger
 
+> ⚠ **RETIRED 2026-08-04.** The interactive MVDRAM deck (`mvdram.html`) has been
+> folded into one comparison home and now redirects. The MVDRAM comparison lives
+> in **[RELATED_SYSTEMS.md](../RELATED_SYSTEMS.md)** (§2), with citations inline;
+> the deep hardware-reproduction study is
+> **[MVDRAM_REPRODUCTION.md](../MVDRAM_REPRODUCTION.md)**. This file is kept only
+> as prior provenance — do not treat it as a live publish gate.
+
 Every factual claim in `mvdram.html` must trace to one of:
 - **[paper §SEC / Fig N / Table N / fn. N]** — MVDRAM, Kubo et al., arXiv:2503.23817 (v2, 23 Sep 2025)
 - **[study §N]** — [`docs/MVDRAM_REPRODUCTION.md`](../MVDRAM_REPRODUCTION.md) (updated 2026-07-17)
