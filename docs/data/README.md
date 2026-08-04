@@ -1,11 +1,12 @@
 # `docs/data/` — the measurement files the explainer ledgers cite
 
-Every load-bearing number in the four [explainer decks](../explainer/) traces
-to a primary artifact. This folder holds those artifacts. The claim IDs below
-(A#/B#/C#) are the rows of the publish-phase verification ledger
-[`../explainer/publish_ledger_2026_07_20.md`](../explainer/publish_ledger_2026_07_20.md);
-the per-deck ledgers (`pim_explainer_ledger.md`, `xor_spread_ledger.md`,
-`mvdram_explainer_ledger.md`) point at the same files.
+Every load-bearing number in the
+[explainer pages](https://pcdeni.github.io/CaSA/explainer/) traces to a primary
+artifact. This folder holds those artifacts. The claim IDs below (A#/B#/C#/N#)
+are the entries the explainer claim ledgers cite —
+[`../explainer/index_ledger_2026_08_03.md`](../explainer/index_ledger_2026_08_03.md)
+and
+[`../explainer/xor-spread_ledger_2026_08_03.md`](../explainer/xor-spread_ledger_2026_08_03.md).
 
 Logs are raw, unedited tool output. CSVs are per-config grids. `*_server.log`
 is the PIM server's side of an A/B run. Four claims are carried as **SECONDARY**

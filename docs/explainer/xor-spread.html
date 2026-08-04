@@ -271,30 +271,30 @@ loop — start with the <a href="index.html">system explainer</a>, then come bac
 <p>Every row in a DRAM chip has a numeric address. To open a row, the chip feeds that address into
 a <span class="def">decoder</span> — a small tree of logic that lights up one
 <span class="def">wordline</span>, the wire connecting a row of storage cells to the chip's sense
-circuitry. The decoder does not treat the address as one number. It splits it into groups of bits
-and hands each group to a small <span class="def">predecoder</span>. Hold that picture: the grouping
-decides everything later on this page.</p>
-
-<p>Because addresses are bits, the natural way to relate two rows is by <strong>which bit differs</strong>.
-Here, row addresses are written in <span class="mono">decimal</span>, and a relationship between two
-rows is named by the separating bit: two rows "differ in bit&nbsp;4" when flipping bit&nbsp;4 of one
-address gives the other. Each bit is worth a fixed amount — the four this page uses:</p>
+circuitry. The decoder never sees the address as one number. It splits it into two parts —
+<strong>which block</strong> of rows (the upper bits) and <strong>which position inside the block</strong>
+(the lower ten bits) — and the position's ten bits arrive pre-grouped in six
+<span class="def">bundles</span>. On the dies this page measures, the bundles are:</p>
 
 <div class="scrollx">
-<table class="data" style="max-width:22rem">
-  <caption>The four address bits in the worked example, and the value each one adds.</caption>
-  <thead><tr><th>generator bit</th><th>value it adds</th></tr></thead>
+<table class="data" style="max-width:26rem">
+  <caption>The six bundles of a position, and the wires each decodes to.</caption>
+  <thead><tr><th>bundle</th><th>wires</th></tr></thead>
   <tbody>
-    <tr><td class="addr">bit 2</td><td class="val">4</td></tr>
-    <tr><td class="addr">bit 4</td><td class="val">16</td></tr>
-    <tr><td class="addr">bit 6</td><td class="val">64</td></tr>
-    <tr><td class="addr">bit 9</td><td class="val">512</td></tr>
+    <tr><td class="addr">bit 9</td><td class="val">2 — one per value (0, 1)</td></tr>
+    <tr><td class="addr">bits 8-7</td><td class="val">4 — one per value (00, 01, 10, 11)</td></tr>
+    <tr><td class="addr">bits 6-5</td><td class="val">4</td></tr>
+    <tr><td class="addr">bits 4-3</td><td class="val">4</td></tr>
+    <tr><td class="addr">bits 2-1</td><td class="val">4</td></tr>
+    <tr><td class="addr">bit 0</td><td class="val">2</td></tr>
   </tbody>
 </table>
 </div>
-<p class="small">These four are the <em>generators</em> of the example — the bits the two opened rows
-differ in. Every other address relationship on this page is built from them, so this is the only
-offset table you need.</p>
+
+<p>Asking for a row turns on exactly <strong>one wire in every bundle</strong> — the wire for that
+row's value — and a row opens only when all six of its wires are on. Normally that selects exactly
+one row, and the wires are released when the activation completes. Hold that picture: everything
+later on this page follows from it.</p>
 
 <h2><span class="n">2</span>The double activation — one command pair</h2>
 <p>The whole story is a single sequence of four commands to the memory:</p>
@@ -322,7 +322,7 @@ counted in command slots, and watch what the same command pair does to the same 
   <h3>What one command pair does, as a function of its timing</h3>
   <div class="tck">Axis: extra <b>first hold</b>, in command slots (NOP). One slot = <b>tCK = 1.5&nbsp;ns</b>
   — the ns value sits under each tick. Measured on a fixed 16-row set we label
-  <span class="mono">s61</span>, in bank&nbsp;0 of one of our SK&nbsp;hynix DDR4 modules.</div>
+  in bank&nbsp;0 of one of our SK&nbsp;hynix DDR4 modules.</div>
 
   <div class="track">
     <div class="zones">
@@ -369,36 +369,11 @@ few slots away, and where it begins is a per-die number (SK&nbsp;hynix here: cop
 Micron dies' copy regime begins a few slots later, around slot 5).
 </div>
 
-<p>But "clean" has an honest scope, and a model-free census — unique fingerprints on every row of
-a ~640-row window, hundreds of <em>random</em> uncalibrated pairs, no assumptions about where effects
-may land — pins it down: on the SK&nbsp;hynix dies, a vote-timing operation <strong>always
-co-activates the pair's whole coset</strong> — the rows the selection law names — and resolves them
-<em>together</em>, to one shared value. Zero of 200 random pairs leave the rows untouched;
-70–73% recruit rows beyond the two named. A vote is "clean" when the co-activated rows already
-agree — which is exactly what calibration and operand replication arrange, so a calibrated majority
-comes back looking untouched. Give the co-activated rows <em>disagreeing</em> data and the same
-operation rewrites them all with the joint result: one uncalibrated pair here leaves its entire
-8-row coset holding one shared value — the <strong>equal-weight per-bit majority</strong> of
-everything the eight rows hold, exact on every clear-majority bit, with exact ties falling to a
-fixed per-region preference. The same pair at copy timing deposits byte-exactly into the
-same 8 rows. Same coset, same law; the timing picks vote-together versus copy-from-source, and
-both outcomes are deterministic.</p>
-
-<p>Two further edges. At an exact per-bit tie — half the co-activated rows say 1, half say 0 — the
-sense amplifiers fall back to a fixed preference that varies by row region and does not follow
-anyone's data (flip the first row's content and the tie resolves the same way). An instrument that
-manufactures ties — for example filler rows the recipe assumes are charge-weakened but the silicon
-leaves at full strength — will misread that fixed preference as instability: on one of our Micron
-dies this drops one tuple's characterization score to ~3% at the clean operating point while a
-sibling tuple in a region of opposite tie preference scores ~79%. And the co-activation mechanism
-itself is die-family-scoped: the Micron dies do not follow the hynix selection law and often fail
-to co-activate at vote timing at all — a different decoder regime, not a cleaner vote.</p>
-
 <h3>A second knob: the gap to the second activation</h3>
 <p>The other knob — the <strong>gap</strong> after PRE, before the second ACT — controls a different
-line: whether the pair copies into <em>two</em> rows or into <em>many</em>. A clean two-row copy needs
-the array fully closed, which takes at least <strong>4 slots (6.0&nbsp;ns)</strong>. Below that, the
-copy spreads across a whole set of neighbours.</p>
+line: whether the pair copies into a <em>single</em> destination row or into <em>many</em>. A clean copy
+into one destination row needs the array fully closed, which takes at least <strong>4 slots
+(6.0&nbsp;ns)</strong>. Below that, the copy spreads across a whole set of neighbours.</p>
 
 <div class="knob2">
   <div class="strip">
@@ -436,73 +411,148 @@ above it: <span class="mono">MAJ(F0, CC, AA) = E8</span>. In the demo the operan
 <span class="chip">AA</span> (C); a well-timed vote turns all of them into <span class="chip">E8</span>.</p>
 </div>
 
-<h2><span class="n">5</span>Which rows the pair touches — the coset and the selection law</h2>
-<p>When the pair copies, it does not copy into <em>one</em> row. It copies into every row reachable
-from the source by adding any combination of the generators the two opened rows differ in. With the
-four generators from §1, that is a set of <strong>16 rows</strong> — call it the <strong>coset</strong> —
-the source plus every subset-sum of {4, 16, 64, 512} on the base row <span class="mono">38408</span>:</p>
+<p>A majority of three does more than break ties — it is a small logic gate in disguise. Pin one of the
+three inputs to all-zeros, and the majority of the other two can only come out 1 when <em>both</em> of
+them are 1: that is their <strong>AND</strong>. Pin that same input to all-ones instead, and the vote
+tips the moment <em>either</em> of the other two is 1: their <strong>OR</strong>. One primitive, one
+input held to a fixed 0 or 1, and the same majority delivers AND or OR on demand — which is why a bare
+majority vote is enough to build logic inside the memory.</p>
+
+<p>A held input has a third setting, too — the one this work calls <strong>frac</strong>, short for
+fractional charge. A cell need not sit fully at 0 or fully at 1: it can be parked deliberately partway
+between the two, at a level the sense amplifier reads as neither. Dropped into a vote as a reference the
+other rows are judged against, such a partly-charged row acts as a bias — a known thumb on the scale
+that tilts a close majority the chosen way.</p>
+
+<p>The same trick runs with <em>five</em> rows instead of three — a five-input majority, or
+<strong>MAJ5</strong>. It matters because it completes the adder: to add three bits, the carry-out is
+simply the majority of the three, <span class="mono">MAJ3(a, b, c)</span>, and the sum bit is the
+five-input majority of those same three together with two copies of the inverted carry,
+<span class="mono">MAJ5(a, b, c, NOT carry, NOT carry)</span>. Majority alone — three rows and five
+rows — gives a full adder, the primitive every running total is built from.</p>
+
+<p>Wider votes exist as well — seven-input and nine-input majorities — but the workhorse for adding up
+many bits at once is not an ever-larger vote; it is the <strong>popcount</strong>, which simply counts
+how many of the rows hold a 1.</p>
+
+<p>One last thing about that count. The worked example votes over three distinct values, but on silicon
+the vote runs across <strong>sixteen</strong> rows, not three — and the reason is margin, not bookkeeping.
+A sense amplifier decides each bit from a tiny difference in charge on the shared wire; with only three
+rows leaning on it, that difference is small enough that the amplifier can resolve it the wrong way.
+Pile more rows holding the same value onto the same wire and the difference grows, giving the amplifier
+room to settle on the right answer. So the real vote deliberately spreads each value across many rows —
+which sixteen, and why exactly those, follows from the address wiring the next section lays out.</p>
+
+<h2><span class="n">5</span>Which rows open — count the differing bundles</h2>
+<p>The pair opens more rows than the two it names, and exactly which ones follows from §1's
+six-bundle picture — walked through here on this page's real pair. One warning first: do not compare
+the two row numbers bit by bit. Written as one number, block and position smear together and
+mislead. Split first, the way the chip does:</p>
+
+<div class="binfig">
+<div class="scrollx">
+<pre class="bin"><span class="lab">38424</span> = block 38400 + position <span class="hx"> 24</span>
+<span class="lab">38988</span> = block 38400 + position <span class="hx">588</span></pre>
+</div>
+<p class="small" style="margin:.7rem 0 0">Same block — that is what lets them interact at all. From
+here on, only the two positions matter.</p>
+</div>
+
+<p>Write both positions in their six bundles and compare, bundle by bundle:</p>
+
+<div class="binfig">
+<div class="scrollx">
+<pre class="bin"><span class="lab">position</span>   bit 9 |  8-7 |  6-5 |  4-3 |  2-1 |  0
+<span class="lab">  24</span>          0   |  00  |  00  |  11  |  00  |  0
+<span class="lab"> 588</span>          1   |  00  |  10  |  01  |  10  |  0
+             <span class="maj">DIFF</span>  | same | <span class="maj">DIFF</span> | <span class="maj">DIFF</span> | <span class="maj">DIFF</span> | same</pre>
+</div>
+</div>
+
+<p><strong>Four bundles differ.</strong> Now add §2's mechanism: the second activation arrives before
+the first is released, so nothing gets un-lit. Watch one differing bundle up close:</p>
+
+<div class="binfig">
+<div class="scrollx">
+<pre class="bin"><span class="lab">bundle 6-5</span>          wire 00   wire 01   wire 10   wire 11
+<span class="lab">24 asks (value 00)</span>    ON        off       off       off
+<span class="lab">588 arrives (10)</span>      ON        off       ON        off
+                       <span class="g">↑ never released</span></pre>
+</div>
+</div>
+
+<p>Two of that bundle's four wires end up on — the two values somebody asked for. The values nobody
+asked for stay dark. The same happens in every differing bundle; the matching bundles hold one lit
+wire, shared. Count the lit wires and multiply — a row opens only when all six of <em>its</em> wires
+are on, so every bundle contributes its lit-wire count as a factor:</p>
+
+<div class="binfig">
+<div class="scrollx">
+<pre class="bin"><span class="lab">wires lit</span>    2   |   1  |   2  |   2  |   2  |  1      →   2·1·2·2·2·1 = <span class="hx">16 rows open</span></pre>
+</div>
+</div>
+
+<p><strong>Rows opened = the product of lit wires per bundle.</strong> That product is the whole rule.
+Here it is 16, and adding the block back turns the sixteen mixes into row numbers:</p>
 
 <div class="lattice">
-  <div class="lat-haxis">add bit-4 (+16) and/or bit-9 (+512) →</div>
+  <div class="lat-haxis">take the second row's value in bundle 4-3 (+16) and/or bit 9 (+512) →</div>
   <div class="lat-axes">
-    <div class="lat-vaxis">add bit-2 (+4) and/or bit-6 (+64) ↓</div>
+    <div class="lat-vaxis">…in bundle 2-1 (+4) and/or 6-5 (+64) ↓</div>
     <div class="grid16" id="grid16"></div>
   </div>
   <div class="latlegend">
     <span><b style="color:var(--role-source)">●</b> source&nbsp;<span class="mono">38424</span> (first-opened)</span>
     <span><b style="color:var(--role-written)">■</b> second-opened&nbsp;<span class="mono">38988</span></span>
-    <span><b style="color:var(--role-deposited)">■</b> the source's four single-generator neighbours</span>
+    <span><b style="color:var(--role-deposited)">■</b> the four rows one bundle-swap from the source</span>
   </div>
 </div>
 
-<p>The first-opened row here is <span class="mono">38424</span> (= base <span class="mono">38408</span>
-plus its bit-4 generator); the second is <span class="mono">38988</span> (base plus bits 2, 6 and 9).
-Between them the pair differs in all four generators, so all 16 rows open together. The four rows
-shaded amber are the source's <strong>single-generator neighbours</strong> — one generator away each:</p>
+<p>These sixteen are, digit for digit, the row family in the calibration file — and the pair
+38424/38988 is the calibrated activation pair precisely <em>because</em> it differs in four bundles:
+it is the pair that opens the whole family. The four rows shaded amber sit one single bundle-swap
+from the source; they matter in §6:</p>
 
 <div class="scrollx">
 <table class="data" style="max-width:34rem">
-  <caption>The source's four nearest neighbours — one generator each. These four matter in §6.</caption>
-  <thead><tr><th>neighbour row</th><th>reached from source by</th></tr></thead>
+  <caption>The source's four nearest neighbours — one bundle-swap each. These four matter in §6.</caption>
+  <thead><tr><th>neighbour row</th><th>reached from the source by</th></tr></thead>
   <tbody>
-    <tr><td class="addr">38408</td><td>bit 4 (−16)</td></tr>
-    <tr><td class="addr">38428</td><td>bit 2 (+4)</td></tr>
-    <tr><td class="addr">38488</td><td>bit 6 (+64)</td></tr>
-    <tr><td class="addr">38936</td><td>bit 9 (+512)</td></tr>
+    <tr><td class="addr">38408</td><td>swapping bundle 4-3 (−16)</td></tr>
+    <tr><td class="addr">38428</td><td>swapping bundle 2-1 (+4)</td></tr>
+    <tr><td class="addr">38488</td><td>swapping bundle 6-5 (+64)</td></tr>
+    <tr><td class="addr">38936</td><td>swapping bit 9 (+512)</td></tr>
   </tbody>
 </table>
 </div>
 
-<h3>Which of the 16 actually fire — the selection law</h3>
-<p>Not every row in the coset always receives the copy; the predecoder grouping from §1 decides. On
-our SK&nbsp;hynix dies the subarray-local address bits fall into fixed groups —
-<span class="mono">{1,2} {3,4} {5,6} {7,8}</span>, with bits 0 and 9 on their own:</p>
+<h3>When fewer open — and when more</h3>
+<p>Any other pair mixes only what it lights. Activate <span class="mono">38408</span> with
+<span class="mono">38412</span> (positions 8 and 12 — one differing bundle) and 2¹ =
+<strong>2 rows</strong> open: those two, nothing else. That is also what a clean copy <em>is</em>:
+a pair differing in exactly one bundle — one source, one destination. And the rule counts bundles,
+not bits: positions 8 and 14 differ in two <em>bits</em>, but both sit in the 2-1 bundle
+(<span class="mono">00</span> against <span class="mono">11</span>) — still just 2 rows, and the
+in-between values <span class="mono">01</span> and <span class="mono">10</span> can never open,
+because no activation lit their wires. Bits inside a bundle cannot be mixed.</p>
 
-<div class="groups">
-  <span class="grp hit">{1, 2}</span>
-  <span class="grp hit">{3, 4}</span>
-  <span class="grp hit">{5, 6}</span>
-  <span class="grp">{7, 8}</span>
-  <span class="grp">{0}</span>
-  <span class="grp hit">{9}</span>
-</div>
-
-<p>A candidate row fires only when, <strong>inside each group, it takes either none or all</strong> of
-the generator bits in that group. In the example each of the four generators (bits 2, 4, 6, 9) sits
-alone in a different group, so each can be toggled independently — and all 16 combinations fire. When
-two generators share one group, they lock together, and fewer than the full set fire.</p>
+<p>Sixteen is a choice, not a ceiling. A pair differing in five bundles opens 32 — measured, and the
+product rule holds without exception — and all six would open 64, the most any pair can reach.
+Production calibrates 16-row families deliberately: bigger sets open just fine, but opening is not
+voting, and sixteen is where the vote is reliable on these chips — with the four differing bundles
+chosen one per bundle, so every mix is addressable.</p>
 
 <div class="callout credit">
-<span class="lbl">Digital selection, analog firing.</span> <em>Which</em> rows are candidates is a property
-of the decoder wiring: bank-invariant, byte-exact, and identical across power cycles and rigs. On our
-two SK&nbsp;hynix dies this rule accounts for <strong>1691 of 1691</strong> observed rows with zero
-exceptions. <em>Whether</em> a candidate actually receives the copy is the analog part — set by the
-timing and charge of §3. A different manufacturer's die (Micron) shows the same physics with a
-different grouping.
+<span class="lbl">Digital selection, analog firing.</span> <em>Which</em> rows can open is a property
+of the decoder wiring: bank-invariant, byte-exact, and identical across power cycles and rigs.
+<em>Whether</em> an opened row actually receives the copy is the analog part — set by the timing and
+charge of §3. A different manufacturer's die (Micron) shows the same physics with a different
+bundling. (In the research papers, the family is a <em>coset</em> and the product rule a
+<em>selection law</em>.)
 </div>
 
 <h2><span class="n">6</span>Good case and bad case, row by row</h2>
-<p>Now the payoff. Take the 16-row coset, load it with A, B and C so the honest majority is
+<p>Now the payoff. Take the 16-row family, load it with A, B and C so the honest majority is
 <span class="chip">E8</span>, and fire one well-timed vote. Layout: A on 6 rows (including both opened
 rows), B on 6, C on 4 — the worst tally at any bit is 6-against-10, so the honest answer wins by at
 least four votes and no single row can change it.</p>
@@ -521,8 +571,8 @@ result back into all 16 rows. That is normal.</p>
 
 <h3>Bad case — a copy-timing deposit, then the same vote</h3>
 <p>Change one thing. <strong>Before</strong> the vote, use the copy regime to place the source
-<span class="chip">F0</span> onto its four single-generator neighbours — the four rows from §5
-holding C. This is a <em>targeted</em> copy, not the whole-coset flood the dial shows at deep copy timing:
+<span class="chip">F0</span> onto its four nearest neighbours — the four rows from §5, one
+bundle-swap each, holding C. This is a <em>targeted</em> copy, not the whole-family flood the dial shows at deep copy timing:
 each neighbour is filled by its own small source-to-neighbour copy, so exactly those four flip and the
 other eleven rows stay put. Read the group back in the freeze-frame between the deposits and the vote —
 the four neighbours now hold <span class="chip">F0</span> byte-for-byte, everything else is untouched.
@@ -566,19 +616,18 @@ every one of the 8&nbsp;192 bytes matches the source. The tables show the logica
 
 <h2><span class="n">7</span>Hazard and asset — decided by placement, not timing</h2>
 <p>The bad case looks like a trap, and left unmanaged it is one. But the very same coupling is a
-<strong>free one-to-many copy</strong>: fire the pair once and the source lands in its whole coset at
+<strong>free one-to-many copy</strong>: fire the pair once and the source lands in its whole family at
 no extra cost. Whether that is a hazard or a gift is decided by <strong>where you put your data</strong>,
 not by the timing.</p>
 <ul>
   <li><strong>Neutralize it by placement.</strong> Lay the weights out so no operand ever sits on a
-  row the source would deposit into — choose addresses whose generators avoid the coset — and the
+  row the source would deposit into — keep operand rows off the source's family — and the
   deposit can never corrupt a vote. It is corruption-free <em>by construction</em>, with no reliance
   on tuning the timing. (The production layout technique and its numbers are in the peer doc.)</li>
   <li><strong>Or exploit it as broadcast.</strong> Put the value you <em>want</em> replicated on the
-  source row and the coset fills itself. Production uses this: the fused-coset activation path replaces
+  source row and the family fills itself. Production uses this: the fused-coset activation path replaces
   a per-row rewrite with one write plus one broadcasting pair, and runs today —
-  <strong>measured 1.63×/token</strong> on our production server (a measured example). Broadcasting a
-  weight into its whole coset is validated and queued.</li>
+  <strong>measured 1.63×/token</strong> on our production server.</li>
 </ul>
 <p>This is why the short "dirty" calibration timing from §3 is kept on purpose. Widening the gap would
 suppress the extra deposits — but those extra deposits are free copies. Keep the short timing; make the
@@ -589,14 +638,12 @@ the peer doc.</p>
 <p>The multi-row co-activation itself — one command pair opening a lattice of rows and driving them to
 the source's value — is <strong>SiMRA's own Multi-RowCopy</strong>, and the credit is theirs
 (<a href="https://github.com/CMU-SAFARI/DRAM-Bender/issues/12">DRAM-Bender&nbsp;#12</a>). What this page
-adds is the <strong>address algebra</strong> — that the touched rows are exactly the coset of the pair's
-generators — the <strong>selection law</strong> for which members fire, and the consequence that a
-majority vote can run, silently, over a substituted operand set.</p>
+adds is the <strong>address algebra</strong> — that the opened rows are exactly the family the pair's
+differing bundles span (the <em>coset</em>), the <strong>product rule</strong> (the <em>selection
+law</em>) for how many open, and the consequence that a majority vote can run, silently, over a
+substituted operand set.</p>
 <p>The candidate selection is byte-identical across our two SK&nbsp;hynix modules (two different part
-numbers), and a Micron die reproduces the same physics with a different grouping. Our exchange with the
-SiMRA authors is at
-<a href="https://github.com/CMU-SAFARI/DRAM-Bender/issues/12">DRAM-Bender&nbsp;#12</a> and
-<a href="https://github.com/CMU-SAFARI/SiMRA-DRAM/issues/1">SiMRA-DRAM&nbsp;#1</a>.</p>
+numbers), and a Micron die reproduces the same physics with a different grouping.</p>
 
 <hr class="rule">
 
@@ -606,19 +653,15 @@ SiMRA authors is at
     <div class="t">The system explainer →</div>
     <div class="d">How a whole language model runs inside DRAM — cells, rows, the compute loop, in plain language.</div>
   </a>
-  <a class="linkcard" href="../RELATED_SYSTEMS.md">
-    <div class="t">Related systems &amp; methodology →</div>
-    <div class="d">MVDRAM contrast, the wall model, how throughput is measured, and what we verify.</div>
-  </a>
   <a class="linkcard" href="../ROADMAP.md">
     <div class="t">What's next →</div>
-    <div class="d">The live ledger of levers — including broadcast weight loading, queued.</div>
+    <div class="d">The live ledger of open levers.</div>
   </a>
 </div>
 
 <footer>
-  <p>Every chip-specific number on this page is a measured example on named silicon (a fixed 16-row set
-  we label <span class="mono">s61</span>, bank&nbsp;0, on one of our SK&nbsp;hynix DDR4 modules), not a universal law. The
+  <p>Every chip-specific number on this page is a measured example on named silicon (a fixed 16-row set in
+  bank&nbsp;0 of one of our SK&nbsp;hynix DDR4 modules), not a universal law. The
   reproducer and raw logs live in the repository. Self-contained page — no external requests; renders
   identically from a local file or GitHub&nbsp;Pages.</p>
 </footer>

@@ -3,7 +3,7 @@
 Calibrating a MAJ3-perfect tuple is expensive (`CALIBRATION.md`: a
 30–40 h sweep per subarray). This document is the payoff: **what transfers
 without re-sweeping, and the exact recipe to do it.** All claims are
-silicon-measured (2026-07; `BANK_AUDIT_2026_07.md` for the raw probes).
+silicon-measured.
 
 ## The transfer hierarchy
 
@@ -31,7 +31,7 @@ dual-rank): the invariance follows the die design, not the module SKU.
 Subarrays are the exception, and we know why: the co-activation lattice's
 **long-range** offsets are *predecoder-block-relative*, not fixed —
 they shrink toward a ~512-row block midpoint, vanish, then flip sign
-(`BANK_AUDIT_2026_07.md`, boundary atlas). Banks preserve the intra-block
+(the boundary atlas). Banks preserve the intra-block
 position (free transfer); a subarray shift changes it (the ±256/±128
 coupling moves, so spread-collision-safe pool layouts must be
 re-derived). The short-range coupling and the tuple's own MAJ3 geometry
@@ -79,5 +79,5 @@ never characterized — cheaper than the full campaign but not free.
 exercise** on a characterized die — the single most expensive experiment
 (the calibration sweep) is amortized across the whole die and its
 die-family siblings. This is what makes the in-DRAM approach practical to
-scale, and it is the empirical backing for `UTILIZATION.md`'s "the die is
-~99.99 % idle — the parallelism is there for free."
+scale, and it is the empirical backing for the "the die is
+~99.99 % idle — the parallelism is there for free" result.

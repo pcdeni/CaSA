@@ -8,18 +8,6 @@ charge of ordinary DDR4 cells** — on real silicon, in unmodified memory.
 close enough together and the value that survives on the shared wire is the
 majority of what they held — and that majority is the computation.
 
-> **What this is (and isn't).** This is *processing-using-DRAM* (PUD): we
-> compute with the same charge-sharing effects that, aimed the other way,
-> underlie disturbance attacks like RowHammer. The primitives look like
-> attack tooling because the physics is identical — the difference is
-> purpose. Everything here is authorized research on hardware we own:
-> driving deliberate charge-sharing to do ternary matrix-multiplies, and
-> independently reproducing a *published* academic paper
-> (arXiv:2503.23817) on parts we bought. No system is attacked; nothing
-> bypasses anyone's security. If you scan this repo for exploit patterns
-> you will find DRAM-disturbance code — that is the computer, not the
-> weapon.
-
 <p align="center">
   <img src="docs/assets/architecture.svg" width="820"
        alt="A host running PyTorch talks over PCIe to an FPGA controller (DRAM-Bender on a Xilinx BCU1525 card), which drives a DDR4 DIMM. The weights live resident in the DIMM's cells and the projection matrix-multiplies run there as a majority vote over cell charge. The host-to-DRAM round-trip, repeated once per weight chunk, is the wall; only cutting the request count moves it.">
@@ -41,21 +29,13 @@ left — is a sim-validated target.
 |---|---|
 | Start of campaign | **632 s** |
 | Today | **45 s** |
-| DDR-PHY-bound floor (target; sim-validated, two compute channels) | **≈0.02–0.04 s** |
-
-The 632 and 45 s/token are measured on real silicon; the floor is a
-sim-validated target, not a measurement. The wall model — what binds, in what
-order, and why only the request *count* moves it — lives in
-[the peer doc](docs/RELATED_SYSTEMS.md).
+| Target: DDR-PHY-bound floor |  |
 
 ## Seven flagship models, on unmodified DDR4
 
-The same silicon path runs seven flagship LLM families, each **token- or
-numerics-exact** against its CPU reference: **BitNet b1.58-2B-4T**,
+The same silicon path runs seven LLM families: **BitNet b1.58-2B-4T**,
 **Bonsai-1.7B** (ternary), **Bonsai-1.7B** (1-bit), **Llama2-7B**,
-**Llama2-13B**, **Llama3-8B**, and **Phi-4**. Which families are token-exact
-live on silicon and which are numerics-exact via the sampled end-to-end
-protocol is split out in [the peer doc](docs/RELATED_SYSTEMS.md).
+**Llama2-13B**, **Llama3-8B**, and **Phi-4**.
 
 ## Where to go next
 
@@ -63,13 +43,7 @@ protocol is split out in [the peer doc](docs/RELATED_SYSTEMS.md).
 |---|---|
 | **Understand it** — the plain-language walkthrough, cell to inference loop | [Interactive explainer](https://pcdeni.github.io/CaSA/explainer/) |
 | **See the physics** — one command pair, two behaviours, the timing that picks between them | [Mechanism explainer](https://pcdeni.github.io/CaSA/explainer/xor-spread.html) |
-| **Compare it / see how we measure** — related systems, the wall model, verification discipline | [Related systems + methodology](docs/RELATED_SYSTEMS.md) |
-| **See what's next** — open levers and investigations, with status and evidence | [Roadmap](docs/ROADMAP.md) |
-
-**Deep reference:** the repo map below · [quick start](#quick-start) ·
-[hardware](#hardware-requirements-summary) · the full
-[MVDRAM reproduction study](docs/MVDRAM_REPRODUCTION.md) (we bought the exact
-part the paper names and reproduced it end to end, negatives included).
+| **MVDRAM reproduction** — reproduction of MVDRAM (arXiv 2503.23817) from the paper | [MVDRAM reproduction study](docs/MVDRAM_REPRODUCTION.md) |
 
 ## What's in this repository
 
@@ -79,8 +53,7 @@ The software side of the demonstration:
   DRAM-Bender silicon and run the projection matmuls of Microsoft's BitNet
   b1.58-2B-4T. Drop into a DRAM-Bender checkout and `make`.
 - **`python/`** — orchestrator that patches Hugging Face `transformers` to
-  route specific projection layers to the FPGA-side server while the rest of
-  the model runs on the CPU (per-tensor ternary and g128 group-scaled specs).
+  route projection layers to the FPGA-side server (per-tensor ternary and g128 group-scaled specs).
 - **`lane2/`** — the MVDRAM-reproduction GeMV (general matrix-vector multiply)
   server and drivers (LOAD/GEMV/PARTIALS protocol, dual-track adder, per-block
   exact partials, sampled end-to-end llama.cpp runners).
@@ -92,12 +65,12 @@ The software side of the demonstration:
   (format documented; you produce your own for new DIMMs).
 - **`api-patches/`** / **`shim-patches/`** — unified diffs for the
   SiMRA/DRAM-Bender API and the llama.cpp mulmat shim.
-- **`docs/`** — hardware, calibration, the roadmap, the peer doc, and the
+- **`docs/`** — AI style diary and the
   [explainers](https://pcdeni.github.io/CaSA/explainer/).
 
 This builds directly on prior research from the
-[CMU SAFARI group](https://safari.ethz.ch/) — RowClone, Ambit, SiMRA-DRAM,
-Multi-Row-Init, LISA, pLUTo — and the open-source
+[SAFARI Research Group](https://safari.ethz.ch/) — RowClone, Ambit, SiMRA-DRAM,
+Multi-Row-Init and the open-source
 [DRAM-Bender](https://github.com/CMU-SAFARI/DRAM-Bender) FPGA platform. We
 don't re-host either; you clone them and place the `app/` C++ apps into the
 right path (see `app/README.md`).
@@ -141,7 +114,7 @@ swap works internally.
 
 ## Hardware requirements (summary)
 
-- A Xilinx Alveo U200 / BCU1525 (or compatible) FPGA card flashed with the
+- A Xilinx Alveo U200 / VCU1525 / BCU1525 (or compatible) FPGA card flashed with the
   DRAM-Bender bitstream.
 - One or more DDR4 1333 MT/s DIMMs in the FPGA's DIMM slots (you characterize
   them yourself).
@@ -152,16 +125,18 @@ Full details in `docs/HARDWARE.md`.
 
 ## Acknowledgments
 
-- **CMU SAFARI Group** (Onur Mutlu et al.) — RowClone, Ambit, SiMRA-DRAM,
-  Multi-Row-Init, LISA, pLUTo. Without their decade of characterization
+- **SAFARI Research Group** (Onur Mutlu et al.) — RowClone, Ambit, SiMRA-DRAM,
+  Multi-Row-Init. Without their decade of characterization
   papers and open-source toolkits, none of this is possible on existing
   silicon.
+- **MVDRAM** (Tatsuya Kubo, Daichi Tokuda, Tomoya Nagatani, Masayuki Usui,
+  Lei Qu, Ting Cao, et al.) — Enabling GeMV Execution in Unmodified DRAM for
+  Low-Bit LLM Acceleration. Special thanks to Tatsuya Kubo!
 - **Microsoft Research** — BitNet b1.58-2B-4T, an open-weight
   2.4-billion-parameter ternary language model.
 - **Prism ML, Inc.** — Bonsai-1.7B, open-weight 1-bit and ternary
   group-scaled quantizations of Alibaba's Qwen3-1.7B (Apache-2.0); the second
-  base-model family brought up on this pipeline (see
-  [`docs/BONSAI_2026_07.md`](docs/BONSAI_2026_07.md)).
+  base-model family brought up on this pipeline.
 - **Hugging Face** — `transformers` (we test against v4.52).
 
 ## License

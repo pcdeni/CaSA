@@ -113,12 +113,12 @@ FPGA wall-time. The other three DIMMs have since finished (May
 2026): the timing constants generalized on the two full-PUD
 modules; two partial modules turned out MAJ3-limited entirely
 (zero separated-generator tuples — a part/binning outcome, not a
-calibration failure). Details: `docs/CAMPAIGN_2026_07.md`.
+calibration failure).
 
 ## Calibration transfer (do NOT re-run the 30-40 h pipeline per bank)
 
 What we have measured about how characterization generalizes
-(`docs/UTILIZATION.md` "replicated blocks" + the cross-die results):
+(the "replicated blocks" finding + the cross-die results):
 
 - **Across banks of one die**: the co-activation spread profile is
   byte-identical on every bank measured, and the predecoder selection

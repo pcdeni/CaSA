@@ -32,3 +32,6 @@ venv/
 **/dimm[0-9]/open_rows_*.csv
 **/dimm[0-9]/all_subarrays.csv
 **/dimm[0-9]/run.log
+
+# kept locally, not published
+docs/RELATED_SYSTEMS.md

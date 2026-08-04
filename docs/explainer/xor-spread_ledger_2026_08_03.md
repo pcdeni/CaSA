@@ -8,12 +8,6 @@ measured log, or a claim register entry. Chip-specific numbers are labelled in
 the explainer itself as measured examples on named silicon (tuple `s61`,
 bender 0, SK hynix, bank 0), never as universal laws.
 
-**Supersedes** the July deck's ledger `xor_spread_ledger.md` (kept as prior
-provenance for the retired 11-scene deck). The rebuilt explainer drops the
-scene structure and the two scene framings the overhaul corrects — the claim
-that the spread ignores timing, and the claim that the vote unconditionally
-overwrites its own operands. This ledger covers the rebuilt content only.
-
 ## Source tiers
 
 - **[paper:SiMRA]** — Yüksel et al., *Simultaneous Many-Row Activation in
@@ -35,8 +29,8 @@ overwrites its own operands. This ledger covers the rebuilt content only.
 
 | Claim | Source |
 |---|---|
-| A row address is decoded by a hierarchical decoder; low bits are split across predecoder units, each driving wordlines | [paper:SiMRA §7.1] (hierarchical row decoder / local predecoders) |
-| Address relationships are named by the differing bit; the four generators are bit 2 = +4, bit 4 = +16, bit 6 = +64, bit 9 = +512 | [repro §2] (generators {4,16,64,512}); [example] — this tuple's offsets |
+| A row address is decoded by a hierarchical decoder; the low bits are split across predecoder units ("bundles"), each driving wordlines | [paper:SiMRA §7.1] (hierarchical row decoder / local predecoders) |
+| The position's ten bits arrive in six bundles — bit 9 \| 8-7 \| 6-5 \| 4-3 \| 2-1 \| bit 0 — one wire per bundle-value; a row opens when all six of its wires are on | [mem:selection_law] (pair-groups (1,2)(3,4)(5,6)(7,8), bits 0/9 singleton; zero-exception fits); [data:docs/data/selection-law/selection_timing_b0.csv, selection_timing_b2.csv] |
 
 ## §2 — The double activation (one command pair)
 
@@ -62,15 +56,17 @@ overwrites its own operands. This ledger covers the rebuilt content only.
 |---|---|
 | A = F0, B = CC, C = AA; per-bit majority MAJ(F0,CC,AA) = E8 | [repro §2] (worked constants; bit-aligned majority table); arithmetic majority |
 
-## §5 — The coset + the selection law
+## §5 — Which rows open — count the differing bundles
 
 | Claim | Source |
 |---|---|
-| The copy lands in the coset of the pair's generators: 16 rows = every subset-sum of {4,16,64,512} on base 38408 (source 38424, second 38988) | [repro §2] (the 16-row table); [log:kubo_maj_campaign_b0.log] (16-row list, idx 0–15) |
-| The source's four single-generator neighbours are 38408 (bit 4), 38428 (bit 2), 38488 (bit 6), 38936 (bit 9) | [repro §4]; [log:kubo_maj_campaign_b0.log] (substituted idx {0,3,6,10} = these four rows) |
-| Selection law: on SK hynix the subarray-local bits group as {1,2}{3,4}{5,6}{7,8} with bits 0, 9 singleton; a candidate A⊕S fires iff for every group g, S∩g ∈ {∅, d∩g} | [mem:selection_law]; [data:docs/data/selection-law/selection_timing_b0.csv, selection_timing_b2.csv] |
+| 38424 = block 38400 + position 24; 38988 = block 38400 + position 588; same block, and only positions matter (block-relative addressing) | arithmetic (38400 + 24/588); [mem:selection_law] (law operates on block-local bits); [code:calibration/calib_dimm0.txt] (s61 line: this pair, these 16 members) |
+| Positions 24 and 588 differ in four bundles (bit 9, 6-5, 4-3, 2-1); rows opened = the product of lit wires per bundle = 2·1·2·2·2·1 = 16 — exactly the calibration family 38408…39004 | [mem:selection_law] (fires iff per group the member takes either row's group-value — the product rule restated); [repro §2] (the 16-row table); [log:kubo_maj_campaign_b0.log] (16-row list, idx 0–15) |
+| The source's four nearest neighbours (one bundle-swap each) are 38408 (bundle 4-3), 38428 (2-1), 38488 (6-5), 38936 (bit 9) | [repro §4]; [log:kubo_maj_campaign_b0.log] (substituted idx {0,3,6,10} = these four rows) |
+| One differing bundle → 2 rows (clean copy: one source, one destination); two bits inside one bundle → still 2 rows, the in-between values structurally unaddressable | [mem:selection_law] (S∩g ∈ {∅, d∩g}: multi-bit-per-group cases in the zero-exception fits); [data:docs/data/selection-law/] |
+| Five differing bundles → 32 rows, measured with zero exceptions; six → 64 is the arithmetic maximum (not measured) | [data:docs/data/selection-law/] (k = 1..5 member observations, 1691/1691 per die); 64 = arithmetic |
 | The law accounts for 1691/1691 observed rows on each of two SK hynix dies, zero exceptions | [data:docs/data/selection-law/] (1691 member rows/die, zero exceptions); [mem:selection_law] |
-| For s61 each generator sits alone in its group, so all 16 combinations fire | [repro RESULT "Geometry"] (coset == the 16 open rows); [mem:selection_law] (firing count = 2^(#units d touches)) |
+| Sixteen is the calibrated family size (vote reliability), with the four differing bundles chosen one per bundle so every mix is addressable | [example] (calibration choice, s61 geometry); [repro RESULT "Geometry"] |
 | Digital selection (bank-invariant, byte-exact, deterministic across power cycles and rigs), analog firing (timing/charge gated) | [mem:selection_law] (timing-invariant selection, 8 timing combos); [claim:C65] (firing timing-gated); [mem:cross_die_determinism] |
 | A Micron die shows the same physics with a different grouping | [claim:C68] (D3 Micron deposit real + timing-gated); [mem:selection_law] "DIMM 1/3 … no clean partition" |
 
@@ -89,9 +85,9 @@ overwrites its own operands. This ledger covers the rebuilt content only.
 | Claim | Source |
 |---|---|
 | The same coupling is a free one-to-many copy; hazard vs asset is decided by placement, not timing | [repro §4 "The spread is a tool"]; [code:app/test_safe_load.cpp] |
-| Neutralize by placement: offsets whose generators avoid the coset are corruption-free by construction (20/20 clean safe loads; unsafe offsets corrupt exactly the predicted rows) | [code:app/test_safe_load.cpp]; [doc:LATTICE_ADDRESSING_2026_07 §2]; prior ledger `xor_spread_ledger.md` Scene 11 |
-| Exploit as broadcast: the fused-coset activation path is in production, measured 1.63×/token on the real model (both arms answer "Paris") | [code:python/run_bitnet_pim.py] + [code:app/test_bitnet_server.cpp] (A/B, env-gated coset path); prior ledger `xor_spread_ledger.md` Scene 11 (117.2 → 71.8 s = 1.63×); [mem:bitnet_fused_coset_production] |
-| Broadcast weight loading validated + queued | [doc:LATTICE_ADDRESSING_2026_07 §1] (sub-lattice broadcast, bit-exact); [doc:ROADMAP.md] (queued lever) |
+| Neutralize by placement: offsets whose generators avoid the coset are corruption-free by construction (20/20 clean safe loads; unsafe offsets corrupt exactly the predicted rows) | [code:app/test_safe_load.cpp] |
+| Exploit as broadcast: the fused-coset activation path is in production, measured 1.63×/token on the real model (both arms answer "Paris") | [code:python/run_bitnet_pim.py] + [code:app/test_bitnet_server.cpp] (A/B, env-gated coset path); measured 117.2 → 71.8 s = 1.63×; [mem:bitnet_fused_coset_production] |
+| Broadcast weight loading validated + queued | [doc:ROADMAP.md] (queued lever) |
 | Keeping the short "dirty" calibration timing on purpose (widening the gap suppresses the free copies) | [repro §4]; [claim:C64] |
 
 ## §8 — Provenance and credit
@@ -99,7 +95,7 @@ overwrites its own operands. This ledger covers the rebuilt content only.
 | Claim | Source |
 |---|---|
 | The multi-row co-activation is SiMRA's own Multi-RowCopy; credit is theirs | [issue:https://github.com/CMU-SAFARI/DRAM-Bender/issues/12] (SiMRA co-author confirmation); [repro RESULT "Provenance framing"] |
-| Our contribution: the address algebra (coset of the pair's generators), the selection law, and the vote-over-substituted-operands consequence | [mem:xor_spread_provenance]; [mem:selection_law]; [claim:C66] |
+| Our contribution: the address algebra (the family the differing bundles span — the coset), the product rule for how many open (the selection law), and the vote-over-substituted-operands consequence | [mem:xor_spread_provenance]; [mem:selection_law]; [claim:C66] |
 | Candidate selection byte-identical across our two SK hynix modules (two different part numbers) | [mem:cross_die_determinism] (byte-identical fault set across two SKUs + a rig change) |
 | External exchange: DRAM-Bender #12 and SiMRA-DRAM #1 | [issue:https://github.com/CMU-SAFARI/DRAM-Bender/issues/12]; [issue:https://github.com/CMU-SAFARI/SiMRA-DRAM/issues/1] |
 
@@ -117,9 +113,6 @@ overwrites its own operands. This ledger covers the rebuilt content only.
 - The co-activation is credited to SiMRA's Multi-RowCopy; only the address
   algebra + its consequences are claimed as ours — never presented as an
   unattributed discovery ([issue:.../DRAM-Bender/issues/12], [mem:xor_spread_provenance]).
-- The multi-timing instrument-composition methodology point is **not** in this
-  artifact; it lives once in the peer doc (`docs/RELATED_SYSTEMS.md`), per the
-  single-source rule.
 
 ## Post-probe additions (2026-08-03 evening, fourdie_fracprobe campaign)
 

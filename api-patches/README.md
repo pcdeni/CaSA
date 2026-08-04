@@ -77,7 +77,7 @@ post-DIFF transition drain floored at 500 ms), `receiveDataTry` /
 (no more SIGABRT mid-stream with a live drain thread). Applies on top
 of 0001+0002. Consumption-pattern references:
 `app/test_popcount_hw.cpp`, `lane2/lane2_gemv_server.cpp`
-(`LANE2_ACCUM=2`), `docs/ROADB_2026_07.md`.
+(`LANE2_ACCUM=2`).
 
 ## 0004 — build7 SEG_POP SET word + oversize-skip observability
 
@@ -92,8 +92,8 @@ Two small platform additions, applied on top of 0001+0002+0003:
    never call it unless the flashed image is build7+.
 
 2. `oversize_skips()` — a counter of programs the platform's IMEM-size
-   gate refused (printed + skipped, nothing sent). ⚠ **Integrity note,
-   learned the hard way** (`docs/ROADB_2026_07.md`, PLANE_PACK spill
+   gate refused (printed + skipped, nothing sent). ⚠ **Integrity note**
+   (PLANE_PACK spill
    incident): in READ-mode flows a skipped program hangs the next
    `receiveData` (loud), but in accum-total flows the stream just
    shortens and end-of-stream kicker programs can silently backfill the

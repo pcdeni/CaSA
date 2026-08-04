@@ -9,7 +9,7 @@ Lane 2 only:
   system: ternary BitNet b1.58 computed in DRAM. It may borrow any idea and
   take "Road B" (rig-specific HDL such as the popcount engine).
 - **Lane 2 — the MVDRAM reproduction** (this dir + `docs/MVDRAM_REPRODUCTION.md`,
-  `docs/PAPER_CONTRAST.md`, `docs/LANE2_GEMV_SERVER.md`). MVDRAM
+  `docs/LANE2_GEMV_SERVER.md`). MVDRAM
   (arXiv:2503.23817) reproduced **on its own terms**: their target models via
   llama.cpp, their conventions, and **Road A (in-DRAM) only** — no rig-specific
   HDL shortcuts.
