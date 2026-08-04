@@ -286,8 +286,8 @@ zero-perfect-MAJ5 verdict. It has not been re-run.)*
    MAJ3-as-AND, the calibrated-tuple constraint, and the per-MAJ3 weight reload
    from the product step — and on our silicon RowClone is the one primitive that
    works everywhere. The reduction must then happen FPGA-side (their MAJ5 adder
-   has no whole-row-perfect config on our modules, §2.6), a sibling of our staged
-   popcount accumulator.
+   has no whole-row-perfect config on our modules, §2.6), a sibling of our
+   FPGA-side popcount accumulator.
 2. **Frac conditioning — measured to its limit.** MVDRAM uses Frac to *increase
    the reliable-column count*. We implemented it: the reference-policy sweep found
    the single-op optimum (ZERO-init + 2 fracs = 93.5 % vs 89.1 % strict MAJ5
@@ -397,7 +397,7 @@ only gesture at. It is short on purpose.
 | Level | Resource | Utilization today | Evidence |
 |---|---|---|---|
 | 0 | The op itself — one double-activation MAJ3 = a 65,536-bitline majority in tens of ns | ~at physics | charge-sharing dwell is real, calibrated per DIMM, not shortenable |
-| 1 | DDR command bus during command issue | ~9.5 % slot util (build-45 interpreter lane) | stock fetch/decode/execute emits 1 op/cycle; ~9 of 10 bus slots idle (seq_engine reaches 100 % in Verilator, `rtl/SEQ_ENGINE.md`) |
+| 1 | DDR command bus during command issue | ~9.5 % slot util (stock interpreter lane) | stock fetch/decode/execute emits 1 op/cycle; ~9 of 10 bus slots idle (seq_engine reaches 100 % in Verilator, `rtl/SEQ_ENGINE.md`) |
 | 2 | DDR bus across a whole program | **< 1 %** | of a measured 5.9 ms/program, DDR-active time is tens of µs; the rest is transfer + turnaround |
 | 3 | Banks / DIMMs | 4 of 16 banks per die; 2 of 4 DIMMs | dual-DIMM slice-partition **1.79×** on the token wall (grouped byte-split 1.47×); the compute itself halves at ~1.95× (98 % of ideal), the gap being the round-trip wall |
 | 4 | Subarrays / rows as compute elements | ~0.2 % of rows touched | one 16-row tuple + a few-hundred-row pool per bank, of ~10⁵ rows/bank |
@@ -427,7 +427,7 @@ fetch-limited command issue (`exec`). The walls, ranked:
    s/token on two compute channels (STOCKTAKE, a projection labelled as such).
    MVDRAM's §V-E is the existence proof of that regime: a host generating commands
    faster than DDR4's ~1.5 ns/command consumption, i.e. a saturated PHY. We are
-   ~2 orders below it; the staged path is the climb.
+   ~2 orders below it; the fetch-side path is the climb.
 
 **The request-count law.** The binding term is a per-request round-trip
 (host↔DRAM, a roughly fixed cost × request count), so **only cuts to request
