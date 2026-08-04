@@ -21,19 +21,12 @@ the comparison numbers and the methodology.
    single binary vote-derivation figure. Chip-specific numbers are labelled as
    measured examples on named silicon.
 
-For throughput numbers, the wall model, the MVDRAM contrast, and the
-verification discipline behind every number, both explainers link out to the
-peer doc, **[Related systems and methodology](../RELATED_SYSTEMS.md)** — the
-single home for those.
-
 ## MVDRAM: the closest published peer
 
-MVDRAM has one home here, not two. The **comparison** — MVDRAM mechanism by
-mechanism, what the paper claims and what reproduces on the commodity silicon we
-own (the named part performs no PUD in our hands) — lives in the peer doc,
-[Related systems and methodology](../RELATED_SYSTEMS.md) (§2). The full
-hardware-reproduction **study** is [MVDRAM_REPRODUCTION.md](../MVDRAM_REPRODUCTION.md).
-The former interactive deck now redirects to those two.
+MVDRAM has one home here: the hardware-reproduction **study**,
+[MVDRAM_REPRODUCTION.md](../MVDRAM_REPRODUCTION.md) — what the paper claims
+and what reproduces on the commodity silicon we own (the named part performs
+no PUD in our hands). The former interactive deck now redirects there.
 
 ## How these were built
 
@@ -52,8 +45,7 @@ The supporting files in this folder are the evidence trail.
   NeurIPS MLNCP 2024.
 - **BitNet b1.58** — `microsoft/bitnet-b1.58-2B-4T` on HuggingFace.
 
-Related systems (context, treated in full in
-[`../RELATED_SYSTEMS.md`](../RELATED_SYSTEMS.md)):
+Related systems (context):
 
 - **MVDRAM** — Kubo et al., *MVDRAM: Enabling GeMV Execution in Unmodified DRAM
   for Low-Bit LLM Acceleration*, arXiv:2503.23817 (2025). The closest published

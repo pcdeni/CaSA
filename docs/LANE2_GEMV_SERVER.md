@@ -36,7 +36,7 @@ multi-day per model. Reproduction shape we run instead:
   inputs) — measured, not sampled.
 - Deviation statement in the writeup: sampled e2e + full per-op
   verification + their protocol semantics; not their wall-clock e2e
-  (structural gap = §V-E streaming, documented in `RELATED_SYSTEMS.md` §2).
+  (structural gap = §V-E streaming).
 
 ## Server (lane2-gemv-server)
 - Location: mvdram-repro tree (NOT BitNet/). Wraps the validated Lane-2

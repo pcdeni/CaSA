@@ -27,8 +27,7 @@ motivates it — the roadmap is itself evidence-first.
    idle bank during EXECUTE, back-pressured by `buffer_space`. The
    host becomes a pure producer at PCIe bandwidth (~0.3 % used — our
    problem was only ever latency). This is where the round-trip lever
-   family converges, and the last 2–3 orders (the §V-E streaming gap in
-   `docs/RELATED_SYSTEMS.md` §2) live. Ladder above/below it: pipelined issue (software
+   family converges, and the last 2–3 orders (the §V-E streaming gap) live. Ladder above/below it: pipelined issue (software
    bridge), on-fabric orchestrator (soft core; 1 round-trip per
    projection — the end-state demo), and the honest Rung-4 boundary
    (commodity MCs expose no command-level control; every published

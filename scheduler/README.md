@@ -15,8 +15,7 @@ cc -O2 -o casa_sched casa_sched.c
 ```
 
 No external dependencies. The output is the per-config table that
-populates the throughput projections behind the wall model
-(`docs/RELATED_SYSTEMS.md` §5).
+populates the throughput projections behind the wall model.
 
 ## What it models (and what it doesn't)
 
@@ -39,8 +38,7 @@ populates the throughput projections behind the wall model
   The scheduler assumes the FPGA is fed instructions at zero cost.
   Real measured throughput will be lower than the bus-bound
   projection until those overheads are engineered out.
-- Cell-stability noise (small, but non-zero — see
-  `docs/RELATED_SYSTEMS.md` §4).
+- Cell-stability noise (small, but non-zero).
 - Tail effects of refresh interference with PIM ops at the very
   end of a layer.
 

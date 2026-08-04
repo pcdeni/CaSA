@@ -83,9 +83,9 @@ bender 0, SK hynix, bank 0), never as universal laws.
 | Claim | Source |
 |---|---|
 | The same coupling is a free one-to-many copy; hazard vs asset is decided by placement, not timing | [repro §4 "The spread is a tool"]; [code:app/test_safe_load.cpp] |
-| Neutralize by placement: offsets whose generators avoid the coset are corruption-free by construction (20/20 clean safe loads; unsafe offsets corrupt exactly the predicted rows) | [code:app/test_safe_load.cpp]; [doc:RELATED_SYSTEMS.md §5 the coset + selection law] |
+| Neutralize by placement: offsets whose generators avoid the coset are corruption-free by construction (20/20 clean safe loads; unsafe offsets corrupt exactly the predicted rows) | [code:app/test_safe_load.cpp] |
 | Exploit as broadcast: the fused-coset activation path is in production, measured 1.63×/token on the real model (both arms answer "Paris") | [code:python/run_bitnet_pim.py] + [code:app/test_bitnet_server.cpp] (A/B, env-gated coset path); measured 117.2 → 71.8 s = 1.63×; [mem:bitnet_fused_coset_production] |
-| Broadcast weight loading validated + queued | [doc:RELATED_SYSTEMS.md §5] (sub-lattice broadcast, bit-exact); [doc:ROADMAP.md] (queued lever) |
+| Broadcast weight loading validated + queued | [doc:ROADMAP.md] (queued lever) |
 | Keeping the short "dirty" calibration timing on purpose (widening the gap suppresses the free copies) | [repro §4]; [claim:C64] |
 
 ## §8 — Provenance and credit
@@ -111,9 +111,6 @@ bender 0, SK hynix, bank 0), never as universal laws.
 - The co-activation is credited to SiMRA's Multi-RowCopy; only the address
   algebra + its consequences are claimed as ours — never presented as an
   unattributed discovery ([issue:.../DRAM-Bender/issues/12], [mem:xor_spread_provenance]).
-- The multi-timing instrument-composition methodology point is **not** in this
-  artifact; it lives once in the peer doc (`docs/RELATED_SYSTEMS.md`), per the
-  single-source rule.
 
 ## Post-probe additions (2026-08-03 evening, fourdie_fracprobe campaign)
 

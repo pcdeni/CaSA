@@ -84,21 +84,21 @@ live in `xor-spread.html`, linked, never restated here.
 
 | Claim | Source |
 |---|---|
-| In DRAM: every layer's projection matrix-multiplies run as votes and counts. On CPU: softmax, norms, sampling, tokenizer/embedding — the same split every PUD system makes | `docs/RELATED_SYSTEMS.md` §4 (all 210 BitLinear in DRAM; non-BitLinear on CPU) |
+| In DRAM: every layer's projection matrix-multiplies run as votes and counts. On CPU: softmax, norms, sampling, tokenizer/embedding — the same split every PUD system makes | `python/run_bitnet_pim.py` routing (all 210 BitLinear in DRAM; non-BitLinear on CPU) |
 | One token is hundreds of thousands of votes across all layers (order-of-magnitude, non-numeric) | [editorial: order of magnitude]; softened |
 
 ## §08 — The wall (intuition only)
 
 | Claim | Source |
 |---|---|
-| A vote takes tens of ns, but a token takes minutes because each small program is a fixed-cost host↔DRAM round-trip over PCIe, and there are thousands per token — the wall is the number of trips, not the physics | [claim:C01] (wall = round-trip COUNT × fixed latency); `docs/RELATED_SYSTEMS.md` §5 owns the numbers |
+| A vote takes tens of ns, but a token takes minutes because each small program is a fixed-cost host↔DRAM round-trip over PCIe, and there are thousands per token — the wall is the number of trips, not the physics | [claim:C01] (wall = round-trip COUNT × fixed latency) |
 | Counting the yes-votes inside DRAM shrinks the answer that crosses the link | [claim:C-merge / in-DRAM popcount]; [mem:merge_indram_accumulation]; numbers deferred to peer doc |
 
 ## §09 — What runs today
 
 | Claim | Source |
 |---|---|
-| Seven flagship model families run correctly on unmodified DDR4: BitNet-2B + two Bonsai forms live/token-exact on silicon; Llama-2 (7B and 13B), Llama-3, Phi-4 validated numerics-exact via the sampled end-to-end protocol | [claim:C46] (native trio token-exact); [claim:C53]/[claim:C54] (four mainstream validated); `docs/RELATED_SYSTEMS.md` §4 carries the split |
+| Seven flagship model families run correctly on unmodified DDR4: BitNet-2B + two Bonsai forms live/token-exact on silicon; Llama-2 (7B and 13B), Llama-3, Phi-4 validated numerics-exact via the sampled end-to-end protocol | [claim:C46] (native trio token-exact); [claim:C53]/[claim:C54] (four mainstream validated) |
 | The measured ladder runs 632 → 45 s/token; the memory-interface-bound floor is the target, not a current result; this does not beat a GPU today | [doc:STOCKTAKE_2026_07_17.md] PROGRAM OF RECORD; [claim:C03] (45 s/tok); [claim:C05] (floor target); numbers owned by README/peer doc |
 
 ---
@@ -124,4 +124,4 @@ live in `xor-spread.html`, linked, never restated here.
   peer doc).
 - **Numbers gestured, not owned.** The one ladder endpoint ("632 → 45 s/tok")
   appears once as context; the wall model and all throughput/verification
-  numbers are deferred to `docs/RELATED_SYSTEMS.md`.
+  numbers live on the front page (README ladder).

@@ -43,7 +43,6 @@ The same silicon path runs seven LLM families: **BitNet b1.58-2B-4T**,
 |---|---|
 | **Understand it** — the plain-language walkthrough, cell to inference loop | [Interactive explainer](https://pcdeni.github.io/CaSA/explainer/) |
 | **See the physics** — one command pair, two behaviours, the timing that picks between them | [Mechanism explainer](https://pcdeni.github.io/CaSA/explainer/xor-spread.html) |
-| **Compare it / see how we measure** — related systems, the wall model, verification discipline | [Related systems + methodology](docs/RELATED_SYSTEMS.md) |
 | **MVDRAM reproduction** — reproduction of MVDRAM (arXiv 2503.23817) from the paper | [MVDRAM reproduction study](docs/MVDRAM_REPRODUCTION.md) |
 
 ## What's in this repository

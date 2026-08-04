@@ -226,8 +226,7 @@ footer a{color:var(--muted);text-decoration:underline}
 matrix multiplies happen inside the electric charge of ordinary DDR4 memory. No custom chip.
 This page walks one instruction through the memory, row by row.</p>
 <p class="small">A plain-language walkthrough. No prior knowledge assumed. For the exact physics of the
-compute step, see the mechanism explainer <a href="xor-spread.html">One command pair, two physics</a>;
-for throughput numbers and how they are measured, see <a href="../RELATED_SYSTEMS.md">Related systems &amp; methodology</a>.</p>
+compute step, see the mechanism explainer <a href="xor-spread.html">One command pair, two physics</a>.</p>
 
 <!-- ============================================================ 1 -->
 <section id="promise">
@@ -416,8 +415,7 @@ for throughput numbers and how they are measured, see <a href="../RELATED_SYSTEM
   the <em>number of trips</em>, not the physics inside the chip.</p>
   <p>This is why one of the levers is to <strong>count the yes-votes inside the DRAM</strong> before sending
   anything back — the answer that crosses the link shrinks from a whole memory row to a handful of numbers.
-  The intuition is here; the actual timing model, and why only cutting the trip <em>count</em> moves the
-  wall, are in <a href="../RELATED_SYSTEMS.md">Related systems &amp; methodology</a>.</p>
+  The intuition is here: only cutting the trip <em>count</em> moves the wall.</p>
 </section>
 
 <!-- ============================================================ 9 -->
@@ -426,8 +424,7 @@ for throughput numbers and how they are measured, see <a href="../RELATED_SYSTEM
   <p>This is not a single scripted demo. <strong>Seven flagship model families</strong> run correctly with
   their matrix multiplies executed in unmodified DDR4 — a ternary BitNet-2B and two forms of Bonsai run live
   on the silicon; Llama-2 (7B and 13B), Llama-3 and Phi-4 are validated to match their reference math through
-  a sampled end-to-end check. The headline list is on the <a href="../../README.md">front page</a>, and exactly what
-  "match" means for each is in <a href="../RELATED_SYSTEMS.md">Related systems &amp; methodology</a>.</p>
+  a sampled end-to-end check. The headline list is on the <a href="../../README.md">front page</a>.</p>
   <p>Speed is improving as the round-trip work is engineered down: the measured ladder runs from
   <strong>632 down to 45 seconds per token</strong>, with the memory-interface-bound floor as the target the
   work is aimed at. The point is not that this beats a GPU today (it does not). The point is that the
@@ -441,8 +438,6 @@ for throughput numbers and how they are measured, see <a href="../RELATED_SYSTEM
   <div class="links">
     <a class="tile" href="xor-spread.html"><b>The physics →</b><span>One command pair, two physics: the
       vote-vs-copy timing dial, the address rule for which rows open, and the good/bad case tables.</span></a>
-    <a class="tile" href="../RELATED_SYSTEMS.md"><b>How it compares &amp; how we measure →</b><span>Related
-      systems, the MVDRAM contrast, the wall model, and the verification discipline behind every number.</span></a>
     <a class="tile" href="../ROADMAP.md"><b>What's next →</b><span>The live ledger of open levers and their
       status.</span></a>
     <a class="tile" href="../../README.md"><b>The front page →</b><span>What this is in one screen: the
