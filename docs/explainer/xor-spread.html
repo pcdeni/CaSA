@@ -248,11 +248,16 @@ footer{ margin-top:3rem; padding-top:1.2rem; border-top:1px solid var(--line); f
 
 <h1>One command pair, two physics</h1>
 <p class="lede">A single pair of memory commands — open a row, close the array, open a second
-row — does one of two completely different things, and its timing alone decides which. At one
-setting it makes the memory <em>vote</em>: it computes the bit-by-bit majority of many rows at
-once. A few command slots away, the very same pair instead <em>copies</em> one row into a precise
-set of its neighbours. This page shows where that line sits, why the neighbours are exactly the
-ones they are, and how a wrong answer becomes something you can predict down to the byte.</p>
+row — is <strong>one primitive with one timing dial</strong>, and it opens a <strong>fixed,
+predictable family of rows</strong>: the two rows it names plus their relatives at fixed address
+offsets (here 4, 16, 64 and 512), a family wired into the chip's row decoder and identical every
+time. At <em>copy</em> timing the first row's content <strong>spreads across that whole family</strong>
+at once — a real, measured multi-row copy (DRAM's own RowClone, run here on purpose), and the reason
+the weights are laid out to keep operands off one another's families. At <em>vote</em> timing nothing
+is imported: the family's rows are <strong>counted</strong>, and their bit-by-bit majority wins. One
+primitive, one dial — copy spreads, vote counts. This page shows where the line between them sits, why
+the family is exactly the rows it is, and how, when a copy lands on a vote's operands, a wrong answer
+becomes something you can predict down to the byte.</p>
 
 <div class="callout">
 <span class="lbl">New here?</span> This page is the physics. For the plain-language tour of how a
@@ -358,25 +363,24 @@ the pair has become a <strong>copy</strong> — the first-opened row (the <em>so
 into the others. Same four commands; the timing alone picks the physics.</p>
 
 <div class="callout">
-This boundary was measured on <strong>all four dies we own</strong> — two SK&nbsp;hynix and two Micron.
+This boundary holds on <strong>all four dies we own</strong> — two SK&nbsp;hynix and two Micron.
 On every one, a well-timed operation never <em>imports</em> a foreign value: the copy regime sits a
 few slots away, and where it begins is a per-die number (SK&nbsp;hynix here: copy at 3 slots; the
 Micron dies' copy regime begins a few slots later, around slot 5).
 </div>
 
-<p>But "clean" needs its honest scope, and a model-free census (unique fingerprints on every row of
+<p>But "clean" has an honest scope, and a model-free census — unique fingerprints on every row of
 a ~640-row window, hundreds of <em>random</em> uncalibrated pairs, no assumptions about where effects
-may land) sharpened it to this: on the SK&nbsp;hynix dies, a vote-timing operation <strong>always
+may land — pins it down: on the SK&nbsp;hynix dies, a vote-timing operation <strong>always
 co-activates the pair's whole coset</strong> — the rows the selection law names — and resolves them
-<em>together</em>, to one shared value. Zero of 200 random pairs left the rows untouched;
-70–73% recruited rows beyond the two named. A vote is "clean" when the co-activated rows already
+<em>together</em>, to one shared value. Zero of 200 random pairs leave the rows untouched;
+70–73% recruit rows beyond the two named. A vote is "clean" when the co-activated rows already
 agree — which is exactly what calibration and operand replication arrange, so a calibrated majority
 comes back looking untouched. Give the co-activated rows <em>disagreeing</em> data and the same
 operation rewrites them all with the joint result: one uncalibrated pair here leaves its entire
 8-row coset holding one shared value — the <strong>equal-weight per-bit majority</strong> of
-everything the eight rows held, exact on every clear-majority bit, with exact ties falling to a
-fixed per-region preference (the earlier probe saw only 3 of those 8 — its watch-list was built
-from the very model being tested). The same pair at copy timing deposits byte-exactly into the
+everything the eight rows hold, exact on every clear-majority bit, with exact ties falling to a
+fixed per-region preference. The same pair at copy timing deposits byte-exactly into the
 same 8 rows. Same coset, same law; the timing picks vote-together versus copy-from-source, and
 both outcomes are deterministic.</p>
 
@@ -517,7 +521,7 @@ result back into all 16 rows. That is normal.</p>
 
 <h3>Bad case — a copy-timing deposit, then the same vote</h3>
 <p>Change one thing. <strong>Before</strong> the vote, use the copy regime to place the source
-<span class="chip">F0</span> onto its four single-generator neighbours — the four rows from §5 that were
+<span class="chip">F0</span> onto its four single-generator neighbours — the four rows from §5
 holding C. This is a <em>targeted</em> copy, not the whole-coset flood the dial shows at deep copy timing:
 each neighbour is filled by its own small source-to-neighbour copy, so exactly those four flip and the
 other eleven rows stay put. Read the group back in the freeze-frame between the deposits and the vote —
@@ -537,7 +541,7 @@ Now fire the same well-timed vote:</p>
 <p>Ten rows now hold <span class="chip">F0</span> and six hold <span class="chip">CC</span>, so the vote
 returns <span class="chip wrong">F0</span> — not the honest <span class="chip">E8</span> — and, being
 destructive, writes that F0 back into all 16 rows. The machine is not glitching; it is faithfully voting,
-over an operand set that was quietly rewritten first. And because it is a vote, the wrong answer arrives
+over an operand set quietly rewritten first. And because it is a vote, the wrong answer arrives
 exactly when the count says it should:</p>
 
 <div class="scrollx">
