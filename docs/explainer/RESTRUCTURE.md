@@ -27,11 +27,11 @@ to that home rather than restating it.
 | `docs/RELATED_SYSTEMS.md` — *Related systems & methodology* | 4 comparison | **KEEP** (the home) | Owns the MVDRAM map (§2), the rigor/verification rules (§4), the wall model (§5), the measurement caveats (§6). Both explainers and the README already point here as the single home for those. |
 | `docs/ROADMAP.md` | 5 roadmap | **KEEP** (the home) | Present-state mirror of the living levers ledger. |
 | `README.md` (root) | 1 front page | **KEEP** (the home) | One-screen thesis + ladder + seven models + repo map; its "where to go next" table names only the four homes above. |
-| `system.html` | — | **CUT → stub → `index.html`** | Its job *is* the walkthrough; it overlapped `index.html` scene for scene. |
-| `dram-internals.html` | — | **CUT → stub → `xor-spread.html`** | Substrate basics are covered in `index.html` scenes 2–3; the atlas depth belongs with the mechanism. |
-| `optimization-spine.html` | — | **CUT → stub → `index.html`** | A diary by construction ("the chain of improvements"). The live throughput numbers live in the README and RELATED_SYSTEMS §5; status lives in ROADMAP. |
-| `experiment-trail.html` | — | **CUT → stub → `index.html`** | A diary by construction ("what was tried"). Belief-history has no place on the layman surface. |
-| `mvdram.html` | 4 (dup) | **CUT → stub → RELATED_SYSTEMS §2 + MVDRAM_REPRODUCTION.md** | It was a *second* comparison home and re-taught the mechanism in diary form. Comparison is job 4's home (RELATED_SYSTEMS); the deep reproduction study is `MVDRAM_REPRODUCTION.md`. |
+| `system.html` | — | **CUT → deleted → `index.html`** | Its job *is* the walkthrough; it overlapped `index.html` scene for scene. |
+| `dram-internals.html` | — | **CUT → deleted → `xor-spread.html`** | Substrate basics are covered in `index.html` scenes 2–3; the atlas depth belongs with the mechanism. |
+| `optimization-spine.html` | — | **CUT → deleted → `index.html`** | A diary by construction ("the chain of improvements"). The live throughput numbers live in the README and RELATED_SYSTEMS §5; status lives in ROADMAP. |
+| `experiment-trail.html` | — | **CUT → deleted → `index.html`** | A diary by construction ("what was tried"). Belief-history has no place on the layman surface. |
+| `mvdram.html` | 4 (dup) | **CUT → deleted → RELATED_SYSTEMS §2 + MVDRAM_REPRODUCTION.md** | It was a *second* comparison home and re-taught the mechanism in diary form. Comparison is job 4's home (RELATED_SYSTEMS); the deep reproduction study is `MVDRAM_REPRODUCTION.md`. |
 
 ## What moved where
 
@@ -68,3 +68,8 @@ supporting evidence trail.
 and `LATTICE_ADDRESSING_2026_07.md` are already one-line redirects into
 `RELATED_SYSTEMS.md` / the mechanism explainer — the same stub pattern used for
 the cut decks.
+
+
+Cut pages are deleted, not stubbed: the repo is young, no external
+deep links depend on those URLs, and a "this page has moved" tombstone
+is clutter a reader can stumble into. Git history preserves everything.
