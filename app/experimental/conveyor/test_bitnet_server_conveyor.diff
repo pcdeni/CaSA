@@ -1,0 +1,359 @@
+--- a/app/test_bitnet_server.cpp
++++ b/app/test_bitnet_server.cpp
+@@ -1990,6 +1990,14 @@
+   // Same shape as the round/bk indexing used in process_matmul.
+   // [round][bank_idx] -> backup_pool absolute row index
+   std::vector<std::vector<uint32_t>> per_round_backup_rows;
++  // [#67 2026-08-04 conveyor] ORDERED global bank-ids this handle's columns map
++  // to (bank_ids[j] owns column j of per_round_backup_rows/expected_*/etc.). Set
++  // at LOAD to the concrete bank list the handle reserved rows on: the full
++  // active set (default) or a SUBSET (PIM_HANDLE_SUBSET). A bank leaving ACTIVE
++  // invalidates ONLY handles whose bank_ids contain it; a handle pinned to a
++  // different group survives (the crux of the conveyor ping-pong). EMPTY is
++  // legacy/positional (== full active set in order) and never produced by LOAD.
++  std::vector<int> bank_ids;
+   // Expected popcount per d_out segment for each backup row, captured
+   // at LOAD time (before any decay). Indexed [round][bk][seg], 32 bits
+   // per segment so popcount ∈ [0, 32]. Used by MM3D start to detect
+@@ -2258,6 +2266,58 @@
+ // Allocate per-bank backup rows for a new handle and per-col write the
+ // supplied weight masks into them. Returns 0 on success, -1 on error
+ // (e.g., backup pool exhausted).
++// [#67 2026-08-04 conveyor] Per-bank/subset handle residency helpers. A handle
++// records the ORDERED global bank-ids its columns map to (h.bank_ids). These are
++// the single place the "empty bank_ids == legacy full-set, positional" fallback
++// is interpreted, so LOAD / serve / invalidate all agree.
++
++// PIM_HANDLE_SUBSET (default 0): honour an optional per-LOAD bank-subset field.
++// 0 => trailing subset bytes (if any) are ignored, every handle spans the full
++// active set => byte-identical to the #65 production superset.
++static int g_handle_subset = -1;
++static bool handle_subset_on() {
++  if (g_handle_subset < 0) {
++    const char* v = getenv("PIM_HANDLE_SUBSET");
++    g_handle_subset = (v && *v) ? atoi(v) : 0;
++    if (g_handle_subset > 0)
++      fprintf(stderr, "[server] PIM_HANDLE_SUBSET=1: per-LOAD bank-subset field "
++              "honoured; handle residency is per-bank (task #67 conveyor)\n");
++  }
++  return g_handle_subset > 0;
++}
++
++// Column index within handle lh mapping to global bank id `bid`. Legacy handles
++// (bank_ids empty) are POSITIONAL: column == the bank's index in the active set
++// (`pos_fallback`). Returns -1 if lh does not reside on bid.
++static int handle_col_of_bank(const LoadedHandle& lh, int bid, int pos_fallback) {
++  if (lh.bank_ids.empty()) return pos_fallback;
++  for (size_t c = 0; c < lh.bank_ids.size(); c++)
++    if (lh.bank_ids[c] == bid) return (int)c;
++  return -1;
++}
++
++// True iff the handle lives on a PROPER subset of `banks` (fewer, reordered, or a
++// bank now absent). False => the full-set fast path (no copy) is byte-identical.
++static bool handle_is_subset(const LoadedHandle& h,
++                             const std::vector<BankConfig>& banks) {
++  if (h.bank_ids.empty()) return false;
++  if (h.bank_ids.size() != banks.size()) return true;
++  for (size_t i = 0; i < banks.size(); i++)
++    if (banks[i].bank_id != h.bank_ids[i]) return true;
++  return false;
++}
++
++// Compact read-only COPY of `banks` in the handle's column order (only the banks
++// it resides on). Lets a serving path present the subset as banks[0..M-1] so
++// every banks[bk]/per_round_backup_rows[.][bk] indexing stays correct unchanged.
++static std::vector<BankConfig> handle_bank_view(const LoadedHandle& h,
++                                                std::vector<BankConfig>& banks) {
++  std::vector<BankConfig> out;
++  for (int bid : h.bank_ids)
++    for (auto& b : banks) if (b.bank_id == bid) { out.push_back(b); break; }
++  return out;
++}
++
+ static int process_load_weights(SoftMCPlatform& platform,
+                                  std::vector<BankConfig>& banks,
+                                  std::map<uint32_t, LoadedHandle>& handles,
+@@ -2285,7 +2345,38 @@
+   off += (size_t)n_chunks * d_out * 4;
+   const uint32_t* neg_mask_all = (const uint32_t*)(req + off);
+ 
+-  const int N = (int)banks.size();
++  // [#67 conveyor] Resolve the ORDERED bank subset this handle will reside on.
++  // Default = the full active set in `banks` order (LB aliases every bank) =>
++  // byte-identical to the #65 superset. Under PIM_HANDLE_SUBSET an optional
++  // trailing field [u32 n_subset][i32 bank_id..] (appended AFTER the pos+neg
++  // masks, at offset `need`) pins the handle to a compute GROUP.
++  std::vector<BankConfig*> LB;
++  if (handle_subset_on() && req_len >= need + 4) {
++    uint32_t n_sub = 0; memcpy(&n_sub, req + need, 4);
++    size_t soff = need + 4;
++    if (n_sub > 0 && (size_t)n_sub <= banks.size() &&
++        soff + (size_t)n_sub * 4 <= req_len) {
++      for (uint32_t i = 0; i < n_sub; i++) {
++        int32_t bid; memcpy(&bid, req + soff + (size_t)i * 4, 4);
++        BankConfig* p = nullptr;
++        for (auto& b : banks) if (b.bank_id == bid) { p = &b; break; }
++        if (!p) {
++          fprintf(stderr, "[server] LOAD_WEIGHTS handle=%u: subset bank %d not in "
++                  "active set — sending ENOSPC ack\n", handle_id, bid);
++          uint32_t ack = 1; ssize_t w = write(response_fd, &ack, 4); (void)w; return 0;
++        }
++        LB.push_back(p);
++      }
++      fprintf(stderr, "[server] LOAD_WEIGHTS handle=%u: pinned to %u-bank subset\n",
++              handle_id, n_sub);
++    }
++  }
++  if (LB.empty()) { for (auto& b : banks) LB.push_back(&b); }  // full active set
++  // Concrete ordered bank list recorded on the handle (columns map 1:1 to LB).
++  std::vector<int> handle_bank_ids;
++  for (BankConfig* p : LB) handle_bank_ids.push_back(p->bank_id);
++
++  const int N = (int)LB.size();
+   size_t n_units = (size_t)n_chunks * 2;
+   size_t n_rounds = (n_units + N - 1) / N;
+ 
+@@ -2306,7 +2397,7 @@
+   std::vector<size_t> primary_take(N, 0);
+   std::vector<std::vector<size_t>> extra_take(N);
+   for (int bk = 0; bk < N; bk++) {
+-    BankConfig& b = banks[bk];
++    BankConfig& b = (*LB[bk]);
+     extra_take[bk].assign(b.pool_extra.size(), 0);
+     size_t prim_avail = 0;
+     if (b.backup_pool.size() > b.pool_cursor + V2_SCRATCH)
+@@ -2385,25 +2476,25 @@
+   h.refresh_row_start.assign(N, 0);
+   h.refresh_row_end.assign(N, 0);
+   for (int bk = 0; bk < N; bk++) {
+-    uint32_t any_open = banks[bk].calib.open_rows[0];
++    uint32_t any_open = (*LB[bk]).calib.open_rows[0];
+     h.refresh_row_start[bk] = (any_open / 640) * 640;
+     h.refresh_row_end[bk]   = h.refresh_row_start[bk] + 640;
+     // PIM_SUB_START/END override for non-640-aligned subarrays (DIMM 2).
+     // [#65] Per-bank window preferred (seeded from the global env => identical
+     // default); lets the conveyor give banks in different segments distinct
+     // refresh ranges without a global env flip.
+-    if (banks[bk].win_start || banks[bk].win_end) {
+-      h.refresh_row_start[bk] = banks[bk].win_start;
+-      h.refresh_row_end[bk]   = banks[bk].win_end;
++    if ((*LB[bk]).win_start || (*LB[bk]).win_end) {
++      h.refresh_row_start[bk] = (*LB[bk]).win_start;
++      h.refresh_row_end[bk]   = (*LB[bk]).win_end;
+     } else {
+       if (const char* ss = getenv("PIM_SUB_START")) if (*ss) h.refresh_row_start[bk] = (uint32_t)atoi(ss);
+       if (const char* se = getenv("PIM_SUB_END"))   if (*se) h.refresh_row_end[bk]   = (uint32_t)atoi(se);
+     }
+     // Overflow rows live in extra subarrays — remember those windows so
+     // the MM3D refresh covers them as well.
+-    for (size_t ei = 0; ei < banks[bk].pool_extra.size(); ei++) {
++    for (size_t ei = 0; ei < (*LB[bk]).pool_extra.size(); ei++) {
+       if (extra_take[bk].size() > ei && extra_take[bk][ei] > 0)
+-        h.extra_refresh_wins[bk].push_back(banks[bk].pool_extra_win[ei]);
++        h.extra_refresh_wins[bk].push_back((*LB[bk]).pool_extra_win[ei]);
+     }
+   }
+ 
+@@ -2422,7 +2513,7 @@
+     size_t round = u / (size_t)N;
+     uint32_t backup_row = plan[bk][round].first;
+     uint8_t  calib_sel  = plan[bk][round].second;
+-    per_column_write_row(platform, banks[bk].bank_id, backup_row, mask);
++    per_column_write_row(platform, (*LB[bk]).bank_id, backup_row, mask);
+     h.per_round_backup_rows[round][bk] = backup_row;
+     h.per_round_calib_sel[round][bk]  = calib_sel;
+ 
+@@ -2471,7 +2562,7 @@
+     }
+ 
+     if (g_verify_load) {
+-      int rc = read_row_to_buffer(platform, banks[bk].bank_id, backup_row,
++      int rc = read_row_to_buffer(platform, (*LB[bk]).bank_id, backup_row,
+                                    rb.data(), 1000000 + (int)u);
+       if (rc != 8192) {
+         fprintf(stderr, "[load-verify] handle=%u u=%zu rdRow rc=%d\n",
+@@ -2497,7 +2588,7 @@
+           fprintf(stderr,
+               "[load-verify-bytes] handle=%u u=%zu bk=%d row=%u: %d/%u segs "
+               "differ at BIT level (first @s=%d exp=0x%08x got=0x%08x xor=0x%08x)\n",
+-              handle_id, u, banks[bk].bank_id, backup_row,
++              handle_id, u, (*LB[bk]).bank_id, backup_row,
+               byte_mm, d_out, byte_first, byte_first_exp, byte_first_got,
+               byte_first_exp ^ byte_first_got);
+         }
+@@ -2516,7 +2607,7 @@
+           fprintf(stderr,
+               "[load-verify] handle=%u u=%zu bk=%d row=%u: %d/%u segs "
+               "differ (first @s=%d exp=%u got=%d)\n",
+-              handle_id, u, banks[bk].bank_id, backup_row,
++              handle_id, u, (*LB[bk]).bank_id, backup_row,
+               mm, d_out, mm_first,
+               h.expected_popcounts[round][bk][mm_first],
+               got_pc[mm_first]);
+@@ -2526,17 +2617,18 @@
+   }
+   // Commit the cursors (primary + any overflowed extras).
+   for (int bk = 0; bk < N; bk++) {
+-    banks[bk].pool_cursor += primary_take[bk];
++    (*LB[bk]).pool_cursor += primary_take[bk];
+     for (size_t ei = 0; ei < extra_take[bk].size(); ei++)
+-      banks[bk].pool_extra_cursor[ei] += extra_take[bk][ei];
++      (*LB[bk]).pool_extra_cursor[ei] += extra_take[bk][ei];
+     if (overflow_subs && primary_take[bk] < n_rounds) {
+       fprintf(stderr, "[server] LOAD_WEIGHTS handle=%u bank %d: overflowed "
+               "%zu/%zu rounds into extra-subarray pools\n",
+-              handle_id, banks[bk].bank_id, n_rounds - primary_take[bk],
++              handle_id, (*LB[bk]).bank_id, n_rounds - primary_take[bk],
+               n_rounds);
+     }
+   }
+ 
++  h.bank_ids = handle_bank_ids;   // [#67] concrete ordered bank list of residency
+   handles[handle_id] = std::move(h);
+ 
+   if (g_verify_load) {
+@@ -3261,7 +3353,7 @@
+ // Run a matmul using a previously-loaded handle's backup rows. Skips the
+ // per-col writes since the weights are already in DRAM.
+ static int process_matmul_handle(SoftMCPlatform& platform,
+-                                  std::vector<BankConfig>& banks,
++                                  std::vector<BankConfig>& banks_all,
+                                   const std::map<uint32_t, LoadedHandle>& handles,
+                                   const uint8_t* req, size_t req_len,
+                                   int& label_base, int response_fd) {
+@@ -3301,6 +3393,16 @@
+   off += (size_t)n_chunks * n_bitplanes * 4;
+   const int32_t*  bitplane_factor = (const int32_t*)(req + off);
+ 
++  // [#67 conveyor] Serve this handle over the banks it actually resides on.
++  // Default (bank_ids == the full active set in order) aliases banks_all with NO
++  // copy => byte-identical. A proper subset builds a compact read-only view so
++  // every banks[bk]/per_round_backup_rows[.][bk] indexing (shared column layout)
++  // resolves to the right bank.
++  std::vector<BankConfig> _sub_banks;
++  std::vector<BankConfig>* _bp = &banks_all;
++  if (handle_is_subset(h, banks_all)) { _sub_banks = handle_bank_view(h, banks_all); _bp = &_sub_banks; }
++  std::vector<BankConfig>& banks = *_bp;
++
+   const int N = (int)banks.size();
+   const size_t n_units = h.n_units;
+   const size_t n_rounds = h.n_rounds;
+@@ -3336,15 +3438,19 @@
+       std::set<std::pair<uint32_t,uint32_t>> extra_wins;
+       for (const auto& kv : handles) {
+         const LoadedHandle& lh = kv.second;
+-        if (bk < (int)lh.refresh_row_start.size()) {
+-          if (lh.refresh_row_start[bk] < mn) mn = lh.refresh_row_start[bk];
+-          if (lh.refresh_row_end[bk]   > mx) mx = lh.refresh_row_end[bk];
++        // [#67] map THIS refresh bank (banks[bk]) to lh's own column via its
++        // recorded bank_ids; legacy positional (empty bank_ids) falls back to bk.
++        int c = handle_col_of_bank(lh, banks[bk].bank_id, bk);
++        if (c < 0) continue;                 // lh does not reside on this bank
++        if (c < (int)lh.refresh_row_start.size()) {
++          if (lh.refresh_row_start[c] < mn) mn = lh.refresh_row_start[c];
++          if (lh.refresh_row_end[c]   > mx) mx = lh.refresh_row_end[c];
+         }
+         // LOAD-overflow: refresh the extra subarray windows too. Kept as
+         // separate deduped entries — a min/max union across subarrays
+         // 9k rows apart would refresh thousands of unrelated rows.
+-        if (bk < (int)lh.extra_refresh_wins.size())
+-          for (const auto& w : lh.extra_refresh_wins[bk])
++        if (c < (int)lh.extra_refresh_wins.size())
++          for (const auto& w : lh.extra_refresh_wins[c])
+             if (w.first < w.second) extra_wins.insert(w);
+       }
+       if (mn < mx) {
+@@ -7071,7 +7177,7 @@
+ // re-runs the whole request from the intact req_buf), or -1 (hard error, e.g.
+ // a poisoned platform the handle path could not recover from either).
+ static int process_matmul_desc(SoftMCPlatform& platform,
+-                               std::vector<BankConfig>& banks,
++                               std::vector<BankConfig>& banks_all,
+                                const std::map<uint32_t, LoadedHandle>& handles,
+                                const uint8_t* req, size_t req_len,
+                                int& label_base, int response_fd) {
+@@ -7102,6 +7208,13 @@
+   off += (size_t)n_chunks * n_bitplanes * 4;
+   const int32_t*  bitplane_factor = (const int32_t*)(req + off);
+ 
++  // [#67 conveyor] Serve over the handle's resident bank subset (see the MM3D
++  // path). Default aliases banks_all with no copy => byte-identical.
++  std::vector<BankConfig> _sub_banks;
++  std::vector<BankConfig>* _bp = &banks_all;
++  if (handle_is_subset(h, banks_all)) { _sub_banks = handle_bank_view(h, banks_all); _bp = &_sub_banks; }
++  std::vector<BankConfig>& banks = *_bp;
++
+   const int N = (int)banks.size();
+   const size_t n_units  = h.n_units;
+   const size_t n_rounds = h.n_rounds;
+@@ -7761,6 +7874,17 @@
+       fprintf(stderr, "[desc-xbatch] INELIGIBLE (%s) — per-sub fallback\n", why);
+     return 2;
+   };
++  // [#67 conveyor] The batched super-session assumes every sub's handle spans the
++  // full active set (positional bk indexing across subs). A subset-resident handle
++  // is served on the per-sub path (process_matmul_desc builds its own bank view);
++  // bail to it here. Default handles (full set) are unaffected.
++  for (size_t _s = 0; _s < NS; _s++) {
++    if (subs[_s].second < 8) continue;
++    uint32_t _hid; memcpy(&_hid, subs[_s].first + 4, 4);
++    auto _it = handles.find(_hid);
++    if (_it != handles.end() && handle_is_subset(_it->second, banks))
++      return inel("subset-resident handle — per-sub serve");
++  }
+ 
+   // ---- parse + eligibility, every sub (same checks as process_matmul_desc) ----
+   struct SubReq {
+@@ -9784,11 +9908,13 @@
+   fprintf(stderr, "[cfg] invalidated ALL resident state (%zu handles, "
+           "resident-scratch registry cleared)\n", nh);
+ }
+-// Invalidate only one bank's resident-scratch entries. NOTE (honest scope):
+-// LOAD handles today reserve rows on EVERY active bank (cross-bank residency),
+-// so a bank leaving ACTIVE conservatively also drops the handle map — decoupling
+-// handle residency to a per-bank subset is task #67. Idle-only transitions
+-// (FREE/STAGING/STORAGE among themselves) call NEITHER path => no stop-the-world.
++// Invalidate one bank's resident state. [#67 conveyor] Per-bank/subset handle
++// residency: a bank leaving ACTIVE drops (a) its resident-scratch registry
++// entries AND (b) ONLY the handles that actually reside on it (bank_id in the
++// handle's recorded bank_ids). Handles pinned to a DIFFERENT bank subset SURVIVE
++// — this is exactly what makes the conveyor promote/demote ping-pong legal.
++// Idle-only transitions (FREE/STAGING/STORAGE among themselves) never call this.
++// Returns the resident-scratch row count (the caller's log contract).
+ static size_t invalidate_resident_bank(int bank_id,
+                                        std::map<uint32_t, LoadedHandle>& handles) {
+   size_t erased = 0;
+@@ -9796,6 +9922,17 @@
+     if (it->first.first == bank_id) { it = g_resident_rows.erase(it); erased++; }
+     else ++it;
+   }
++  size_t h_erased = 0;
++  for (auto it = handles.begin(); it != handles.end();) {
++    const std::vector<int>& bids = it->second.bank_ids;
++    bool resident = false;
++    for (int bid : bids) if (bid == bank_id) { resident = true; break; }
++    if (resident) { it = handles.erase(it); h_erased++; }
++    else ++it;
++  }
++  if (h_erased)
++    fprintf(stderr, "[cfg] bank %d left ACTIVE: dropped %zu resident handle(s) "
++            "(subset residency; handles on other banks survive)\n", bank_id, h_erased);
+   return erased;
+ }
+ 
+@@ -9883,10 +10020,10 @@
+         break;
+       }
+     }
+-    // If ANY bank left ACTIVE we also drop the cross-bank handle map (handles
+-    // span all active banks today — see invalidate_resident_bank note).
+-    if (n_inval > 0) { size_t nh = handles.size(); handles.clear();
+-      fprintf(stderr, "[cfg] SET_STATE dropped %zu cross-bank handles (a bank left ACTIVE)\n", nh); }
++    // [#67 conveyor] invalidate_resident_bank() already dropped exactly the
++    // handles that lived on each demoted bank (per-bank subset residency). The
++    // old coarse handles.clear() — which also wiped freshly-promoted handles and
++    // made the ping-pong illegal — is gone.
+     fprintf(stderr, "[cfg] SET_STATE: %zu banks changed, %zu resident rows invalidated\n",
+             n_changed, n_inval);
+     return emit_table(0);

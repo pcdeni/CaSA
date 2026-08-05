@@ -227,6 +227,29 @@ motivates it — the roadmap is itself evidence-first.
 
 ## DONE (move rows here with the measured result)
 
+- d_in **slice split** (`PIM_DUAL_SPLIT=slice`) — measured **1.777×** on the two
+  compute DIMMs; splits a matmul's input dimension across DIMM 0+2 sub-handles.
+  In `python/pim_linear.py`.
+- **Bank-set config plumbing (#65)** — `MAGIC_CONFIG` / `CFG_SET_STATE` /
+  `build_banks` generalize the resident-weight pool + scheduler past banks 0-3 to
+  any host-configured bank set (per-bank subarray window + residency state),
+  seeded at power-up and mutable at runtime; **default-inert** (behaviour-
+  identical to production when no config is sent). In `app/test_bitnet_server.cpp`;
+  host codec `python/pim_grid_config.py`.
+- **Descriptor-serve / stream seam fix** — the canonical server's `stream_on()`
+  guard forces `PIM_STREAM` off under `PIM_DESC_SERVE` (`PIM_STREAM_FORCE=1` to
+  override), removing a c2h-framing seam; reproduction in `tools/seamfix-repro/`.
+  In `app/test_bitnet_server.cpp`.
+- **Conveyor prefetch scheduler (#67)** — host scheduler dry-tested **9/9**
+  (card-free): degenerate BitNet, valid 13B schedule, the three residency
+  properties, the bandwidth crossover, the `CFG_SET_STATE` wire round-trip.
+  `python/pim_conveyor.py`; design in `docs/CONVEYOR_DESIGN.md`; the review-gated
+  server twin (per-bank/subset handle residency) is `app/experimental/conveyor/`.
+- **Inter-bender fabric link (#76)** — router RTL authored + **Verilator-gated**
+  (idle bit-identity, cross-clock delivery, wedge-free backpressure, frame-atomic
+  reroute); default-inert (star topology until a route is enabled). Also carries a
+  `pop_count4` **BIST** register that verifies the 0xe-undercount fix is
+  synthesized on every future image. In `rtl/inter-bender-link/` (CONTRACT.md).
 - Phase-2 send-ahead (`PIM_STREAM_PIPE`) VALIDATED on silicon —
   full-model −26.3% (2529.1 → 1863.1 s), recv 112 → 57 ms, token-exact,
   0 stalls/decay/errors over 11,500 requests; RTL blocker gone. UNBLOCKED,
