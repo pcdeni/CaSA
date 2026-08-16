@@ -6,19 +6,20 @@ against the two shapes the task pins:
   * BitNet-2B  (native, fits one DIMM -> conveyor DEGENERATE, schedule trivial)
   * Llama2-13B-q4  (mainstream CROSSOVER: 162 MB/layer vs 21.2 ms/layer)
 and the KV-contention crossover (13B + 4k KV stream: infeasible on 1 storage
-channel, feasible on 2 = D1+D3).
+channel, feasible on 2).
 
 Run:  python3 test_pim_conveyor.py         (prints PASS/FAIL summary, exit 0/1)
 """
 import os, sys, traceback
 
-sys.path.insert(0, "/home/deni/bitnet_weights")
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                "..", "..", "..", "python"))
 from pim_grid_config import GridConfig, BankState, DimmRole            # noqa: E402
 import pim_conveyor as pc                                             # noqa: E402
 
 
 def _grid():
-    return GridConfig.default_bitnet("/home/deni/bitnet_weights",
+    return GridConfig.default_bitnet(os.environ.get("BN_DIR"),
                                      active_banks=range(16))
 
 
@@ -110,7 +111,7 @@ def t_13b_readahead_and_no_2x():
 
 def t_13b_kv_crossover():
     """The ladder crossover: 13B + 4k KV stream is INFEASIBLE on 1 storage
-    channel (bandwidth-bound) and FEASIBLE on 2 (D1+D3)."""
+    channel (bandwidth-bound) and FEASIBLE on 2."""
     m = pc.llama2_13b_q4_kv4k()
     sch = pc.ConveyorScheduler(_grid())
     # 1 channel -> validate must RAISE (a slice can't be resident in time)
@@ -121,7 +122,7 @@ def t_13b_kv_crossover():
     except pc.ScheduleError:
         raised = True
     assert raised, "13B+4kKV on 1 channel must be flagged INFEASIBLE"
-    # 2 channels (D1+D3, 17 GB/s) -> feasible
+    # 2 mover channels (17 GB/s) -> feasible
     plan2 = sch.plan_token(m, mover_channels=2, depth=1)
     checks = pc.validate(plan2, m, strict_timing=True)
     assert any("HIDES" in c for c in checks), "13B+4kKV on 2 channels must hide"

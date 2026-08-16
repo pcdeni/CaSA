@@ -15,37 +15,44 @@ import argparse, os, sys, time
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-sys.path.insert(0, "/home/deni/bitnet_weights")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from pim_linear import pim_substitute, print_pim_timing_summary
+import dimm_population
 
 MODEL = "microsoft/bitnet-b1.58-2B-4T"
-CACHE = "/home/deni/bitnet_weights"
-CALIB = "/home/deni/Claude/SiMRA-DRAM-main/DRAM-Bender/sources/apps/DSN_AE_APPS/BitNet/calib_dimm0.txt"
-RUNNER = "/home/deni/Claude/SiMRA-DRAM-main/DRAM-Bender/sources/apps/DSN_AE_APPS/BitNet/bitnet-proj-exe"
-# PIM_SERVER_PATH overrides the server binary (e.g. a copied binary run
-# through a PIM_BACKEND=sim wrapper). Default = production path, unchanged.
-SERVER = os.environ.get(
-    "PIM_SERVER_PATH",
-    "/home/deni/Claude/SiMRA-DRAM-main/DRAM-Bender/sources/apps/DSN_AE_APPS/BitNet/bitnet-proj-server")
+# Everything below is a path into YOUR tree, so all of it is environment.
+#   BITNET_CACHE     Hugging Face cache the model is downloaded into
+#   PIM_RUNNER       the one-shot projection binary (bitnet-proj-exe)
+#   PIM_SERVER       the long-running server binary (bitnet-proj-server);
+#                    PIM_SERVER_PATH is accepted as the older spelling
+# The two binaries are what `make` produces in your DRAM-Bender apps tree.
+CACHE = os.environ.get("BITNET_CACHE",
+                       os.path.expanduser("~/bitnet_weights"))
+RUNNER = os.environ.get("PIM_RUNNER", "bitnet-proj-exe")
+SERVER = os.environ.get("PIM_SERVER",
+                        os.environ.get("PIM_SERVER_PATH",
+                                       "bitnet-proj-server"))
 
-# ---- PrismML Bonsai-1.7B (Qwen3-1.7B based; 2026-07-20) ----
+# ---- PrismML Bonsai-1.7B (Qwen3-1.7B based) ----
 # Extracted per-projection npz: codes int8 {-1,0,+1} + group_scales f32
-# per (row, 128-input group) + sparse exact residuals. See
-# /home/deni/Claude/bonsai_prep_2026_07_20/README.md and
-# /home/deni/Claude/bonsai_client_2026_07_20/README.md.
+# per (row, 128-input group) + sparse exact residuals.
 # 1-bit runs DUAL-TRACK by default (empty zero-set, neg_mask = ~pos_mask
 # within d_in). Since 2026-07-21, PIM_1BIT_SINGLE=1 activates the V2S
 # single-track protocol: the server computes only the pos track and the
 # client reconstructs y = 2·y_pos − Σx — halves the per-request DRAM work
 # (pim_linear.py / MAGIC_V2S).
+# Roots are environment: BONSAI_WEIGHTS holds <variant>/ (the HF model) and
+# extracted/<variant>/ (the per-projection npz files).
+_BONSAI_ROOT = os.environ.get("BONSAI_WEIGHTS",
+                              os.path.expanduser("~/bonsai_weights"))
 BONSAI_SPECS = {
     "bonsai_1bit": {
-        "model_dir": "/home/deni/bonsai_weights/1bit",
-        "extract_dir": "/home/deni/bonsai_weights/extracted/1bit",
+        "model_dir": os.path.join(_BONSAI_ROOT, "1bit"),
+        "extract_dir": os.path.join(_BONSAI_ROOT, "extracted", "1bit"),
     },
     "bonsai_ternary": {
-        "model_dir": "/home/deni/bonsai_weights/ternary",
-        "extract_dir": "/home/deni/bonsai_weights/extracted/ternary",
+        "model_dir": os.path.join(_BONSAI_ROOT, "ternary"),
+        "extract_dir": os.path.join(_BONSAI_ROOT, "extracted", "ternary"),
     },
 }
 
@@ -69,26 +76,24 @@ def make_bonsai_spec_fn(extract_dir):
         }
     return spec_fn
 
-_BN = "/home/deni/Claude/SiMRA-DRAM-main/DRAM-Bender/sources/apps/DSN_AE_APPS/BitNet"
-# Per-DIMM specs for multi-DIMM. Only the validated DIMMs (0, 2) are here.
-# sub_start/sub_end = None means the server's default 640-aligned math is
-# correct (DIMM 0). DIMM 2's s_id 72 is not 640-aligned → explicit range.
-DIMM_SPECS = {
-    # 2026-07-20: clone-ok pools on both DIMMs (O8/O5 hygiene — the May
-    # pools were ~33-39% clone-dead by the anti-selection corollary).
-    # dimm0 sub window explicit per the O5 ready-state spec.
-    0: {'bender': 0, 'calib': f"{_BN}/calib_dimm0.txt",
-        'pool_layout': f"{_BN}/pool_layout_dimm0_cloneok_bank{{bank}}.txt",
-        'sub_start': 38400, 'sub_end': 39040,
-        # O10 2026-07-20: fused-layout colmask (host-repairs the fused
-        # OPERAND-LAYOUT-marginal columns of this die; ~9% of columns).
-        # Gated by PIM_D0_FUSED_COLMASK=0 for A/B against the o5fix shape.
-        **({} if os.environ.get('PIM_D0_FUSED_COLMASK', '1') == '0' else
-           {'fused_colmask': f"{_BN}/fused_colmask_dimm0_bank{{bank}}.txt"})},
-    2: {'bender': 2, 'calib': f"{_BN}/calib_dimm2.txt",
-        'pool_layout': f"{_BN}/pool_layout_dimm2_cloneok_bank{{bank}}.txt",
-        'sub_start': 45312, 'sub_end': 45952},
-}
+# The per-channel fixture trio is CONFIGURATION, not a table in this file:
+# calibration/DIMM_POPULATION.conf describes the installed modules and
+# python/dimm_population.py resolves it, with per-channel environment
+# overrides and a refusal on fixtures belonging to a module that is not in
+# the population. See that module's header for why a hardcoded table is a
+# silent-wrong-answer hazard rather than an untidiness.
+VALID_DIMMS = tuple(range(dimm_population.N_CHANNELS))
+
+# Lane roles come from the same file. The server generates resident constants
+# only on compute lanes, so a stale role table does not mislabel anything --
+# it re-reads constant material over the bus on every operation. An explicit
+# PIM_LANE_ROLES still wins, for experiments.
+os.environ.setdefault("PIM_LANE_ROLES", dimm_population.lane_roles())
+
+
+def dimm_spec(channel):
+    """Per-DIMM trio, resolved at run time."""
+    return dimm_population.dimm_spec(channel)
 
 
 def main():
@@ -121,18 +126,18 @@ def main():
                          "fault-free pool layouts).")
     ap.add_argument("--prompt", default="What is the capital of France?")
     ap.add_argument("--max-tokens", type=int, default=20)
-    ap.add_argument("--calib", default=CALIB,
-                    help="Calibration file (default: DIMM 0). Use "
-                         "calib_dimm2.txt for DIMM 2 (bender 2).")
+    ap.add_argument("--calib", default=None,
+                    help="Calibration file. Default: the configured trio "
+                         "calib for --bender (calibration/"
+                         "DIMM_POPULATION.conf). An explicit path wins.")
     ap.add_argument("--pool-layout", default=None,
                     help="PIM_POOL_LIST_FILE pattern with {bank} token. "
-                         "Default: DIMM 0 layout. For DIMM 2 use "
-                         "pool_layout_dimm2_bank{bank}.txt.")
+                         "Default: the configured trio pool for --bender.")
     ap.add_argument("--dimms", default=None,
                     help="Comma-separated DIMM ids for MULTI-DIMM parallel "
                          "(e.g. '0,2'). d_in sub-handles are round-robin'd "
                          "across the DIMMs and run concurrently. Overrides "
-                         "--bender/--calib/--pool-layout. Validated DIMMs: 0, 2.")
+                         "--bender/--calib/--pool-layout.")
     args = ap.parse_args()
 
     # Build multi-DIMM config if --dimms given.
@@ -141,18 +146,19 @@ def main():
         dimm_ids = [int(x) for x in args.dimms.split(',') if x.strip()]
         dimm_configs = []
         for d in dimm_ids:
-            if d not in DIMM_SPECS:
-                sys.exit(f"DIMM {d} not in DIMM_SPECS (validated: "
-                         f"{sorted(DIMM_SPECS)}). Add a spec first.")
-            spec = dict(DIMM_SPECS[d])
+            if d not in VALID_DIMMS:
+                sys.exit(f"DIMM {d} is not a channel on this card "
+                         f"(valid: {list(VALID_DIMMS)}).")
+            spec = dimm_spec(d)
             spec['bank'] = args.bank   # pool_layout keeps its {bank} token; server substitutes
+            print(f"[bnet] trio {dimm_population.describe(d)}", flush=True)
             dimm_configs.append(spec)
         print(f"[bnet] MULTI-DIMM: {dimm_ids} — d_in sub-handles split "
               f"across {len(dimm_configs)} DIMMs, concurrent + summed", flush=True)
 
     # Production-recommended PIM config: persistent-weight LOAD path with
-    # per-bank fault-free pool layouts.  Bank N's layout loaded from
-    # pool_layout_dimm0_bank<N>.txt via the {bank} token substitution.
+    # per-bank fault-free pool layouts.  Bank N's layout comes from the
+    # configured trio's pool file via the {bank} token substitution.
     # ~1.45× speedup over V2 baseline at d_in=2048; max_err vs numpy
     # ~2394 (cleaner than V2's ~4828, because each bank's pool footprint
     # shrinks 4×). Override: PIM_USE_LOAD_WEIGHTS=0 → V2 fallback.
@@ -172,12 +178,19 @@ def main():
     # Multi-DIMM passes pool layout per-server (extra_env); don't set a
     # global default that would shadow it. Single-DIMM keeps the env path.
     if not dimm_configs:
+        _t = dimm_population.trio(args.bender)
+        print(f"[bnet] trio {dimm_population.describe(args.bender)}",
+              flush=True)
+        if args.calib is None:
+            args.calib = _t['calib']
         if args.pool_layout:
             os.environ['PIM_POOL_LIST_FILE'] = args.pool_layout
         else:
-            os.environ.setdefault('PIM_POOL_LIST_FILE',
-                '/home/deni/Claude/SiMRA-DRAM-main/DRAM-Bender/sources/apps/'
-                'DSN_AE_APPS/BitNet/pool_layout_dimm0_bank{bank}.txt')
+            os.environ.setdefault('PIM_POOL_LIST_FILE', _t['pool'])
+        os.environ.setdefault('PIM_SUB_START', str(_t['sub_start']))
+        os.environ.setdefault('PIM_SUB_END', str(_t['sub_end']))
+        if _t['colmask']:
+            os.environ.setdefault('PIM_FUSED_COLMASK_FILE', _t['colmask'])
     _layout_desc = (f"per-DIMM ({[d for d in (args.dimms or '').split(',') if d]})"
                     if dimm_configs
                     else os.path.basename(os.environ.get('PIM_POOL_LIST_FILE', '(none)')))

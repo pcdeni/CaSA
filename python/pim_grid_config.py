@@ -19,17 +19,22 @@ WHO DRIVES IT:
     moves data ("move it before it is needed while the other bank/DIMM is
     utilized"). It consumes this schema; it is NOT implemented here.
 
-DIMM MODEL (physical fact, see memory dimm_population_2026_07):
-  * DIMMs 0 & 2 = SK hynix, MAJ3-capable  -> role "compute".
-  * DIMMs 1 & 3 = Micron, MAJ3-dead       -> role "storage" (valid RowClone
-    store / staging area even though they cannot compute MAJ3).
-One bitnet-proj-server process today drives ONE DIMM (bender == dimm). Multi-
-DIMM orchestration (routing compute to 0/2, staging on 1/3) is the python
-orchestrator's job across several PimServer processes — the server carries the
-dimm/role as config so nothing is hardcoded, but cross-DIMM data movement is
-#67.
+DIMM MODEL:
+  A channel's ROLE is a deployment choice, not a property of the part.
+  "compute" runs the charge-sharing gates and holds resident weights and
+  constants; "storage" is addressable capacity only — RowClone and ordinary
+  read/write. A MAJ3-capable module can be given either role; a module with no
+  usable MAJ3 yield can only be given storage. Which module sits in which
+  socket, and the role each is given, live in calibration/DIMM_POPULATION.conf
+  and are resolved by python/dimm_population.py — never assumed here.
+One bitnet-proj-server process drives ONE DIMM (bender == dimm). Multi-DIMM
+orchestration (routing compute work to the compute channels, staging on the
+storage ones) is the Python orchestrator's job across several PimServer
+processes — the server carries the dimm/role as config so nothing is
+hardcoded; cross-DIMM data movement belongs to the prefetch scheduler.
 """
 from dataclasses import dataclass, field
+import os
 from enum import IntEnum
 from typing import List, Dict, Iterable, Optional
 import struct
@@ -48,8 +53,8 @@ class BankState(IntEnum):
 
 
 class DimmRole:
-    COMPUTE = "compute"   # DIMMs 0, 2 (SK hynix, MAJ3-capable)
-    STORAGE = "storage"   # DIMMs 1, 3 (Micron, MAJ3-dead but valid store)
+    COMPUTE = "compute"   # runs the charge-sharing gates; holds resident state
+    STORAGE = "storage"   # RowClone store / staging area only
 
 
 # Banks per DIMM on this hardware (BCU1525 QUAD). Not a hardcode in the sense
@@ -97,19 +102,45 @@ class GridConfig:
 
     # ---- construction ----
     @staticmethod
-    def default_bitnet(bn_dir: str,
-                       compute_dimms: Iterable[int] = (0, 2),
-                       storage_dimms: Iterable[int] = (1, 3),
+    def default_bitnet(bn_dir: str = None,
+                       compute_dimms: Iterable[int] = None,
+                       storage_dimms: Iterable[int] = None,
                        active_banks: Iterable[int] = (0, 1, 2, 3)) -> "GridConfig":
-        """Seed the standard grid: compute DIMMs 0/2 (SK hynix), storage DIMMs
-        1/3 (Micron). ACTIVE banks default to 0-3 (today's working set); the
-        remaining banks are declared STORAGE so the conveyor (#67) can stage
-        into them without a restart. Every value here is a SEED default — the
-        host may override any of it."""
+        """Seed the grid from the population file.
+
+        Roles and per-channel fixtures both come from
+        calibration/DIMM_POPULATION.conf via python/dimm_population.py, so a
+        module swap is a one-file edit and no channel can inherit a fixture
+        set measured on a part that is no longer installed. Pass
+        compute_dimms / storage_dimms explicitly to override the file's roles,
+        and bn_dir to override where the fixtures are looked up.
+
+        ACTIVE banks default to 0-3; the rest are declared STORAGE so the
+        prefetch scheduler can stage into them without a restart. Every value
+        here is a SEED default — the host may override any of it, including
+        putting a compute-grade channel into the STORAGE role."""
+        import dimm_population
+
+        if bn_dir is not None:
+            os.environ["PIM_BN"] = bn_dir
+        if compute_dimms is None or storage_dimms is None:
+            roles = dimm_population.lane_roles().split(",")
+            file_compute = tuple(i for i, r in enumerate(roles)
+                                 if r.strip().lower().startswith("c"))
+            file_storage = tuple(i for i, r in enumerate(roles)
+                                 if not r.strip().lower().startswith("c"))
+            if compute_dimms is None:
+                compute_dimms = file_compute
+            if storage_dimms is None:
+                storage_dimms = file_storage
+
+        def _fixtures(d):
+            t = dimm_population.trio(d, check_exists=False)
+            return t["calib"], t["pool"]
+
         g = GridConfig()
         for d in compute_dimms:
-            calib = f"{bn_dir}/calib_dimm{d}.txt"
-            pool = f"{bn_dir}/pool_layout_dimm{d}_cloneok_bank{{bank}}.txt"
+            calib, pool = _fixtures(d)
             banks = []
             for b in range(BANKS_PER_DIMM):
                 st = BankState.ACTIVE if b in set(active_banks) else BankState.STORAGE
@@ -117,8 +148,7 @@ class GridConfig:
             g.dimms[d] = DimmSpec(dimm=d, role=DimmRole.COMPUTE,
                                   calib_path=calib, pool_pattern=pool, banks=banks)
         for d in storage_dimms:
-            calib = f"{bn_dir}/calib_dimm{d}.txt"
-            pool = f"{bn_dir}/pool_layout_dimm{d}_cloneok_bank{{bank}}.txt"
+            calib, pool = _fixtures(d)
             banks = [BankSpec(dimm=d, bank=b, state=BankState.STORAGE)
                      for b in range(BANKS_PER_DIMM)]
             g.dimms[d] = DimmSpec(dimm=d, role=DimmRole.STORAGE,
@@ -177,14 +207,14 @@ class GridConfig:
 
 if __name__ == "__main__":
     # Card-free smoke: build the default grid, encode/decode a round-trip.
-    import os
-    bn = os.environ.get("BN_DIR",
-        "/home/deni/Claude/SiMRA-DRAM-main/DRAM-Bender/sources/apps/DSN_AE_APPS/BitNet")
-    g = GridConfig.default_bitnet(bn, active_banks=range(16))
+    import sys
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    g = GridConfig.default_bitnet(os.environ.get("BN_DIR"),
+                                  active_banks=range(16))
     print("DIMMs:", {d: s.role for d, s in g.dimms.items()})
     print("DIMM0 bank_arg:", g.dimms[0].bank_arg())
     cap = g.working_set_capacity()
-    print("capacity (all 16 active on 0+2):", cap)
+    print("capacity (all 16 banks active on every compute channel):", cap)
     # wire round-trip
     specs = g.dimms[2].banks
     enc = GridConfig.encode_reconfig(specs)

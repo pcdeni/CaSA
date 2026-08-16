@@ -20,7 +20,7 @@ THE COST HIERARCHY (RECORDED, user-ruled -- STOCKTAKE PLACEMENT LAW v2
 BINDING (compute-DIMM) DDR bus:
   * FREE_ROWCLONE     in-subarray RowClone (src+dst share one 640-row segment)
                       -> ZERO bus, in-DRAM, >=99.98% (SiMRA Multi-RowCopy).
-  * CROSS_DIMM_1X     prefetch from a STORAGE DIMM (D1/D3 Micron) -> 1x WRITE on
+  * CROSS_DIMM_1X     prefetch from a channel in the STORAGE role -> 1x WRITE on
                       the compute bus; the READ rides the otherwise-idle storage
                       channel, hidden by read-ahead. THE conveyor tier.
   * SAME_DIMM_2X      same-DIMM cross-bank staging -> 2x (read + write). WORST
@@ -52,13 +52,13 @@ from enum import IntEnum
 from typing import List, Dict, Tuple, Optional, Iterable
 import os, sys
 
-# import the #65 schema (sibling module). Keep the import robust whether this
-# runs from bitnet_weights/ or from the conveyor_2026_08_04/ deliverable dir.
+# import the grid schema (sibling module), robustly whether this is imported
+# as python/pim_conveyor or run from another directory.
 try:
     from pim_grid_config import (BankState, DimmRole, GridConfig, BankSpec,
                                  DimmSpec, BANKS_PER_DIMM)
-except ImportError:  # pragma: no cover - path shim for the deliverable dir
-    sys.path.insert(0, "/home/deni/bitnet_weights")
+except ImportError:  # pragma: no cover - path shim
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from pim_grid_config import (BankState, DimmRole, GridConfig, BankSpec,
                                  DimmSpec, BANKS_PER_DIMM)
 
@@ -66,10 +66,14 @@ except ImportError:  # pragma: no cover - path shim for the deliverable dir
 # ---- hardware quanta (MEASURED; MENTAL_MODEL 2.3 / kv_alloc DESIGN 0) --------
 ROW_BYTES        = 8192           # 8 KiB DRAM row = RowClone/read/write unit
 SEGMENT_ROWS     = 640            # sense-amp segment = RowClone locality
-ROWS_PER_BANK    = 65536          # 0.5 GiB/bank
-BANK_BYTES       = ROWS_PER_BANK * ROW_BYTES          # 512 MiB raw/bank
-MOVER_BW_BPS     = 8.5e9          # per storage channel, MEASURED casa_sched eff-BW
-                                  # (bus_bound_ladder rung a'; D1+D3 = 2 channels)
+# ADDRESSABLE rows per bank. The parts are 4 Gb x8 with 15 row address bits
+# (A0..A14), so bit 15 dies inside the part: rows r and r+2^15 are the same
+# silicon, confirmed by alias on both dies. The controller decodes a rank bit
+# but drops it before the pins, so the second rank is not reachable either.
+# Usable capacity is therefore 16 x 32,768 x 8 KiB = 4 GiB per DIMM, not 8.
+ROWS_PER_BANK    = 32768          # 0.25 GiB/bank
+BANK_BYTES       = ROWS_PER_BANK * ROW_BYTES          # 256 MiB raw/bank
+MOVER_BW_BPS     = 8.5e9          # per storage channel, MEASURED effective BW
 
 
 class MoveTier(IntEnum):
@@ -164,33 +168,29 @@ def model_from_shape(name, L, d, ffn, kv_heads, head_dim, w_bits, track,
 
 # ---- the two shapes the task pins (dims: flagship_pricing.py SHAPES) ---------
 def bitnet_2b() -> ModelMap:
-    # native lane, ternary (2-track). Whole model ~0.52 GB -> fits one 8 GiB
-    # compute rank => conveyor DEGENERATE (static #65 residency).
+    # native lane, ternary (2-track). Whole model ~0.52 GB -> fits one 4 GiB
+    # compute DIMM => conveyor DEGENERATE (static residency).
     # compute_s/layer: native residency wall 3.6 s/tok / 30 (bus_bound rung a,
     # ARITHMETIC). Not load-bearing here (no staging).
     return model_from_shape("bitnet_2b", 30, 2560, 6912, 5, 128,
                             w_bits=2, track=1, compute_s_per_layer=3.6/30,
                             fits_resident=True,
-                            note="native/ternary; 0.52 GB fits D2 rank-0 -> static #65")
+                            note="native/ternary; 0.52 GB fits one compute DIMM -> static residency")
 
 
 def llama2_13b_q4() -> ModelMap:
     # mainstream lane, q4. ~6.34 GB weights. The ladder CROSSOVER case:
     # 162 MB/layer, 21.2 ms compute/layer (0.846 s/tok / 40, 2-DIMM SIM floor).
-    # Treated as working-set conveyor (STOCKTAKE: models that co-need full-ctx KV
-    # cannot hold weights+KV resident on one 8 GiB rank).
-    # HONESTY: 6.34 GB q4 weights ALONE fit one 8 GiB compute rank, so the
-    # DEGENERATE placement (weights resident on D2, KV on storage D1/D3 --
-    # capacity.py's recommendation) needs NO weight conveyor. This conveyor case
-    # is the ALTERNATIVE placement (KV kept resident on the compute rank -> the
-    # 9.46 GiB weights+KV overrun forces weights to stream) -- exercised to
-    # characterize the mechanism + its bandwidth crossover. The conveyor becomes
-    # STRICTLY required at fp16 weights, >13B models, or multi-model residency.
+    # Working-set conveyor. At 4 GiB addressable per DIMM the 6.34 GB of q4
+    # weights do not fit one compute channel at all, with or without KV, so
+    # this model needs the conveyor for its WEIGHTS -- it is not the
+    # alternative placement it would be against an 8 GiB rank. Recovering the
+    # second rank would restore the degenerate option (weights resident, KV
+    # parked on a storage channel).
     return model_from_shape("llama2_13b_q4", 40, 5120, 13824, 40, 128,
                             w_bits=4, track=1, compute_s_per_layer=0.846/40,
                             fits_resident=False,
-                            note="mainstream/q4; conveyor placement (KV resident -> weights stream); "
-                                 "degenerate alt = weights resident + KV on storage")
+                            note="mainstream/q4; weights exceed one 4 GiB compute channel -> weight conveyor")
 
 
 def llama2_13b_q4_kv4k() -> ModelMap:
@@ -293,7 +293,7 @@ class ConveyorScheduler:
         # attention read). For UNIFORM layers the per-layer ratio == the per-token
         # average, so ratio>1 is BANDWIDTH-BOUND: read-ahead depth cannot relax it
         # (staging further ahead adds no aggregate bandwidth) -- the fix is more
-        # mover channels (D1+D3) or a weight-split, NOT more depth.
+        # mover channels or a weight-split, NOT more depth.
         ratios = [model.storage_demand_per_layer(li) / bw / l.compute_s
                   for li, l in enumerate(model.layers)]
         rmax = max(ratios)
@@ -503,7 +503,7 @@ def validate(plan: ConveyorPlan, model: ModelMap, strict_timing: bool = True) ->
             raise ScheduleError(
                 f"storage-demand/compute worst ratio = {worst:.2f} > 1 on "
                 f"{plan.mover_channels} channel(s): staging is BANDWIDTH-BOUND, a slice "
-                f"cannot be resident before its layer starts -> add channels (D1+D3) or "
+                f"cannot be resident before its layer starts -> add mover channels or "
                 f"weight-split")
         passed.append(f"(4) storage-demand/compute worst ratio = {worst:.2f} -> HIDES "
                       f"(feasible on {plan.mover_channels} channel(s))")
@@ -552,9 +552,9 @@ def _report(model: ModelMap, mover_channels: int, grid: GridConfig):
 
 
 if __name__ == "__main__":
-    grid = GridConfig.default_bitnet(
-        os.environ.get("BN_DIR", "/home/deni/bitnet_weights"),
-        active_banks=range(16))
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    grid = GridConfig.default_bitnet(os.environ.get("BN_DIR"),
+                                     active_banks=range(16))
     print("#" * 74)
     print("  pim_conveyor.py  card-free schedule demo (#67)")
     print("#" * 74)
@@ -562,4 +562,4 @@ if __name__ == "__main__":
     _report(llama2_7b_q4(), 1, grid)
     _report(llama2_13b_q4(), 1, grid)
     _report(llama2_13b_q4_kv4k(), 1, grid)   # crossover: 1 channel EXCEEDS
-    _report(llama2_13b_q4_kv4k(), 2, grid)   # D1+D3 = 2 channels HIDES
+    _report(llama2_13b_q4_kv4k(), 2, grid)   # 2 mover channels HIDE it
