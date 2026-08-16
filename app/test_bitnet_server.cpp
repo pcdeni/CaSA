@@ -3622,7 +3622,17 @@ static int process_matmul_handle(SoftMCPlatform& platform,
     }
     ensure_readback(platform, true);   // PIM_SEGPOP: matvec reads in SEG_POP
     auto t_exec0 = clk::now();
-    platform.execute(p);
+    // This lambda is invoked from INSIDE the MM3D StreamSession scope (both
+    // call sites are in the packed bitplane loop below), so a raw
+    // platform.execute() here hits the platform's session guard — "execute()
+    // called with a STREAM SESSION ACTIVE ... poisoning" — after which the
+    // next receiveData returns 0 and the server exits. That is the failure
+    // mode of every PIM_PACK_ROUNDS>1 + PIM_STREAM_MM3D=1 run. Dispatch
+    // through the streaming-aware wrapper instead, matching the unpacked
+    // lane. With no session open pexec() IS platform.execute(), so the
+    // shipped default (PIM_PACK_ROUNDS=1, where this lambda is unreachable)
+    // is byte-identical.
+    pexec(platform, p, (int)(M * row_read_bytes()));
     t_exec_ns += std::chrono::duration_cast<ns_t>(clk::now() - t_exec0).count();
     n_maj3_execs++;
     static thread_local std::vector<uint8_t> pk_rows_buf;
@@ -3831,10 +3841,13 @@ static int process_matmul_handle(SoftMCPlatform& platform,
       // MM3D never opened a stream session, so PIM_STREAM had NO EFFECT on the
       // dominant path — only the V2 handler streamed. The main dispatch below
       // already goes through pexec(), so it streams as soon as a session is
-      // open. Scope is EXACTLY this bitplane loop: it contains zero direct
-      // platform.execute() calls (the auxiliary refresh/verify/disturb
-      // executes live outside it), and mixing execute() into an open session
-      // is illegal — it closes the server.
+      // open. Scope is EXACTLY this bitplane loop: every dispatch reachable
+      // from it goes through pexec() — including the packed path inside the
+      // flush_pend lambda above, which is called from here even though it is
+      // written outside the loop body (the auxiliary refresh/verify/disturb
+      // executes live outside the scope entirely). Mixing a direct
+      // platform.execute() into an open session is illegal — it closes the
+      // server — so any new dispatch added here must use pexec() too.
       // Opt-in while it earns trust: PIM_STREAM_MM3D=1 (task #37 recorded a
       // streamed-MM3D wedge on build-14; that wedge is fixed but this stays
       // A/B-able).
