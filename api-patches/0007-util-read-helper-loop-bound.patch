@@ -1,0 +1,33 @@
+--- a/DRAM-Bender/sources/apps/DSN_AE_APPS/util.cpp
++++ b/DRAM-Bender/sources/apps/DSN_AE_APPS/util.cpp
+@@ -139,6 +139,14 @@
+ {
+   Program p;
+ 
++  // Set the read loop's bound, exactly as the wrRow_* helpers already do.
++  // Without it the loop INHERITS NUM_COLS_REG from whatever program ran
++  // last on this platform. The loop is a do-while, so an inherited 0 or 1
++  // yields exactly ONE read (64 B) while the caller waits for a full
++  // 8192 B row: receiveData then blocks to its timeout and poisons the
++  // platform. Deterministic, and invisible until a read helper is the
++  // first read-bearing program after a write-only one.
++  p.add_inst(SMC_LI(128, NUM_COLS_REG));
+   p.add_inst(SMC_LI(row_immd, RAR));
+   p.add_inst(SMC_LI(0, CAR));
+   p.add_inst(SMC_LI(0, LOOP_COLS));
+@@ -160,6 +168,7 @@
+ {
+   Program p;
+ 
++  p.add_inst(SMC_LI(128, NUM_COLS_REG));   // see rdRow_immediate
+   p.add_inst(SMC_LI(row_immd, RAR));
+   p.add_inst(SMC_LI(0, CAR));
+   p.add_inst(SMC_LI(0, LOOP_COLS));
+@@ -183,6 +192,7 @@
+ {
+   Program p;
+ 
++  p.add_inst(SMC_LI(128, NUM_COLS_REG));   // see rdRow_immediate
+   p.add_inst(SMC_ADDI(row_base, row_offset, RAR));
+   p.add_inst(SMC_LI(0, CAR));
+   p.add_inst(SMC_LI(0, LOOP_COLS));

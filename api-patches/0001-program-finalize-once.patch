@@ -1,5 +1,5 @@
---- a/sources/api/prog.h
-+++ b/sources/api/prog.h
+--- a/DRAM-Bender/sources/api/prog.h
++++ b/DRAM-Bender/sources/api/prog.h
 @@ -14,6 +14,15 @@
    std::vector<Inst>         program;
    std::vector<Mininst>      minprogram;
@@ -16,8 +16,8 @@
  
    bool dumpRegsCalled;
  
---- a/sources/api/prog.cpp
-+++ b/sources/api/prog.cpp
+--- a/DRAM-Bender/sources/api/prog.cpp
++++ b/DRAM-Bender/sources/api/prog.cpp
 @@ -184,11 +184,18 @@
  
  Inst* Program::get_inst_array()

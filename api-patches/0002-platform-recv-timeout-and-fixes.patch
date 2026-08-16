@@ -1,5 +1,5 @@
---- a/sources/api/platform.h
-+++ b/sources/api/platform.h
+--- a/DRAM-Bender/sources/api/platform.h
++++ b/DRAM-Bender/sources/api/platform.h
 @@ -1,6 +1,9 @@
 +#ifndef SOFTMC_PLATFORM_H
 +#define SOFTMC_PLATFORM_H
@@ -157,8 +157,8 @@
    #endif
  };
 +#endif // SOFTMC_PLATFORM_H
---- a/sources/api/platform.cpp
-+++ b/sources/api/platform.cpp
+--- a/DRAM-Bender/sources/api/platform.cpp
++++ b/DRAM-Bender/sources/api/platform.cpp
 @@ -3,24 +3,23 @@
  #include <sys/time.h>
  #include <stdlib.h>

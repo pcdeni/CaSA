@@ -1,9 +1,26 @@
-# SoftMC API patches (apply to SiMRA-DRAM / DRAM-Bender `sources/api/`)
+# SoftMC API patches (apply to SiMRA-DRAM / DRAM-Bender `sources/`)
 
-Unified diffs against the pristine SiMRA-DRAM artifact. Apply from the
-DRAM-Bender root with `patch -p1 < 000X-*.patch`. Rebuild everything that
-includes the touched headers afterwards (the app Makefiles have no header
-dependency tracking — `rm -f *.o` first).
+Unified diffs against the pristine SiMRA-DRAM artifact. Every patch is rooted
+at `DRAM-Bender/…`, so apply them **from the directory that contains your
+`DRAM-Bender` checkout**, in numeric order:
+
+```bash
+ls -d DRAM-Bender                       # you must be one level ABOVE it
+for p in api-patches/0*.patch; do patch -p1 < "$p"; done
+```
+
+Rebuild everything that includes the touched headers afterwards (the app
+Makefiles have no header dependency tracking — `rm -f *.o` first).
+
+**Coverage.** 0000–0006 carry `sources/api/`; 0007 carries the shared app
+helper `sources/apps/DSN_AE_APPS/util.cpp`. The series is the platform surface
+the `rtl/`, `lane2/` and `tools/` programs use. `app/test_bitnet_server.cpp`
+is ahead of it and additionally calls `SoftMCPlatform::{copy_row, dload,
+mig_reinit, prof_snap, receiver_boundary_stop, recorder_dump, replay_n,
+replay_send_resident, set_load_hold}` and the register-addressed helpers
+`util::{doubleACT_regfirst, wrRow_immediate_label_regs,
+rdRow_immediate_label_regs}`, none of which this series delivers — that server
+does not build against a patched pristine tree today.
 
 ## 0001 — Program finalization must run exactly once  ⚠ upstream-relevant
 
@@ -182,3 +199,23 @@ Validated pre-silicon: record parser 12/12 (payloads {8192, 2048} ×
 chunkings 1 B…32 KB, `app/record_parser_test.cpp`); compile+link clean;
 the silicon A/B tool is `app/test_stream_hw.cpp` (`stream-hw-exe` —
 legacy vs streaming byte-identity + wall).
+
+## 0007 — Read helpers must set their own loop bound  ⚠ upstream-relevant
+
+`rdRow_immediate`, `rdRow_immediate_label` and `rdRow_base_offset` in
+`sources/apps/DSN_AE_APPS/util.cpp` never loaded `NUM_COLS_REG`, while every
+`wrRow_*` helper does. The read loop is a do-while branching on
+`LOOP_COLS < NUM_COLS_REG`, so a read program **inherits** the bound from
+whatever program ran on the platform before it: after a write-only program
+the register holds a value that yields exactly ONE read — 64 B — while the
+caller waits for a full 8192 B row. `receiveData` then blocks to its timeout
+and poisons the platform.
+
+It is deterministic, not a race, and it is invisible until a read helper is
+the first read-bearing program after a write-only one — which is the ordinary
+shape of a streamed matmul. Upstream `CMU-SAFARI/DRAM-Bender` carries the
+same three helpers with the same omission.
+
+The fix is one `SMC_LI(128, NUM_COLS_REG)` at the top of each helper, which is
+what the `wrRow_*` helpers already do; `rdRow_*_regs` variants added on top of
+this series inherit it.
