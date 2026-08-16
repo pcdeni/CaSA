@@ -40,8 +40,116 @@ _XBP_CACHE = {}
 _XBP_CACHE_ORDER = []
 _XBP_CACHE_MAX = 8
 
+# --- xbp pack kernels (PIM_XBP_VEC, xbpvec_2026_08_12) ------------------
+# The pack is the largest pure-Python item on the client wall: bucketmap
+# 2026-08-12 measures it at 0.982 +/- 0.048 s/tok = 8.20% of the 11.973 s/tok
+# champion token, on an EXACT per-token counter (`_t_xbp_ms`).  The scalar
+# kernel below runs n_chunks*K iterations of ~6 numpy ops on 32-element
+# arrays — 68,400 such iterations per BitNet-2B decode token — so essentially
+# all of that time is numpy per-call dispatch, not arithmetic.
+#
+# `_pack_xbp_vec` computes the SAME uint32 words with 4 whole-array ops.
+# It is byte-exact by construction, not by approximation: packbits with
+# bitorder='little' places element j of a 32-bool run at bit j of the packed
+# little-endian word, which is exactly the scalar kernel's
+# `sum_j bits[j] * (1 << j)`.  The uint32 re-view is the only endian-
+# dependent step, so a big-endian host takes the multiply-and-sum form
+# instead (also byte-exact, ~2x slower, never taken on x86).
+#
+# DEFAULT ON since ship_2026_08_13 (promotion; PIM_XBP_VEC=0 restores the
+# scalar reference kernel).  Certified: 2,851 offline byte-exact checks +
+# 1,680 real captured pack calls + 1,200 shipped-file comparisons, all
+# zero-mismatch (xbpvec_2026_08_12 §3); silicon A/B -7.79% s/tok, 95% CI
+# [-10.33%, -5.25%], production counter `_t_xbp_ms` 996.4 -> 9.13 ms/tok
+# (xbpab_mm3dstream_2026_08_12 Part A).  Nothing else changes: the
+# content-keyed cache below is untouched, including identity-on-hit.
+_XBP_VEC_POWERS32 = (np.uint32(1) << np.arange(32, dtype=np.uint32))
+_XBP_VEC_LE = (sys.byteorder == 'little')
+
+
+def _xbp_vec_on():
+    """THE single resolution point for the xbp kernel default (ON).
+
+    `PIM_XBP_VEC=0` selects the scalar reference kernel; anything else (unset
+    included) selects the vectorised one.  Both the dispatch and the posture
+    banner read this, so a log line can never disagree with what ran.
+    """
+    return os.environ.get('PIM_XBP_VEC', '1') != '0'
+
+
+def _pack_xbp_scalar(x_int8, n_chunks):
+    """Original per-(chunk, bitplane) kernel.  Reference semantics."""
+    x_u8 = x_int8.astype(np.uint8)
+    x_bitplane = np.zeros((n_chunks, N_BITPLANES), dtype=np.uint32)
+    powers = (np.uint32(1) << np.arange(32, dtype=np.uint32))
+    for c in range(n_chunks):
+        chunk = x_u8[c*32:(c+1)*32]
+        for b in range(N_BITPLANES):
+            bits = ((chunk >> b) & 1).astype(np.uint32)
+            x_bitplane[c, b] = (bits * powers).sum(dtype=np.uint32)
+    return x_bitplane
+
+
+def _pack_xbp_vec(x_int8, n_chunks):
+    """Vectorised kernel — byte-identical output to _pack_xbp_scalar.
+
+    Any input shape the scalar kernel would not handle identically (non-1-D,
+    or fewer than n_chunks*32 elements, where the scalar kernel raises on the
+    short trailing chunk) is DELEGATED to the scalar kernel, so the observable
+    behaviour — value, dtype, flags and exception — is the same on every
+    input, not just on the ones production feeds it."""
+    x_u8 = x_int8.astype(np.uint8)
+    n_need = n_chunks * 32
+    if x_u8.ndim != 1 or x_u8.size < n_need:
+        return _pack_xbp_scalar(x_int8, n_chunks)
+    k = N_BITPLANES
+    m = x_u8[:n_need].reshape(n_chunks, 32)
+    bits = ((m[:, None, :] >> np.arange(k, dtype=np.uint8)[None, :, None])
+            & np.uint8(1))                                  # (n_chunks, k, 32)
+    if _XBP_VEC_LE:
+        packed = np.packbits(bits, axis=-1, bitorder='little')   # (nc, k, 4)
+        # .copy() so the result OWNS its data exactly like the np.zeros the
+        # scalar kernel returns (same flags, no packbits buffer kept alive).
+        return (packed.reshape(n_chunks * k, 4)
+                      .view(np.uint32).reshape(n_chunks, k).copy())
+    return (bits.astype(np.uint32)
+            * _XBP_VEC_POWERS32[None, None, :]).sum(axis=2, dtype=np.uint32)
+
+
+# PIM_XBP_DIGEST=1 (default off): running sha256 over every xbp byte string
+# handed back to a caller, cache hits INCLUDED — those bytes are what
+# `body = whole_prefix + xbp.tobytes() + ...` puts on the wire, so the digest
+# is a wire-identity fingerprint of the whole run.  It is the in-session gate
+# for the PIM_XBP_VEC A/B: two arms that differ only in the kernel must print
+# the same digest over the same token stream.  Its ADMISSIBILITY has to be
+# established per session by an off-vs-off control pair, because the digest
+# also moves if the device hands back different y (memory
+# `cross_process_floor`: two processes disagree on ~all odd-segment MAJ3
+# popcounts, so any across-run comparison is invalid until a control shows
+# otherwise).  Cost is ~360 KB of sha256 per token, <0.01% of the wall — but
+# it must be ON in every arm of a comparison or OFF in every arm, never mixed.
+_XBP_DIGEST = [None, 0]
+
+
+def _xbp_digest_update(out):
+    if _XBP_DIGEST[0] is None:
+        import hashlib
+        _XBP_DIGEST[0] = hashlib.sha256()
+    _XBP_DIGEST[0].update(out[1])
+    _XBP_DIGEST[1] += 1
+    return out
+
+
+def xbp_digest_report():
+    """(hexdigest, n_packs) or None when PIM_XBP_DIGEST never engaged."""
+    if _XBP_DIGEST[0] is None:
+        return None
+    return (_XBP_DIGEST[0].hexdigest(), _XBP_DIGEST[1])
+
+
 def _pack_xbp(x_int8, n_chunks):
     cache_on = os.environ.get('PIM_XBP_CACHE', '1') == '1'
+    digest_on = os.environ.get('PIM_XBP_DIGEST', '0') == '1'
     if cache_on:
         # Key by CONTENT, not id().  The cache does not retain x_int8, so
         # a freed array's address gets recycled by the allocator while its
@@ -56,15 +164,11 @@ def _pack_xbp(x_int8, n_chunks):
         key = (x_int8.tobytes(), n_chunks, N_BITPLANES)
         cached = _XBP_CACHE.get(key)
         if cached is not None:
-            return cached
-    x_u8 = x_int8.astype(np.uint8)
-    x_bitplane = np.zeros((n_chunks, N_BITPLANES), dtype=np.uint32)
-    powers = (np.uint32(1) << np.arange(32, dtype=np.uint32))
-    for c in range(n_chunks):
-        chunk = x_u8[c*32:(c+1)*32]
-        for b in range(N_BITPLANES):
-            bits = ((chunk >> b) & 1).astype(np.uint32)
-            x_bitplane[c, b] = (bits * powers).sum(dtype=np.uint32)
+            return _xbp_digest_update(cached) if digest_on else cached
+    if _xbp_vec_on():
+        x_bitplane = _pack_xbp_vec(x_int8, n_chunks)
+    else:
+        x_bitplane = _pack_xbp_scalar(x_int8, n_chunks)
     out = (x_bitplane, x_bitplane.tobytes())
     if cache_on:
         _XBP_CACHE[key] = out
@@ -72,7 +176,7 @@ def _pack_xbp(x_int8, n_chunks):
         while len(_XBP_CACHE_ORDER) > _XBP_CACHE_MAX:
             old = _XBP_CACHE_ORDER.pop(0)
             _XBP_CACHE.pop(old, None)
-    return out
+    return _xbp_digest_update(out) if digest_on else out
 # PIM_ACT_K = number of activation bit-planes = MAJ3 bodies per output =
 # platform.execute round-trips per chunk at PIM_INLINE_BITPLANES=1. Default
 # 8 (= BitNet int8, bit-identical to the historical path). K<8 = coarser
@@ -82,13 +186,57 @@ def _pack_xbp(x_int8, n_chunks):
 # K=4 collapses (1-bit weights leave no headroom for int4 activation error).
 # Two's-complement truncation: the low K bits of the 8-bit code ARE the K-bit
 # code, so packing K planes with the sign-weighted factors below is exact.
-_PIM_ACT_K = int(os.environ.get('PIM_ACT_K', '8'))
-if not (2 <= _PIM_ACT_K <= 8):
-    raise ValueError(f"PIM_ACT_K must be in [2,8], got {_PIM_ACT_K}")
-N_BITPLANES = _PIM_ACT_K
-BITPLANE_FACTORS = np.array(
-    [1 << b for b in range(N_BITPLANES - 1)] + [-(1 << (N_BITPLANES - 1))],
-    dtype=np.int32)   # K=8 → [1,2,4,8,16,32,64,-128]; K=6 → [1,2,4,8,16,-32]
+_PIM_ACT_K = None
+N_BITPLANES = None
+BITPLANE_FACTORS = None
+
+
+def set_act_k(k):
+    """Recompute all PIM_ACT_K-derived module constants (_PIM_ACT_K,
+    N_BITPLANES, and the signed bit-plane weight vector BITPLANE_FACTORS).
+    Idempotent. Called once at import from the env default, and re-called at
+    PimBitLinear construction via _sync_act_k_from_env() so that an env value
+    set AFTER this module was imported actually takes effect.
+
+    Why this exists (LEVERS #10 / scale_crosscheck_2026_08_09): run_bitnet_pim
+    imports pim_linear at module scope (:19), but its model-specific default —
+    os.environ.setdefault('PIM_ACT_K','5') for BitNet-2B (:204), '6' for Bonsai
+    (:236) — runs INSIDE main(), AFTER the import. When these constants were
+    frozen from env at import time, that setdefault was dead and every bare
+    (un-wrapped) BitNet run silently did K=8 = 1.6x the intended MAJ3 work.
+    Campaign wrappers that `export PIM_ACT_K=` BEFORE python were unaffected
+    (env was set before import); this fix makes the documented in-code default
+    reliable for bare invocations too. Explicit PIM_ACT_K in the environment
+    still wins because env is read as the source of truth."""
+    global _PIM_ACT_K, N_BITPLANES, BITPLANE_FACTORS
+    k = int(k)
+    if not (2 <= k <= 8):
+        raise ValueError(f"PIM_ACT_K must be in [2,8], got {k}")
+    if k != _PIM_ACT_K:
+        # K changed -> any bit-planes cached under the old K are stale.
+        _XBP_CACHE.clear()
+        _XBP_CACHE_ORDER.clear()
+    _PIM_ACT_K = k
+    N_BITPLANES = k
+    BITPLANE_FACTORS = np.array(
+        [1 << b for b in range(k - 1)] + [-(1 << (k - 1))],
+        dtype=np.int32)   # K=8 → [1,2,4,8,16,32,64,-128]; K=5 → [1,2,4,8,-16]
+    return k
+
+
+def _sync_act_k_from_env():
+    """Re-read PIM_ACT_K from the environment and recompute the K-derived
+    constants. Beyond the env read it is a no-op when the value is unchanged
+    (so pre-export campaigns are byte-identical). Called at PimBitLinear
+    construction, which is downstream of run_bitnet_pim.main()'s setdefault."""
+    return set_act_k(int(os.environ.get('PIM_ACT_K', _PIM_ACT_K or 8)))
+
+
+# Import-time default: honours PIM_ACT_K if a launcher exported it BEFORE this
+# import (every campaign/wall wrapper does); otherwise 8. The model-specific
+# in-code default set later inside run_bitnet_pim.main() is picked up by
+# _sync_act_k_from_env() at PimBitLinear construction (see set_act_k above).
+set_act_k(int(os.environ.get('PIM_ACT_K', '8')))
 MAGIC_V2 = 0xB17EF002
 MAGIC_LOAD = 0xB17EF003   # LOAD_WEIGHTS (one-time per linear's slice)
 MAGIC_MM3D = 0xB17EF004   # MATMUL_HANDLE (subsequent calls)
@@ -383,6 +531,14 @@ class PimBitLinear(nn.Module):
                  server_path=None, use_server=True, verbose=False,
                  dimm_configs=None, weight_spec=None):
         super().__init__()
+        # Re-sync the PIM_ACT_K-derived constants from the environment before
+        # any K-dependent work (request headers, BITPLANE_FACTORS, mask build).
+        # This is the chokepoint every production path flows through
+        # (pim_substitute -> PimBitLinear), and it runs AFTER
+        # run_bitnet_pim.main()'s model-specific setdefault, so the documented
+        # K=5 (BitNet) / K=6 (Bonsai) default finally takes effect for bare
+        # invocations. No-op for wrappers that already exported PIM_ACT_K.
+        _sync_act_k_from_env()
         # Keep the original module's tensors (registered as attributes)
         self.base = base
         self.in_features = base.in_features
@@ -543,20 +699,23 @@ class PimBitLinear(nn.Module):
         # PIM_GROUP_RESP=1 forces the dual grouped path (back-compat).
         _batch_groups = (os.environ.get('PIM_REQ_BATCH', '1') == '1'
                          or os.environ.get('PIM_GROUP_RESP') == '1')
-        # SLICE-PARTITION dual split (2026-08-01, PIM_DUAL_SPLIT=slice).
-        # Default 'groups' = today's grouped-batch V2GS split (each slice's
-        # scale-GROUPS split across servers → bytes/request halve but each
-        # server still sees the full slice COUNT). 'slice' instead dispatches
-        # every (token, d_out-slice) request WHOLE — full group set, full
-        # size — round-robin across the servers, so each server sees ~half
-        # the request COUNT at full size and the per-request-COUNT-fixed term
-        # of the wall halves too (dualdimm 2026-08-01 RESULT §E "the real
-        # prize"). Whole slices span disjoint d_out ranges → no cross-server
+        # SLICE-PARTITION dual split (2026-08-01; DEFAULT dual mode since
+        # 2026-08-06, slicesplit_default_2026_08_06). Default (unset or
+        # 'slice') dispatches every (token, d_out-slice) request WHOLE — full
+        # group set, full size — round-robin across the servers, so each
+        # server sees ~half the request COUNT at full size and the
+        # per-request-COUNT-fixed term of the wall halves too (dualdimm
+        # 2026-08-01 RESULT §E "the real prize"; re-anchored 1.82× on prod
+        # c33bfbc8). Whole slices span disjoint d_out ranges → no cross-server
         # summing; per-slice host reconstruction runs in the worker threads.
-        # Group + multi-server only; otherwise the default path is unchanged.
+        # PIM_DUAL_SPLIT=groups selects the older grouped-batch V2GS split
+        # (each slice's scale-GROUPS split across servers → bytes/request
+        # halve but each server still sees the full slice COUNT → 1.53×).
+        # Group + multi-server only; the single-DIMM path is byte-identical
+        # regardless of this flag (guarded by _n_srv_init > 1).
         _n_srv_init = len(self._servers) if use_server else 1
         self._slice_split = (
-            os.environ.get('PIM_DUAL_SPLIT', 'groups') == 'slice'
+            os.environ.get('PIM_DUAL_SPLIT', 'slice') == 'slice'
             and use_server and _n_srv_init > 1
             and self._group_scales is not None)
         for s in range(n_slices):
@@ -904,9 +1063,19 @@ class PimBitLinear(nn.Module):
                 max_err = float(diff.max())
                 mean_err = float(diff.mean())
                 tag = getattr(self, "_diff_tag", "?")
+                # Correlation + best-fit scale distinguish CORRUPTION (low corr)
+                # from a faithful-but-scaled result (high corr, gain != 1).
+                af = a.flatten(); bf = b.flatten()
+                am = af - af.mean(); bm = bf - bf.mean()
+                denom = (am.norm() * bm.norm()).item()
+                corr = float((am @ bm).item() / denom) if denom > 0 else 0.0
+                scale = float((af @ bf).item() / (bf @ bf).item()) if (bf @ bf).item() > 0 else 0.0
                 print(f"   [pim-diff] {tag} call#{self._n_calls} "
                       f"match={n_match}/{n_total} ({100*n_match/n_total:.3f}%) "
-                      f"max_err={max_err:.3f} mean_err={mean_err:.4f}",
+                      f"max_err={max_err:.3f} mean_err={mean_err:.4f} "
+                      f"corr={corr:.4f} scale={scale:.4f} "
+                      f"pim_absmax={float(bf.abs().max()):.6f} "
+                      f"ref_absmax={float(af.abs().max()):.6f}",
                       flush=True)
             except Exception as e:
                 print(f"   [pim-diff] {getattr(self,'_diff_tag','?')} compare failed: {e}",
@@ -1724,6 +1893,14 @@ def print_pim_timing_summary(model):
           f"server-request={total_request:.0f}ms  "
           f"x_bitplane-build={total_xbp:.0f}ms  "
           f"body-concat={total_body:.0f}ms")
+    # xbp kernel posture + optional wire-identity digest (xbpvec_2026_08_12).
+    # Printed unconditionally so an arm log always records WHICH kernel ran —
+    # a wall A/B whose log does not say this is not evidence of anything.
+    _xd = xbp_digest_report()
+    print(f"-- XBPVEC: PIM_XBP_VEC={os.environ.get('PIM_XBP_VEC', '(unset=1)')} "
+          f"kernel={'vec' if _xbp_vec_on() else 'scalar'} "
+          f"cache={os.environ.get('PIM_XBP_CACHE','1')} "
+          + (f"digest={_xd[0]} packs={_xd[1]}" if _xd else "digest=off"))
     # Bonsai group mode only: sparse-residual telemetry (silent for BitNet).
     _rt = 0; _rs = 0.0; _rm = 0.0
     for layer in model.model.layers:
