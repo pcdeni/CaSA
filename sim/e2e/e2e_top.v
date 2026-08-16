@@ -34,6 +34,10 @@ module e2e_top(
   output                              fetch_restart_obs,
   output                              user_rst_obs,
   output                              frontend_ready_obs,
+  // Origin of the flush that frontend_ready announces: 1 = maintenance,
+  // 0 = user program. The frontend has driven it since build 16; the
+  // scenario suite counts maintenance vs user ready pulses with it.
+  output                              frontend_ready_maint_obs,
   output                              per_rd_init_obs,
   output                              per_zq_init_obs,
   output                              per_ref_init_obs,
@@ -46,7 +50,7 @@ module e2e_top(
   wire [`IMEM_ADDR_WIDTH-1:0] fr_addr_in, fr_addr_out;
   wire                        fr_valid_in, fr_valid_out, fr_ready_out;
   wire [`INSTR_WIDTH-1:0]     fr_data_out;
-  wire user_rst, fetch_restart, frontend_ready;
+  wire user_rst, fetch_restart, frontend_ready, frontend_ready_maint;
 
   wire [3:0] ddr_ref, ddr_sre, ddr_srx, ddr_zq, ddr_nop, ddr_ap,
              ddr_pall, ddr_half_bl, ddr_rank;
@@ -67,6 +71,7 @@ module e2e_top(
   assign fetch_restart_obs  = fetch_restart;
   assign user_rst_obs       = user_rst;
   assign frontend_ready_obs = frontend_ready;
+  assign frontend_ready_maint_obs = frontend_ready_maint;
 
   softmc_pipeline pipeline(
     .clk(clk),
@@ -127,6 +132,7 @@ module e2e_top(
     .dllt_begin(),
 
     .frontend_ready(frontend_ready),
+    .frontend_ready_maint(frontend_ready_maint),
 
     .addr_in(fr_addr_in),
     .valid_in(fr_valid_in),
