@@ -24,7 +24,7 @@ ceiling) · `ARITHMETIC` (derived) · `RECORDED-IDEA` (design, untested) ·
 | **row** | 8192 B (8 KiB) | the atomic read/write/RowClone unit; 65536 bits | tower_bringup logs (`bit_match 65536/65536`); MENTAL_MODEL §1.8 |
 | **sense-amp SEGMENT (= subarray)** | **640 rows** = 5.0 MiB | **RowClone / doubleACT locality** — a copy's src+dst MUST share this | MM §2.3 ("640 rows = sense-amp SEGMENT, RowClone/tuple locality"); LEVERS #65b |
 | **predecoder BLOCK** | **1024 rows** = 8.0 MiB | **co-activation scope** — MAJ/broadcast spread reaches within this | MM §2.3 ("1024 rows = predecoder block, co-activation scope") |
-| **bank / rank / DIMM** | 65536 rows/bank = 0.5 GiB; 16 banks = **8 GiB/rank** = 1,048,576 rows | capacity ceiling; ≈102 segments/bank, ≈1638 segments/rank | capacity.py (8 GiB compute-addressable/rank); DDR4 8Gb x8 geometry |
+| **bank / DIMM** | 32,768 addressable rows/bank = 0.25 GiB; 16 banks = **4 GiB/DIMM** = 524,288 rows | capacity ceiling; ≈51 segments/bank, ≈819 segments/DIMM | 4 Gb ×8 parts decode 15 row bits (`r` and `r+2^15` are the same silicon); the rank bit is dropped before the pins |
 
 **The one law that shapes the allocator:** RowClone is **intra-subarray only**
 (both ACTs open rows sharing one sense-amp segment — MM §2.1/§2.3). So a KV copy
@@ -92,7 +92,7 @@ pointer — ZERO copy** (no RowClone needed at all for fully-shared segments).
 Only the **one boundary segment** straddling the fork point needs a private copy
 for the diverging sequence, and that copy is **intra-segment RowClone = free,
 ≥99.98% reliable** (SiMRA Multi-RowCopy, LEVERS #70; RowClone (30,1) PERFECT on
-both hynix dies and t23=1..3 on Micron — MM §2.1, dimm_population). This is the
+every installed die, and t23=1..3 on the other part family we measured). This is the
 whole "copy is free" claim, made precise: *segment-granular sharing is free by
 reference; the single fork-boundary segment is free by RowClone; only a
 cross-segment relocation costs bus bytes.*
@@ -108,9 +108,9 @@ mapped to L24 roles:
 
 | regime | who / where | PuD compute in the block? | RowClone issued? | placement constraint |
 |---|---|---|---|---|
-| **R1 pure park** | D1/D3 (Micron, MAJ3-dead) or any bank in `STORAGE` state, KV read-only after write | none | none (write-once, read by bus) | **NONE.** Any row is safe. Pack densely. Retention (§3) is the only concern. |
+| **R1 pure park** | any channel or bank in the `STORAGE` role, KV read-only after write | none | none (write-once, read by bus) | **NONE.** Any row is safe. Pack densely. Retention (§3) is the only concern. |
 | **R2 storage + fork** | same banks, but KV forks/defrags via RowClone | none | yes | **safe-load offset only.** The copy's src/dst pair must be chosen so the co-activation coset of `local(src)⊕local(dst)` contains **no live KV page** (safe-load, MM §2.4, n=20/20 clean). |
-| **R3 shared with compute** | KV parked in spare capacity of a **compute** DIMM (D0/D2 hynix) while that die runs MAJ/broadcast | yes, in the block | maybe | **block-disjoint.** KV pages must occupy **predecoder blocks (1024-row) disjoint** from every active compute tuple, because a concurrent MAJ/broadcast deposits into its coset family (WRITE-direction spread, MM §2.3/§2.7). Simplest: give KV its own banks. |
+| **R3 shared with compute** | KV parked in spare capacity of a channel in the `COMPUTE` role, while that die runs MAJ/broadcast | yes, in the block | maybe | **block-disjoint.** KV pages must occupy **predecoder blocks (1024-row) disjoint** from every active compute tuple, because a concurrent MAJ/broadcast deposits into its coset family (WRITE-direction spread, MM §2.3/§2.7). Simplest: give KV its own banks. |
 
 **Why even a "storage" RowClone has collateral (the subtle part):** a RowClone
 is a `doubleACT(30,1)`; t23=1 sits **inside** the ≤3-NOP co-activation window
@@ -123,13 +123,15 @@ unintended writes to coset rows** — those must be dead/reserved. That is exact
 what safe-load placement guarantees (offsets with no generator-sum subset are
 tuple-clean by construction, MM §2.4).
 
-- On **Micron D1/D3**: the selection law does NOT hold and only **k=1 deposits
-  are clean** (MM §2.8) — a single-generator RowClone works, its **one**
-  `⊕generator` collateral partner must land on a dead row; multi-bit offsets are
-  dirty and must not be used for KV forks. The clean-offset menu for Micron is
-  **not yet enumerated** (hynix's is) — UNKNOWN §7, screen in the A/B.
+- The selection law is a **die-family** property, not a universal one. On the
+  other part family we have measured it does NOT hold, and only **k=1 deposits
+  are clean** — a single-generator RowClone works, its **one** `⊕generator`
+  collateral partner must land on a dead row, and multi-bit offsets are dirty
+  and unusable for KV forks. Every module in the present population is from the
+  family whose offset menu IS enumerated. Adding a module from another family
+  means screening its clean-offset menu before trusting forks on it.
 
-**Bottom line:** the **primary KV home is R1/R2 on D1/D3** (storage role, L24),
+**Bottom line:** the **primary KV home is R1/R2 on a storage-role channel**,
 where static parking needs **zero** placement care and forks need only a
 safe-load offset. The spread/self-pollution machinery that governs compute
 tuples does **not** burden static KV; it re-enters *only* through the RowClone
@@ -206,8 +208,10 @@ If done as **RowClone-to-self (preventive)** instead, it is **zero bus** (intern
 ACT bandwidth only) — 6.25 GiB / 15 s of intra-subarray ACTs is trivially within a
 channel's ACT budget. Either way the retention tax is small (consistent with the
 ~0.2%-of-wall `REWRITE=1` anchor). **Retention is a solved-shape problem for KV, not
-a blocker** — but the scrub period must be set from a **D1/D3 (Micron) retention
-bracket**, which is UNKNOWN (§7) — the drift ladder is hynix.
+a blocker** — but the scrub period must be set from a retention bracket measured
+on the module that actually holds the KV. The drift ladder we have is for the
+installed die family; a module from another family needs its own bracket
+(§7).
 
 ---
 
@@ -223,32 +227,35 @@ bracket**, which is UNKNOWN (§7) — the drift ladder is hynix.
 | Llama3-8B (GQA) | 32 | 8 | 128 | **128.0 KiB** | 64 KiB |
 | Phi-4 (GQA) | 40 | 10 | 128 | **200.0 KiB** | 100 KiB |
 
-**KV footprint × context (fp16), and where it fits** (1 bank = 0.5 GiB = 65,536
-rows; 1 storage DIMM/rank = 8 GiB = 1,048,576 rows; D1+D3 = 16 GiB):
+**KV footprint × context (fp16), and where it fits** (1 bank = 0.25 GiB = 32,768
+addressable rows; 1 storage DIMM = 4 GiB = 524,288 rows; two storage channels =
+8 GiB):
 
 | model | 2k | 4k | 8k | 4k in rows / banks | fits… |
 |---|---:|---:|---:|---:|---|
-| **Llama3-8B** | 0.25 GiB | **0.50** | 1.0 GiB | 65,536 rows = **1.0 bank** | **one bank** (≤4k); ≤2 banks at 8k |
-| **Phi-4** | 0.39 GiB | **0.78** | 1.56 GiB | 102,400 rows = **1.56 banks** | ~2 banks (4k); ≤4 banks (8k) — **≪ one DIMM** |
-| **Llama2-7B** | 1.0 GiB | **2.0** | 4.0 GiB | 262,144 rows = **4.0 banks** | **one DIMM** (4k = ¼ rank, 8k = ½ rank) |
-| **Llama2-13B** | 1.56 GiB | **3.12** | 6.25 GiB | 409,600 rows = **6.25 banks** | **one DIMM** (8k = 6.25/8 GiB, tight +22% headroom; prefer D1+D3 split or int8) |
+| **Llama3-8B** | 0.25 GiB | **0.50** | 1.0 GiB | 65,536 rows = **2.0 banks** | **one bank** (≤2k); 2 banks at 4k, 4 at 8k |
+| **Phi-4** | 0.39 GiB | **0.78** | 1.56 GiB | 102,400 rows = **3.13 banks** | ~4 banks (4k); ≤7 banks (8k) — still **well inside one DIMM** |
+| **Llama2-7B** | 1.0 GiB | **2.0** | 4.0 GiB | 262,144 rows = **8.0 banks** | **one DIMM** (4k = half of it; 8k fills it exactly, no headroom) |
+| **Llama2-13B** | 1.56 GiB | **3.12** | 6.25 GiB | 409,600 rows = **12.5 banks** | one DIMM at ≤4k (3.12/4 GiB); **8k does NOT fit one DIMM** — split across two storage channels, or int8 |
 
-Cross-check against the project's own `capacity.py` / flagship placement table:
-matches exactly (8B KV 0.50, Phi-4 0.78, 13B 3.12 at 4k). Its verdict stands:
-weights on D2 rank-0; **13B's 4k KV is the term that overruns a single 8 GiB
-compute rank → KV → storage DIMM (D1/D3)** — which is precisely the KV-in-DRAM
-storage tier this allocator manages.
+The per-token and per-context byte figures are unchanged from the flagship
+placement table (8B KV 0.50 GiB, Phi-4 0.78, 13B 3.12 at 4k); only where they
+fit moves, because the addressable ceiling is 4 GiB per DIMM. The verdict
+sharpens rather than reverses: **KV is the term that overruns a compute
+channel, so KV goes to a storage channel** — which is precisely the KV-in-DRAM
+tier this allocator manages.
 
 **Readings:**
-- **One bank** holds a full-context small-KV model: Llama3-8B ≤4k, Phi-4 ≤2k.
-- **One storage DIMM (8 GiB)** holds **every** flagship at ≤8k (13B 8k is the only
-  tight case at 6.25/8 GiB). int8 KV halves all of it → all four fit one DIMM with
-  wide margin at 8k+.
-- **D1+D3 (16 GiB)** hold all four at all listed contexts **with weight-parking
-  room to spare** — the conveyor working-set home (#67).
-- **Assumption (UNKNOWN §7):** D1/D3 taken as 8 GiB single-rank each. If either is
-  dual-rank (like D2's 16 GiB), double its column. Design is capacity-agnostic;
-  only the headroom numbers move.
+- **One bank** holds a full-context small-KV model: Llama3-8B ≤2k, Phi-4 ≤1k.
+- **One storage DIMM (4 GiB)** holds every flagship at ≤4k, and all but 13B at
+  8k (7B at 8k fills it exactly). int8 KV halves all of it → all four fit one
+  DIMM at 8k with margin.
+- **Two storage channels (8 GiB)** hold all four at all listed contexts **with
+  weight-parking room to spare** — the conveyor working-set home.
+- **Ceiling, not a module property (§7):** every module here is dual-rank, but
+  the controller drops the rank bit and the parts decode 15 row bits, so
+  4 GiB per DIMM is what is addressable. Recovering the rank doubles every
+  column above. The design is capacity-agnostic; only the headroom moves.
 
 ---
 
@@ -263,7 +270,7 @@ window, per-bank **state**, and DIMM **role** host-config, runtime-mutable via
   A KV bank is one held in STORAGE. Allocating/reclaiming a KV bank =
   `CFG_SET_STATE` → **metadata-only, no stop-the-world** for idle↔idle
   transitions (MEASURED gate B, `bank16` RESULT) — exactly the conveyor contract.
-- **Role** = `DimmRole.STORAGE` for D1/D3 (Micron); `default_bitnet(storage_dimms
+- **Role** = `DimmRole.STORAGE` for whichever channels the population file assigns it; `default_bitnet(storage_dimms
   =(1,3))` already seeds them. KV's natural home is these two DIMMs.
 - **Per-bank window** = `BankSpec.win_start/win_end` (already per-bank). A KV bank's
   window is its KV region; distinct from a compute bank's screened pool window. For
@@ -294,7 +301,7 @@ testable card-free:
   #64 paced-copy is the mover).
 
 This is **#67-adjacent host orchestration** — one `PimServer` drives one DIMM
-today, so cross-DIMM KV (weights on D2, KV on D1/D3) is python-orchestrator work
+today, so cross-DIMM KV (weights on a compute channel, KV on a storage one) is python-orchestrator work
 across processes, exactly as `bank16` RESULT scopes for #67.
 
 ### 5.3 What layer (ii) fabric attention (#72) needs the layout to GUARANTEE
@@ -315,7 +322,7 @@ MEASURED, `roadb_build7`/`lane2`):
    storage channel** so the attention pipeline reads both without a cross-DIMM hop
    (each DIMM = its own XDMA channel + MIG, no die-to-die link — MM §1.0).
 5. **No PuD in a KV block during a read** — R3 disallowed while attention streams
-   (or KV kept on D1/D3 where PuD never runs) so a concurrent deposit can't perturb
+   (or KV kept on a storage channel where PuD never runs) so a concurrent deposit can't perturb
    the stream mid-read.
 
 **LAYOUT LAW (one line):** *a (layer, K|V) stream = a position-ordered,
@@ -332,7 +339,7 @@ descriptor-walkable base+stride.* Everything #72 does rides this.
   (`P | 640`, default P=128 rows = 1 MiB, config not hardcode).
 - **KV-3 (placement)** pure park needs **no** placement; a RowClone fork needs a
   **safe-load offset** (coset clean); KV sharing a compute die needs **1024-block
-  disjointness** from active tuples. R1/R2 on D1/D3 is the primary home.
+  disjointness** from active tuples. R1/R2 on a storage channel is the primary home.
 - **KV-4 (retention)** active KV self-refreshes via attention reads (ACT/token <
   onset); **idle** KV is scrubbed by read-rewrite at period ≤ ½·onset (≤~15 s);
   budget ≤ ~10% of one 8.5 GB/s channel worst case, ~0.2% typical.
@@ -341,7 +348,7 @@ descriptor-walkable base+stride.* Everything #72 does rides this.
 
 Capacity verdict: **every flagship's KV fits one storage DIMM at ≤8k** (13B 8k the
 only tight case); **small-KV models (Llama3-8B, Phi-4) fit one to a few banks**;
-**D1+D3 (16 GiB) is ample** for all four plus weight-parking. This removes host RAM
+**Two storage channels (8 GiB) are ample** for all four plus weight-parking. This removes host RAM
 from the KV **capacity** wall (LEVERS #70) — it does **not** move the native-lane
 token floor (a workload enabler, not a throughput lever; MM/LEVERS #70).
 
@@ -349,7 +356,9 @@ token floor (a workload enabler, not a throughput lever; MM/LEVERS #70).
 
 ## 7. Honest unknowns (flagged, not hand-waved)
 
-1. **D1/D3 module capacity** — assumed 8 GiB single-rank each; not measured in the
+1. **Addressable capacity per module** — 4 GiB, set by the 15 decoded row bits
+   and the dropped rank bit, not by the modules (which are dual-rank). Recovering
+   the rank would double every storage figure here. Not measured in the
    workspace (no inventory list; dimm_population says "ask the user"). If dual-rank,
    double that DIMM's storage. Affects headroom only.
 2. **RowClone source-survival** — prefix-share REQUIRES the shared source page to
@@ -357,12 +366,14 @@ token floor (a workload enabler, not a throughput lever; MM/LEVERS #70).
    is the copy source; collateral is the *other* coset rows), but the tower
    PERFECT_CLONE logs verify **dst**, not src survival. → explicit src-readback in
    the A/B.
-3. **Micron (D1/D3) clean-offset menu for forks** — hynix's safe-load offsets are
-   enumerated (MM §2.4); Micron's are not (selection law doesn't hold; only k=1
-   clean, MM §2.8). A small offset screen on D1/D3 is needed before trusting forks
+3. **Clean-offset menu for forks on a foreign die family** — the installed
+   family's safe-load offsets are enumerated (MM §2.4); the other family we
+   measured has no enumerated menu (selection law doesn't hold there; only k=1
+   clean, MM §2.8). A small offset screen is needed before trusting forks
    there. → A/B screens it.
-4. **Micron retention onset** — the ~30 s/120 s onsets are hynix (drift ladder). The
-   scrub period must be set from a D1/D3 retention bracket. → A/B measures it.
+4. **Retention onset on a foreign die family** — the ~30 s/120 s onsets are for
+   the installed family (drift ladder). A module from another family needs its own
+   bracket before its scrub period can be set. → A/B measures it.
 5. **Self-refresh-by-read** — the "attention reads keep charge topped" claim needs
    confirming on the real per-row read gap (ACT restores charge only if it beats the
    flip). → A/B read-cadence arm.

@@ -18,7 +18,7 @@
 // each as one of: matches-R (= got R's data), matches-original (=
 // untouched), or other (= flake / partial corruption).
 //
-// Build: make spread-test-exe && ./spread-test-exe 0 calib_dimm0.txt 0
+// Build: make spread-test-exe && ./spread-test-exe 0 calib_dimm2.txt 0
 // (bender_id, calib_path, bank_id)
 
 #include "platform.h"

@@ -17,7 +17,7 @@
 // and re-activates the row, sets CAR to the chunk's start column, and
 // runs its WRITE-loop.
 //
-// Reference row picked in the s_id=61 subarray (rows 38400..39039 from
+// Reference row picked inside the calibrated subarray window (from
 // all_subarrays.csv) at row 38500 — well outside the calibrated open-row
 // window (38786..39028) so it doesn't conflict with Phase 1 demo rows.
 //

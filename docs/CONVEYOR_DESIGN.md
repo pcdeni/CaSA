@@ -22,11 +22,11 @@ rung a′. Cost is measured on the **binding (compute-DIMM) DDR bus**:
 | tier | move | binding-bus cost | when |
 |---|---|---|---|
 | **free** | **in-subarray RowClone** (src+dst share one 640-row segment) | **0** (in-DRAM, ≥99.98%, SiMRA Multi-RowCopy) | slice already co-resident in the destination segment |
-| **1×** | **cross-DIMM prefetch from storage** (D1/D3 Micron) | **1× write** on the compute bus; the **read rides the otherwise-idle storage channel**, hidden by read-ahead | THE conveyor tier — parked copy lives on a storage DIMM |
+| **1×** | **cross-DIMM prefetch from storage** (a channel in the STORAGE role) | **1× write** on the compute bus; the **read rides the otherwise-idle storage channel**, hidden by read-ahead | THE conveyor tier — parked copy lives on a storage DIMM |
 | **2×** | **same-DIMM cross-bank** staging | **2× (read + write)** — the **WORST tier** | AVOIDED by construction |
 
-The design law that follows: **keep every parked/next-stage copy on a storage
-DIMM (D1/D3), never on another compute bank.** Then every conveyor move is the 1×
+The design law that follows: **keep every parked/next-stage copy on a channel
+in the storage role, never on another compute bank.** Then every conveyor move is the 1×
 tier (or free), and the 2× tier never occurs. The prototype's planner *raises* if
 it is ever asked to emit a 2× move (`ScheduleError`), so the law is enforced
 mechanically, not by convention.
@@ -217,15 +217,15 @@ crossover the task names is a hard assertion (6). BitNet degenerates correctly
 
 ## 6. Scope honesty (self-audit)
 
-- **The 7 tracked flagships at q4 do not *strictly* need the weight conveyor.**
-  Their weights fit one 8 GiB compute rank (13B q4 = 6.34 GB, the largest;
-  `capacity.py`), so the DEGENERATE placement — weights resident on D2, KV parked
-  on storage D1/D3 — needs no per-token weight staging (same static-#65 answer as
-  BitNet). The conveyor's streaming regime (modeled here for 13B) is the
-  ALTERNATIVE placement (KV resident on the compute rank → weights stream) and the
-  general mechanism. It becomes **strictly load-bearing** at fp16 weights,
-  >13B models, or multi-model residency — none of which are in the current
-  seven-flagship set at q4.
+- **Addressable capacity is 4 GiB per DIMM, not 8.** These parts decode 15 row
+  bits, so rows `r` and `r + 2^15` are the same silicon, and the controller
+  drops the rank bit before the pins — 16 banks × 32,768 rows × 8 KiB.
+  Against that ceiling the larger flagships need the weight conveyor outright:
+  13B at q4 is 6.34 GB of weights, which does not fit one compute channel with
+  or without its KV. Only the small native-lane models (BitNet, Bonsai) stay
+  degenerate. Recovering the second rank would restore the alternative
+  placement — weights resident, KV parked on a storage channel — for the q4
+  mainstream models.
 - **This is a HOST-orchestration + server-change design; it does not move the
   native token floor.** BitNet/Bonsai fit one DIMM (degenerate). The conveyor is
   the *mainstream-lane enabler* (LEVERS #67, e2e-audit: mainstream four are

@@ -28,17 +28,20 @@
 
 static int            BANK_ID = 0;  // overridable via argv[4]
 
-// Calibrated open_rows + Rfirst + Rsecond.  Default: DIMM 0 bank 0/2/3's
-// shared calib (s_id 61, Rfirst=38424).  Override at runtime via the
-// PIM_CALIB_LINE env (one tuple-line from calib_dimm0.txt format) or the
-// individual PIM_RFIRST / PIM_RSECOND / PIM_OPEN_ROWS env vars.
+// Calibrated open_rows + Rfirst + Rsecond.  Default: the live trio's bank-0
+// tuple (calibration/calib_dimm2.txt, s_id 72, Rfirst=45340).  Override at
+// runtime via the PIM_CALIB_LINE env (one tuple-line in calib file format)
+// or the individual PIM_RFIRST / PIM_RSECOND / PIM_OPEN_ROWS env vars.
 static uint32_t OPEN_ROWS[16] = {
-    38408, 38412, 38424, 38428, 38472, 38476, 38488, 38492,
-    38920, 38924, 38936, 38940, 38984, 38988, 39000, 39004};
-static uint32_t RFIRST  = 38424;
-static uint32_t RSECOND = 38988;
-static uint32_t SUB_START = 38400;
-static uint32_t SUB_END   = 39040;
+    45340, 45341, 45342, 45343, 45436, 45437, 45438, 45439,
+    45724, 45725, 45726, 45727, 45820, 45821, 45822, 45823};
+static uint32_t RFIRST  = 45340;
+static uint32_t RSECOND = 45823;
+// The 640-row window containing the default tuple. Recomputed from the calib
+// line's open rows when PIM_CALIB_LINE is given, and overridable outright
+// with PIM_SUB_START / PIM_SUB_END.
+static uint32_t SUB_START = 45312;
+static uint32_t SUB_END   = 45952;
 
 // Apply env override: PIM_CALIB_LINE="<Rfirst> <Rsecond> <r0> <r1> ... <r15>"
 // (16 open_rows after Rfirst/Rsecond).  Resets SUB_START / SUB_END to the
@@ -63,7 +66,7 @@ static void apply_calib_env() {
   RSECOND = parsed[1];
   for (int i = 0; i < 16; i++) OPEN_ROWS[i] = parsed[2 + i];
   // Default subarray chunk: 640 rows starting at floor(lowest_open/640)*640.
-  // This was correct for DIMM 0 (s_id=61, open rows 38408-39004, chunk 38400-39040).
+  // Derived from the calib line, so it follows whichever die is being swept.
   // For DIMMs whose subarrays don't align to 640-row boundaries, override with
   // PIM_SUB_START / PIM_SUB_END to point at the actual s_id range from
   // FindOpenRows/dimm<N>/selected_subarrays.txt.

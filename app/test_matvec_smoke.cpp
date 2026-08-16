@@ -3,7 +3,7 @@
 // over K trials and (b) we can read back K result rows in order.
 //
 // Each MAJ3 trial uses a different calibrated (s_id, Rfirst, Rsecond,
-// open_rows[16]) tuple from calib_dimm0.txt. All K ops compute
+// open_rows[16]) tuple from the calib file. All K ops compute
 // AND(W[k], x) = MAJ3(W[k], x, 0) for one shared activation x and K
 // distinct weight patterns W[0..K-1] — so the K results form a
 // "binary MatVec" y[k] = popcount(W[k] AND x).

@@ -35,8 +35,9 @@
 //                   B=swap(7,9) C=swap(6,11)
 //
 // Output: <out_dir>/fused_screen.csv (layout,bank,col,fails,runs,hi,lo)
-// and <out_dir>/fused_colmask_dimm0_bank<B>.txt per bank (columns exact
-// in EVERY 'fused' run — the server-side colmask).
+// and <out_dir>/fused_colmask_b<bender>_bank<B>.txt per bank (columns exact
+// in EVERY 'fused' run — the server-side colmask). The file names the
+// channel it was measured on: a colmask belongs to one die.
 //
 // Argv: <bender> <calib> <banks_csv> <pool_pattern({bank})> <layouts_csv|all>
 //       [n_wrand=8] [n_xrand=8] [trials=2] [out_dir=.]
@@ -427,8 +428,8 @@ int main(int argc, char** argv) {
   if (fused_runs > 0) {
     for (int bk = 0; bk < NB; bk++) {
       char cmp[512];
-      snprintf(cmp, sizeof cmp, "%s/fused_colmask_dimm0_bank%d.txt",
-               out_dir.c_str(), banks[bk]);
+      snprintf(cmp, sizeof cmp, "%s/fused_colmask_b%d_bank%d.txt",
+               out_dir.c_str(), bender, banks[bk]);
       FILE* f = fopen(cmp, "w");
       if (!f) { fprintf(stderr, "[fcs] cannot write %s\n", cmp); _exit(4); }
       int good = 0;
