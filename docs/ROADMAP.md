@@ -1,276 +1,298 @@
 # Roadmap — open levers and investigations
 
-The public mirror of the project's living improvements ledger
-(trimmed of internal/user-gated items). Statuses: RUN / READY /
-DESIGNED / IDEA / PARKED; finished levers move to DONE with their
-measured result. Every lever cites the measurement or design doc that
-motivates it — the roadmap is itself evidence-first.
+The public mirror of the project's improvements ledger, trimmed of internal
+items. Statuses: **RUN** / **READY** / **DESIGNED** / **IDEA** / **PARKED**;
+finished levers move to DONE with their measured result. Every lever cites
+the measurement or design that motivates it — the roadmap is itself
+evidence-first.
+
+**The scoring rule, and why it inverted.** The goal is a prompt in and a
+response out at the speed the DDR bus allows, with nothing but the prompt and
+the response crossing PCIe and the weights already resident. Against *today's*
+wall — which is host orchestration — host-side levers score high and
+device-cycle levers score near zero. Against the *goal*, that reverses
+exactly: host-loop levers score zero at the end state because the host loop is
+gone, and device-cycle levers become everything. Levers below are marked with
+which axis they pay on. A "wall-neutral" verdict expires with the wall it was
+measured on.
 
 ---
 
-## A. Bitstream-gated (each = a Vivado build + a JTAG flash)
+## A. Fabric-side (each needs an FPGA build and a flash)
 
-1. **SEG_POP readback mode** — **SHIPPED**, silicon-validated: 2048 B/row
-   per-segment popcount bytes (byte-aligned 4×, chosen over the sketched
-   1536 B packing for trivial host unpack), READ/DIFF bit-identical to the
-   plain readback mode, WNS +0.118 ns. Production wiring `PIM_SEGPOP=1`
-   in `app/test_bitnet_server.cpp`; RTL design in `rtl/README.md`.
-2. **seq_engine pipeline integration** — DESIGNED (`rtl/SEQ_ENGINE.md`),
-   deliberately sequenced AFTER SEG_POP (recv 3.1ms > exec 1.0ms).
-   Mixed-stream Verilator non-regression A/B is the flash gate.
-3. **Streaming/queued execution — "controller-native on our card"** —
-   UPGRADED.
-   MVDRAM's testbed is DRAM Bender on an Alveo U200 — the same
-   soft-MC class as ours; "controller-native" is their §V-E *execution
-   regime* (the DDR command bus never waits for the host), and it is
-   achievable here: ping-pong IMEM pair + a fetch stage that loads the
-   idle bank during EXECUTE, back-pressured by `buffer_space`. The
-   host becomes a pure producer at PCIe bandwidth (~0.3 % used — our
-   problem was only ever latency). This is where the round-trip lever
-   family converges, and the last 2–3 orders (the §V-E streaming gap) live. Ladder above/below it: pipelined issue (software
-   bridge), on-fabric orchestrator (soft core; 1 round-trip per
-   projection — the end-state demo), and the honest Rung-4 boundary
-   (commodity MCs expose no command-level control; every published
-   unmodified-DRAM PUD result runs a soft/custom controller).
-   ⚠ **Scope note: streaming the SEND alone is wall-neutral.** With
-   `PIM_STREAM` on vs off, recv (~64% of the request wall) is UNCHANGED,
-   because the receive is synchronous. Instruction-count levers (M3,
-   K-batching) therefore are NOT top post-streaming levers. The recv term
-   only moves when the send is pipelined PAST the recv: that is
-   **phase-2 send-ahead**, the real recv attack ↓.
-3a. **Phase-2 send-ahead (`PIM_STREAM_PIPE`)** — ✅ **VALIDATED ON
-   SILICON, −26.3% wall.** Full-model A/B: pipe-on 1863.1 s vs pipe-off
-   control 2529.1 s; per-request recv **112 → 57 ms (halved)**, total
-   176 → 130 ms; token-exact (`'The'`). The `~1/4k` lost-record stall
-   that kept this default-OFF does NOT reproduce: **0 stalls / 0 decay /
-   0 errors over 11,500 requests** (would expect ~3 if present) — the
-   RTL blocker is gone. UNBLOCKED for production enable — flipping the
-   `PIM_STREAM_PIPE` default is a production-behavior change and is
-   USER-GATED.
-3a3. **On-fabric orchestrator (Rung-2) — first probe PASSES.** ✅
-   **Verilator 27/27 byte-exact**: a closed-loop top wires the existing
-   `seq_engine` → a deterministic SiMRA DRAM model → the existing exact
-   popcount+accumulate datapath, driven by a hard-coded sequencer walking
-   one projection's chunk/bitplane loop. TB sends `x` once, reads integer
-   partials once, byte-compares to a CPU oracle (3 edge + {1,8,64}×8
-   seeds). Feasibility established: the fabric CAN drive a
-   host-command-free projection loop and return exact integer partials.
-   Not yet a soft core / ISA / allocator — those remain the Rung-2 build.
+1. **Direct emission — the keystone.** ⇑ *device axis; the main open lever.*
+   Instead of the host assembling and sending a program per operation, the
+   fabric emits the DDR command stream for a whole projection from a compact
+   descriptor. Proven at projection scale: scaled emission to 1080 bodies with
+   the delta inside the certified configuration's own replay envelope, a
+   **3.37× body-lane wall**, flat to 1080 bodies, at a cadence of ~8 clock
+   cycles per column access. This is the rung the remaining orders of
+   magnitude live on; everything else in section A is either its dependency or
+   its consequence.
+   ⚠ Known bounded defect: an emission that outlives its maintenance deadline
+   can strand mid-record. Zero occurrences at production shapes; fenced in the
+   design.
 
-0. **ACCUM_XBP: cross-bit-plane accumulator** — DESIGNED.
-   In-fabric place-value sum: one 8 KB
-   drain per group instead of 8 per-plane drains (recv wakes ÷8,
-   ~1.6× projected on the measured wake-dominated recv). Verification
-   gate = the SEG_POP discipline verbatim. Note: the driver-side
-   attack on the same term (xdma poll_mode) measured EIO — the ladder
-   caught it before any timing claim; rolled back clean. The fabric cut
-   does not depend on driver behavior.
+2. **Cross-bit-plane accumulator (ACCUM_XBP).** ⇑ *device axis.* Sums the K
+   activation bit-planes in fabric, so a group drains once instead of once per
+   plane. Silicon-exact RTL, validated bit-exact against a CPU reference.
+   **Production net-negative today** — it removes drains that the host cadence
+   was already hiding — and that measurement is the cost model working. It is
+   a **hard dependency of direct emission**, where the drains it removes stop
+   being hidden. Default off.
 
-## B. Host/software levers (no bitstream needed)
+3. **Per-segment popcount readback (SEG_POP).** Shipped and silicon-validated:
+   2048 B/row of per-segment popcount bytes instead of the 8 KB raw row,
+   bit-identical to the plain readback path. **Wall-neutral, default off** —
+   re-measured twice, 0 % delta, because the c2h bytes it saves are hidden
+   inside the request cadence. It becomes live again on the device axis, where
+   nothing hides them.
+   ⚠ Its long-standing "SEG_POP is permuted" mystery was a *simulation* defect,
+   not silicon: the behavioural readback FIFO model emitted the low half of
+   each 512-bit write first, where the IP presents the high half first. Two
+   compensating swaps cancelled for a plain read and could not cancel for
+   SEG_POP. Fixed in `rtl/` and `sim/e2e/`; correlation 0.037 → 0.998.
 
-3b. **V2GS request batching** — DONE: `MAGIC_V2GS` composes
-   the grouped response (V2G) with single-track (V2S) — one request per
-   server per slice instead of one per scale-group, token-identical,
-   268.8 → 260.3 s /8 tok (+3.2 %, the pipe-framing share). Default on
-   (`PIM_REQ_BATCH=1`). The batched profile refines the cost model: a
-   slice = ~20 XDMA round-trips (~12 write programs + ~8 exec/recv) ×
-   ~150–200 µs — which sets up the next lever precisely.
-3c. **V2 cross-round program packing** — DONE: each round's
-   12 write programs packed into ~3 IMEM-bounded ones (write-only, no
-   c2h — immune to the recv-wake tax that made K-batching lose).
-   Token-identical; wcol 10.8 → 6.4 ms/request; 8-tok wall
-   260.3 → 233.0 s. Default on (`PIM_V2_PACK=0` restores the legacy
-   cadence byte-for-byte). Cumulative stack: 267.1 → 233.0 s (−12.7 %).
-   Originally specified as: Fuse a slice's ~20 programs into few: one program
-   interleaving [write(round r); 4-bank MAJ3 bodies(round r)] across
-   rounds within the 8K-IMEM envelope — preserving write-then-use
-   locality (the upfront-batched-writes attempt is the
-   documented anti-pattern; the MM3D packed path is the proven
-   pattern). Estimated 2–4× on the handler → ~2–3× wall. Gate:
-   layer-0 exact, then full-model token-identity.
+4. **Inter-bender fabric link.** Router RTL authored and Verilator-gated (idle
+   bit-identity, cross-clock delivery, wedge-free backpressure, frame-atomic
+   reroute), synthesized and inert by default — a star topology until a route
+   is enabled. It also carries a popcount BIST register so every future image
+   proves the popcount fix is synthesized. Missing: the consumer side and the
+   send primitive. Turns a host-mediated cross-DIMM hop into a fabric one,
+   which is what an in-fabric attention stage needs.
 
-4. **LANE2_WRES clone-resident products** — DONE: 59 µs/gate
-   resident vs 150–180 pcwrite (~2.7×/product); fidelity trade and
-   capacity limits characterized.
-5. **Plane-packed multi-read totals** — DONE: the multi-read
-   accum regime validated EXACT (all-resident numpy-exact,
-   byte-identical); per-plane-gate 32–53 µs vs 59–65 at moderate M;
-   wall-neutral until residency capacity grows. The bring-up also
-   surfaced a silent-skip integrity hazard now fixed with
-   `oversize_skips()` observability — check it before building
-   accum-total systems on this stack.
-6. **M3 coset-broadcast operand fan-out** —
-   ⚠ **SUPERSEDED: production-negative.** The server
-   `PIM_BCAST_LOAD` integration was measured on silicon and contributes
-   nothing — the MAJ3 body recomputes its scratch row, so the deposit is
-   never read; the `NODEP` A/B is token-identical; the ceiling is <9% of the
-   request wall regardless. Kept at default 0, slated for removal. The gate-1
-   numbers below stand only as a *standalone-harness primitive demonstration*
-   and do **not** reach the request wall.
-   **FIRST GATE PASSED, both dies** (tool `app/test_m3_scratch_ab.cpp`,
-   logs `docs/data/m3/`). One
-   coset `doubleACT` loads the scratch row(s) byte-exactly from a
-   pool-resident source: 20/20 (k=1) + 20/20 (k=2: 1 op → 3 rows) per
-   die, zero leak, all timings, **265.8× fewer instructions / ~4× wall**
-   vs the 3-chunk per-column write. Design finding: the legacy pool is
-   an independent set over the coupling graph — deposits must target
-   the pool's coupled *shadow* rows; allocator pairs resident↔shadow.
-   ~~Next: server `PIM_BCAST_LOAD` + shadow allocator~~ — **done,
-   resolved negative** (see the banner above).
-7. **PIM_PARALLEL_BANKS=1 probe** — DONE: pack4 provably
-   ENGAGED (program-dump signature) yet wall effect 3.3 % ≈ variance —
-   the ceiling math for a compute-issue lever on a readout-bound wall.
-   Confirms readout-first sequencing. Gotcha recorded: any
-   `PIM_INLINE_BITPLANES>1` batch disables pack4 structurally
-   (duplicate-bank serial fallback).
-8. **Dual-subarray LOAD pools** — IDEA. Server helpers exist (bc_pool_idx
-   dual mode). Doubles residency ⇒ shifts V2→MM3D traffic (where
-   PACK_ROUNDS works). Needs a second calibrated subarray + pool layouts
-   per bank (D0 s77 robust 88% is a candidate).
-9. **V2G protocol for streaming/batched shapes** — DONE as protocol
-   (wall-neutral), READY as the carrier for any future batched regime.
-10. **xrefresh / accum-knob tuning** — minor; only if a measurement says.
-28. **X-master-clone (activation-side residency + clone)** — ❌
-    **CLOSED NEGATIVE for production.** The idea: instead of rewriting
-    each plane's `x` operand rows every round (MAJ3 charge-sharing
-    destroys them each execution), write each plane's `x` master row once
-    per request outside the tuple, then RowClone master→tuple per body
-    (~40 slots vs ~1,280). Why it fails: a RowClone establishes the x seed
-    at **charge-shared, not write-driven, levels** (in-DRAM x′ ≠ x), so
-    the corruption is present at ALL request depths at production mask
-    density on BOTH tracks — dual-track corr ≈ 0.94–0.97, 0/2048
-    bit-exact, vs bit-exact without X-master. Proven with a V2S mode of
-    the numerics oracle (same binary/shape/seed: XM off bit-exact
-    2048/2048, XM on corr 0.951). The server hard-gates X-master off;
-    default-off everywhere. Only revivable if the seed can be made
-    write-driven-equivalent (charge-sharing physics argues no).
+5. **Recovering the second rank.** ⇑ *capacity, not speed.* The modules are
+   dual-rank and the board family routes chip-select for both ranks, but the
+   command encoding's rank bit is dropped before the pins, so half of every
+   module is unreachable — 4 GiB addressable where 8 is installed. Recovering
+   it doubles residency and dissolves the subarray aliasing in section C.
+   Needs a controller change and a memory-interface regeneration.
 
-## C. Characterization / science (learn + enable)
+6. **Nonlinears in fabric** — DESIGNED, and re-framed by measurement. Area was
+   never the blocker: the layer-norm / activation / rope datapaths *fit*. The
+   blocker is the clock. Routed at the fabric's period they close at 11–38 MHz
+   (rope is ~384 logic levels deep), so no nonlinear can be a producer at any
+   area without a 15–20-stage pipelining workstream. That workstream is the
+   item, not the area budget.
 
-11. **Bank-similarity audit** — TRANCHE 1 CONFIRMED:
-    four never-calibrated banks under a
-    verbatim-transferred calib produce classification-identical spread
-    tables (350/350 rows × 14 primitive cases); even the flake fringe is
-    deterministic and bank-invariant; the null control shows zero
-    deposits off-lattice on every bank. Calibration transfer = margin
-    re-screen only, demonstrated on zero-characterization silicon —
-    the 16-bank scale-out (#13, ~4× residency/parallelism headroom
-    with no new sweeps) is real. Remaining: margin maps, banks 8-15,
-    the selection-law probe on one new bank.
-12. **Calib-transfer procedure** — DONE
-    (`docs/CALIBRATION_TRANSFER.md`): the recipe + transfer-success
-    table. Banks (all 16) and same-model dies transfer byte-identically
-    (margin re-screen only); subarrays partial (pool re-derivation, the
-    long offset is block-relative); parts need lattice re-derivation.
-    16-bank scale-out is now a config exercise.
-13. **16-bank / multi-subarray scale-out** — IDEA, after 11. The idle
-    spatial parallelism (die ~99.99% idle).
-    Constraints known: tFAW/tRRD scheduling (pack4 machinery), per-bank
-    pools, c2h contention.
-14. **640/1024 boundary atlas** — IDEA. Map sense-amp-segment vs
-    predecoder-block boundaries per bank; structural confirmation of the
-    replicated-block hierarchy (the two-granularity finding).
-15. **D1/D3 storage roles** — PARKED-ish. MAJ3-limited dies as weight
-    parking + RowClone shuttle. Revisit only if capacity binds.
-29. **V2 output-numerics gate** — ✅ **BUILT + VALIDATED.**
-    The project had no full-coverage output-numerics gate (the old
-    per-projection oracle was deleted; `ab_fused_server.py` fails silently
-    on the disabled handle path; token-identity is insensitive — passed at
-    87% wrong PIM masks). Two halves built: (a) `mm3d-verify` widened past
-    round-0 via `PIM_VERIFY_ROUNDS` (default 1 = old byte-identical
-    behaviour; raised = strided across all rounds), rebuilt + proven on
-    silicon; (b) `numerics_gate/v2_oracle.py` drives the REAL `MAGIC_V2`
-    production path, builds a CPU reference from the same masks/bitplane
-    factors, refuses to fail silently (asserts response length, `y≠0`,
-    `exec>0`), and carries a working `--inject-fault` negative control —
-    `PIM_BACKEND=sim` 8/8 bit-exact, card-free. **KEY finding: the gate
-    must be CORRELATION-based, not bit-exact** — raw per-op V2 silicon is
-    NOT bit-exact (same op across processes: bit-exact count swung
-    28/459/463/283 of 512, per-boot operating point) yet **corr =
-    0.997–0.9998 STABLE**; wrong weights/stale masks collapse the
-    correlation. Threshold (corr ≥ 0.98) provisional pending a real
-    corruption-run calibration. RULE recorded: gate mask/weight/pool
-    changes on numerics, never on token identity.
+7. **Streaming instruction fetch (Rung-1).** CLOSED. The producer loop is
+   correct and the RTL works; the wall moved **−4.0 %**, which is not worth a
+   default. Off. Superseded on its own axis by direct emission.
 
-## D. Model / application levers
+8. **Fabric-resident projection loop (Rung-2 probe).** A closed-loop top wired
+   the sequencer to a deterministic DRAM model and the exact popcount /
+   accumulate datapath, and returned **27/27 byte-exact** integer partials for
+   a projection's chunk/bitplane loop with no host command in the loop.
+   Feasibility established. Superseded as a *build* by direct emission, which
+   reaches the same place with less new hardware.
 
-30. **Coarser activation quant (`PIM_ACT_K`)** — ✅ **SHIPPED + SILICON-
-    VALIDATED, across the whole model zoo, token-identical.**
+---
+
+## B. Host and software levers (no new bitstream)
+
+9. **Dual-subarray LOAD pools** — IDEA. Server helpers exist. Doubles
+   residency, which shifts traffic toward the packed path. Needs a second
+   calibrated subarray and pool layouts per bank — now a translation rather
+   than a sweep (section C), so the cost is minutes per window.
+   ⚠ Audit every candidate window modulo 2^15 first (section C).
+
+10. **Lane roles must match the population.** ⇈ *free, and it was costing
+    1.43×.* The server generates resident constants only on lanes it believes
+    are compute lanes; a lane it believes is storage re-reads the constant
+    material over the bus on every operation. A compiled-in role table left
+    from an earlier population made half the channels 1.43× slower *per DRAM
+    operation*, uniformly across prefill and decode, and it hid for weeks
+    because nothing about it looks like a performance bug. Proved causal in
+    both directions on the same channel, minutes apart, with one environment
+    variable. Roles now come from `calibration/DIMM_POPULATION.conf`; the
+    remaining work is removing the compiled-in default entirely.
+
+11. **Pipelined dual-DIMM join** — DESIGNED, bridge only. Splitting a matmul
+    across two channels and waiting for both costs `E[max] − E[mean]`. Measured
+    honestly, that join is **0.362 s/tok = 3.27 %**, not the 16 % a first
+    reading suggested: 99.7 % of the spread is common-mode jitter, the join
+    already recovers 76 % of the independent-jitter cost, and neither die is
+    reliably faster (a 49.5 % coin flip). A one-deep asynchronous join is worth
+    a realistic 2–3 %. Ranked below the keystone, and it disappears at the end
+    state.
+
+12. **xrefresh / accumulator knob tuning** — minor; only if a measurement says
+    so.
+
+---
+
+## C. Characterization and capacity
+
+13. **Calibration transfer** — DONE, and it is the result that makes the rest
+    affordable. Banks and same-family dies transfer byte-identically with a
+    margin re-screen only; subarrays transfer by *translation* of the relative
+    tuple geometry plus a pool re-derivation; different parts need the lattice
+    re-derived first. Recipe and evidence: `docs/CALIBRATION_TRANSFER.md`.
+    Adopting a subarray went from ~28 minutes to ~2.5 minutes per window.
+
+14. **16-bank scale-out** — DONE as configuration. All 16 banks carry
+    validated pool fixtures from a single transfer, verified byte-identical,
+    and the bank-similarity audit found classification-identical spread tables
+    on never-calibrated banks (350/350 rows × 14 primitive cases) with zero
+    off-lattice deposits on the null control.
+
+15. **⚠ Subarray windows alias modulo 2^15** — MEASURED, and it invalidates
+    naive capacity claims. These parts decode 15 row bits, so rows `r` and
+    `r + 32768` are the same silicon. Of 44 characterized windows on the
+    production die, **19 pairs were aliases — only 25 were physically
+    distinct**, and one of them turned out to be the production window under a
+    different name. Aliased windows pass every screen independently and then
+    overwrite each other, and a byte-verify cannot catch it because each write
+    verifies against what it just wrote. Every pool list must be audited mod
+    2^15. Production and every active configuration are clean; the affected
+    historical accuracy figures are withdrawn.
+
+16. **Cross-die determinism, now n=4 across manufacturing dates** — MEASURED.
+    Four modules of one part number: identical co-activation fault set on all
+    four channels, identical read/write screen, `PERFECT_CLONE` on every
+    `t_23`. And the whole production trio — calibration, pool, window — ran on
+    a sibling die with no fresh calibration, no fresh screen, no new fixture,
+    token-exact on first contact. The earlier cross-*part-number* result stands
+    alongside it: the invariance follows the die design.
+
+17. **Certification is not one test, and the numerics oracle is blind to one
+    failure** — MEASURED. A channel passed RowClone, byte-lane, read/write and
+    the matmul oracle, then latched a byte lane *during* its own full-model run
+    while the oracle's correlation stayed at 1.0. Clearance therefore means
+    RowClone across all `t_23`, a byte-lane map, a read/write screen — **and the
+    same checks again after sustained traffic**. The repair path costs
+    essentially nothing in wall terms (a channel repairing hundreds of millions
+    of column substitutions ran within 0.2 % of a clean one, and returned the
+    exact reference tokens).
+
+18. **Boundary atlas** — DONE for the working windows: the long-range
+    co-activation offsets are predecoder-block-relative, shrinking toward a
+    ~512-row block midpoint, vanishing, then flipping sign. This is why bank
+    transfer is free and subarray transfer is not.
+
+19. **Storage-role channels** — the role is a deployment choice now, not a
+    part limitation. Every installed module is compute-grade; assigning one the
+    storage role is a configuration line. The design work that assumed a
+    permanently MAJ3-dead tier survives unchanged, because it was written
+    against the *role*.
+
+---
+
+## D. Model and application levers
+
+20. **Coarser activation quantization (`PIM_ACT_K`)** — SHIPPED and SETTLED.
     The activation is decomposed into K bit-planes = K MAJ3 bodies = K
-    `platform.execute` round-trips (1/plane at the production
-    `PIM_INLINE_BITPLANES=1`). Dropping K cuts the *binding recv wall*
-    proportionally, with no accuracy loss down to a model-specific floor
-    (which tracks the training recipe, not weight bits). Client-only, NO
-    bitstream. Measured full-model A/B (V2 path + phase-2), each vs its own
-    K=8: **Bonsai-1bit K=6 −21.7%, Bonsai-ternary K=6 −22.2%, BitNet-2B
-    K=5 −32.2%** — all token-identical, numerics gate corr 0.99995. K=4
-    (int4) collapses on all Bonsai; BitNet-2B tolerates K=4 (QAT native-A8)
-    but K=5 is the safe floor. Production defaults set per model
-    (1bit/ternary=6, bitnet=5); `setdefault` so explicit `PIM_ACT_K` wins.
-    Composes orthogonally with fused/streaming (acts on the execute COUNT,
-    they act on per-execute body time).
-16. **Bonsai/BitNet batched-token shapes** — IDEA; V2G-ready carrier.
-17. **More g128 model families** — READY anytime (weight-spec path is
-    generic); value = generality story, not throughput.
-18. **LoRA-over-DRAM demo** — PARKED for later. Design sketch in
-    docs/TRAINING.md.
-19. **LEO in-orbit DRAM scrub** — PARKED for later (in-DRAM MAJ/RowClone
-    self-scrubbing of COTS memory against radiation upsets).
+    round-trips, so dropping K cuts the binding wall proportionally, with no
+    accuracy loss down to a model-specific floor that tracks the training
+    recipe rather than the weight width. Measured full-model, each against its
+    own K=8: **Bonsai-1bit K=6 −21.7 %, Bonsai-ternary K=6 −22.2 %, BitNet-2B
+    K=5 −32.2 %**, all token-identical, numerics correlation 0.99995. K=4
+    collapses on Bonsai; BitNet tolerates it but K=5 is the safe floor.
+    Defaults are set per model and are not to be re-tuned. Client-side only.
 
-## E. Publication / story (repo = go-to for in-memory LLM)
+21. **Batched-token shapes** — IDEA; the grouped-response protocol is ready as
+    the carrier.
 
-20. **Explainer HTML scenes for the throughput/method material** — claim
-    ledgers live at `docs/explainer/index_ledger_2026_08_03.md` and
-    `docs/explainer/xor-spread_ledger_2026_08_03.md`.
-21. **256-token sampled e2e writeup** — RUN; fold the verdict table into
-    MVDRAM_REPRODUCTION when done.
+22. **More group-scaled model families** — READY anytime; the weight-spec path
+    is generic. Value is generality, not throughput.
 
-## DONE (move rows here with the measured result)
+23. **KV cache in DRAM** — DESIGNED (`docs/KV_ALLOCATOR_DESIGN.md`). Pages are
+    segment-aligned, prefix sharing is by reference with a single
+    RowClone at the fork boundary, and placement constraints appear only where
+    a charge-sharing operation touches the page's block. Capacity sizing is
+    against 4 GiB per DIMM, which is what is addressable.
 
-- d_in **slice split** (`PIM_DUAL_SPLIT=slice`) — measured **1.777×** on the two
-  compute DIMMs; splits a matmul's input dimension across DIMM 0+2 sub-handles.
-  In `python/pim_linear.py`.
-- **Bank-set config plumbing (#65)** — `MAGIC_CONFIG` / `CFG_SET_STATE` /
-  `build_banks` generalize the resident-weight pool + scheduler past banks 0-3 to
-  any host-configured bank set (per-bank subarray window + residency state),
-  seeded at power-up and mutable at runtime; **default-inert** (behaviour-
-  identical to production when no config is sent). In `app/test_bitnet_server.cpp`;
-  host codec `python/pim_grid_config.py`.
-- **Descriptor-serve / stream seam fix** — the canonical server's `stream_on()`
-  guard forces `PIM_STREAM` off under `PIM_DESC_SERVE` (`PIM_STREAM_FORCE=1` to
-  override), removing a c2h-framing seam; reproduction in `tools/seamfix-repro/`.
-  In `app/test_bitnet_server.cpp`.
-- **Conveyor prefetch scheduler (#67)** — host scheduler dry-tested **9/9**
-  (card-free): degenerate BitNet, valid 13B schedule, the three residency
-  properties, the bandwidth crossover, the `CFG_SET_STATE` wire round-trip.
-  `python/pim_conveyor.py`; design in `docs/CONVEYOR_DESIGN.md`; the review-gated
-  server twin (per-bank/subset handle residency) is `app/experimental/conveyor/`.
-- **Inter-bender fabric link (#76)** — router RTL authored + **Verilator-gated**
-  (idle bit-identity, cross-clock delivery, wedge-free backpressure, frame-atomic
-  reroute); default-inert (star topology until a route is enabled). Also carries a
-  `pop_count4` **BIST** register that verifies the 0xe-undercount fix is
-  synthesized on every future image. In `rtl/inter-bender-link/` (CONTRACT.md).
-- Phase-2 send-ahead (`PIM_STREAM_PIPE`) VALIDATED on silicon —
-  full-model −26.3% (2529.1 → 1863.1 s), recv 112 → 57 ms, token-exact,
-  0 stalls/decay/errors over 11,500 requests; RTL blocker gone. UNBLOCKED,
-  USER-gated to enable. (Streaming ALONE
-  is wall-neutral; phase-2 is the recv attack — see lever 3/3a.)
-- V2 output-numerics gate BUILT (`numerics_gate/v2_oracle.py`
-  + `PIM_VERIFY_ROUNDS`) — real `MAGIC_V2` path, sim 8/8 bit-exact, working
-  negative control; gate is CORRELATION-based (corr 0.997–0.9998 stable
-  where raw per-op bit-exactness is process-dependent). (Lever #29.)
-- X-master-clone evaluated → CLOSED NEGATIVE for production: the RowClone'd
-  x seed lands at charge-shared (not write-driven) levels, corrupting output
-  at production mask density on both tracks; server hard-gates it off,
-  default-off everywhere. (Lever #28.)
-- Rung-2a on-fabric orchestrator probe — Verilator 27/27
-  byte-exact (fabric-driven projection loop returns exact integer partials,
-  no host command). Feasibility of a host-command-free loop established.
-- Road-B lane2 integration (product dataflow 1.4–28×; accum
-  crossover ~50K products; 65K totals 0 faults).
-- 1-bit single-track V2S (18.7 s/tok, 1.81×, ladder 5.36×).
-- MAJ5 ZERO+2 chain A/B — honest negative (99.51 vs 99.90;
-  SiMRA ONE+3 stands).
-- q3_K Phase D (99.90%) — quant coverage complete.
-- PACK_ROUNDS triage — MM3D-only, ~3% lever in production;
-  the real unlock is broadcast/clone loading (→ lever 6).
+24. **Prefetch conveyor** — DONE as a host scheduler, dry-tested 9/9 card-free
+    (degenerate small models, a valid large-model schedule, the three residency
+    properties, the bandwidth crossover, and the configuration wire round-trip).
+    `python/pim_conveyor.py`; design in `docs/CONVEYOR_DESIGN.md`. The
+    review-gated server twin is in `app/experimental/conveyor/`.
+
+25. **LoRA over DRAM** — PARKED. Sketch in `docs/TRAINING.md`.
+
+26. **In-orbit DRAM scrub** — PARKED. In-DRAM majority/RowClone self-scrubbing
+    of commodity memory against radiation upsets.
+
+---
+
+## E. Repository and explainers
+
+27. Explainers and their claim ledgers live under `docs/explainer/`. Every
+    quantitative claim in a published page carries its evidence.
+
+---
+
+## DONE — with the measured result
+
+- **Slice-split dual-DIMM dispatch** (`PIM_DUAL_SPLIT=slice`) — **1.78×**.
+  Dispatches every (token, output-slice) request whole, round-robin across
+  servers, so each server sees half the request *count* at full size; the
+  older grouped-byte split only halved bytes and was worth 1.53×. The promoted
+  default. In `python/pim_linear.py`.
+- **Vectorised bit-plane pack** (`PIM_XBP_VEC`) — **−7.79 % on the token wall**,
+  95 % CI [−10.33, −5.25]. The pack was the largest pure-Python item on the
+  client; the vectorised kernel is byte-exact by construction, not by
+  approximation, and the per-token counter went 996 → 9 ms. Default on.
+- **Resident constants** — **1.293×**. Constant operand rows generated once on
+  a compute lane instead of re-read per operation. See lever 10 for what
+  happens when a lane's role is wrong.
+- **Cross-round program packing** — each round's write programs packed into a
+  few IMEM-bounded ones; write-only, so immune to the receive-wake tax that
+  made naive batching lose. Token-identical, per-request write cost 10.8 → 6.4 ms.
+- **Request batching (grouped + single-track)** — one request per server per
+  slice instead of one per scale group, token-identical.
+- **1-bit single-track protocol** — the server computes one track and the
+  client reconstructs the other, halving per-request DRAM work. 1.81× on the
+  1-bit lane.
+- **Bank-set configuration plumbing** — resident-weight pool and scheduler
+  generalized past banks 0–3 to any host-configured bank set, seeded at
+  power-up and mutable at run time, default-inert.
+- **Clone-resident products (lane 2)** — 59 µs/gate resident vs 150–180 for the
+  per-column write path, ~2.7× per product; fidelity trade and capacity limits
+  characterized.
+- **Plane-packed multi-read totals** — the multi-read accumulate regime is
+  exact and byte-identical to the reference. It also surfaced a silent-skip
+  integrity hazard, now observable: any application whose results map one-to-one
+  onto executed programs must check that the platform's oversize-skip counter
+  did not advance across the batch.
+- **Output-numerics gate** — the project had no full-coverage numerics gate;
+  token identity is insensitive (it passed at 87 % wrong masks). Built as a
+  correlation gate, because raw per-operation output is not bit-stable across
+  processes while correlation is — and correlation collapses immediately on
+  wrong weights or stale masks. Gate mask, weight and pool changes on numerics,
+  never on token identity. `python/v2_oracle.py`.
+- **Fixture-set refusal** — the same class of defect one level up: a die driven
+  with another die's calibration returns a fraction of cells wrong and passes a
+  correlation gate. Measured on one channel minutes apart: foreign trio 265/512
+  bit-exact at 13.6 % worst relative error, PASS; correct trio 512/512. The
+  population is one config file now and the resolver refuses fixtures from
+  outside it. `python/dimm_population.py`.
+- **Bank-parallel issue (`PIM_PARALLEL_BANKS`)** — engaged, provably, and worth
+  ~3 % ≈ variance. That is the ceiling for a compute-issue lever on a
+  readout-bound wall, and it is why readout came first. Gotcha recorded:
+  batching bit-planes disables it structurally.
+- **Coset-broadcast operand fan-out** — ⚠ NEGATIVE in production. One
+  charge-sharing operation loads a scratch row byte-exactly from a
+  pool-resident source, 265.8× fewer instructions than the per-column write,
+  and it contributes nothing: the body recomputes its scratch row, so the
+  deposit is never read. The standalone primitive demonstration stands; the
+  production integration does not. Default off.
+- **Activation-side residency and clone (X-master)** — ⚠ CLOSED NEGATIVE. A
+  RowClone establishes the operand at charge-shared, not write-driven, levels,
+  so the in-DRAM value is not the value written. Corrupts at production mask
+  density on both tracks (correlation 0.94–0.97, 0/2048 bit-exact) where the
+  same shape without it is bit-exact. Hard-gated off. Revivable only if the
+  seed can be made write-driven-equivalent, which charge-sharing physics argues
+  against.
+- **Streamed packed matmul** — correctness certified (zero framing, poison or
+  fatal events across 26 arms), wall **+0.67 %** once a teardown artifact was
+  removed: neutral. Off. Three independent brackets — bytes, program count and
+  drain discipline — each moved the wall by nothing, which is what named the
+  host cadence as the binder rather than any of them.
+- **Descriptor-serve engine** — honest negative as a wall lever: execution
+  alone floors at the whole wall by construction. Retained as a certification
+  accelerator, where sharing one session across walks is 3.4× faster *and* more
+  exact.
+- **MAJ5 chain policy A/B** — honest negative (99.51 vs 99.90); the published
+  reference policy stands.
+- **q3_K quantization coverage** — 99.90 %; quant coverage complete.
