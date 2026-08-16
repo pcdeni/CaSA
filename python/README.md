@@ -36,7 +36,7 @@ huggingface-cli download microsoft/bitnet-b1.58-2B-4T \
 | Variable | Default | Purpose |
 |---|---|---|
 | `BITNET_CACHE` | `~/bitnet_weights` | Hugging Face cache directory containing the BitNet snapshot. |
-| `CASA_CALIB`   | `../calibration/calib_dimm0.txt` (relative to script) | Calibrated MAJ3-perfect tuples for the target DIMM. |
+| `CASA_CALIB`   | the calibration named by `calibration/DIMM_POPULATION.conf` | Calibrated MAJ3-perfect tuples for the target DIMM. |
 | `CASA_RUNNER`  | (no default — must be set) | Path to `bitnet-proj-exe` (per-call runner). |
 | `CASA_SERVER`  | (no default — must be set) | Path to `bitnet-proj-server` (long-running daemon). |
 

@@ -61,8 +61,10 @@ The software side of the demonstration:
   the silicon-found fixes.
 - **`scheduler/`** — `casa_sched.c`, a discrete-event DDR4 scheduler that
   projects the bus-bound floor beneath the measured arc.
-- **`calibration/`** — calibrated open-row tuples for one of our test DIMMs
-  (format documented; you produce your own for new DIMMs).
+- **`calibration/`** — calibrated open-row tuples plus
+  `DIMM_POPULATION.conf`, the one file describing which modules are installed
+  and which fixtures serve them (format documented; you produce your own for
+  new DIMMs).
 - **`api-patches/`** / **`shim-patches/`** — unified diffs for the
   SiMRA/DRAM-Bender API and the llama.cpp mulmat shim.
 - **`docs/`** — AI style diary and the
@@ -85,21 +87,24 @@ right path (see `app/README.md`).
 git clone https://github.com/CMU-SAFARI/DRAM-Bender
 
 # 2. Drop our C++ apps into DRAM-Bender's apps tree and build.
-cp app/*.cpp app/Makefile DRAM-Bender/sources/apps/DSN_AE_APPS/BitNet/
-cp calibration/calib_dimm0.txt   DRAM-Bender/sources/apps/DSN_AE_APPS/BitNet/
+cp app/*.cpp app/*.h app/Makefile DRAM-Bender/sources/apps/DSN_AE_APPS/BitNet/
+cp calibration/*.txt             DRAM-Bender/sources/apps/DSN_AE_APPS/BitNet/
 cd DRAM-Bender/sources/apps/DSN_AE_APPS/BitNet
 make
 
-# 3. Calibrate a DIMM (once per chip — see docs/CALIBRATION.md).
-#    The shipped calib_dimm0.txt is for one of our test DIMMs;
-#    your hardware may need its own characterization.
+# 3. Describe your modules in calibration/DIMM_POPULATION.conf, then check it:
+#    python3 python/dimm_population.py
+#    It prints the calibration, pool layout and row window it resolves per
+#    channel. Calibration is per chip — see docs/CALIBRATION.md, and
+#    docs/CALIBRATION_TRANSFER.md for what does not need re-measuring.
 
 # 4. End-to-end smoke test (expect a bit-exact ternary x int8 matmul):
-./bitnet-real-exe 0 calib_dimm0.txt 1
+./bitnet-real-exe 0 calib_dimm2.txt 1
 
 # 5. Hook the long-running PIM server into BitNet inference.
 export PIM_RUNNER=$PWD/bitnet-proj-exe
 export PIM_SERVER=$PWD/bitnet-proj-server
+export PIM_BN=$PWD                           # where the fixtures were copied
 export BITNET_CACHE=~/bitnet_weights         # any HF cache dir
 cd <repo>/python
 pip install transformers==4.52 torch
@@ -117,7 +122,8 @@ swap works internally.
 - A Xilinx Alveo U200 / VCU1525 / BCU1525 (or compatible) FPGA card flashed with the
   DRAM-Bender bitstream.
 - One or more DDR4 1333 MT/s DIMMs in the FPGA's DIMM slots (you characterize
-  them yourself).
+  them yourself). Ours are four SK hynix `HMA41GU6AFR8N-TF`, one per channel,
+  described in `calibration/DIMM_POPULATION.conf`.
 - A host with a PCIe-attached FPGA, the Xilinx XDMA driver loaded, and the
   SoftMC API available.
 

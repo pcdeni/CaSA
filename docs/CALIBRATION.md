@@ -1,62 +1,74 @@
-# Calibrating a new DIMM
+# Calibrating a DIMM
 
-Each new DIMM you intend to use needs three things characterized:
-**MAJ3 timings**, **broadcast timings**, and **RowClone timings**. The
-shipped `calibration/calib_dimm0.txt` only fits our reference DIMM —
-different silicon batches need their own calibration.
+A DIMM you intend to compute on needs three things characterized: **MAJ3
+timings**, **broadcast timings** and **RowClone timings**. A calibration
+belongs to the die it was measured on. Different silicon needs its own —
+though far less of it than the first one cost, which is what
+`docs/CALIBRATION_TRANSFER.md` is about.
+
+## What ships here
+
+`calibration/calib_dimm2.txt` is the live calibration: 384 MAJ3-perfect
+tuples across banks 0–3 of subarrays 72, 78 and 86, on the SK hynix part
+described in `docs/HARDWARE.md`. With
+`calibration/pool_layout_dimm2_cloneok_bank{0-3}.txt` and the row window
+`[45312, 45952)` it forms the *trio* every tool resolves through
+`calibration/DIMM_POPULATION.conf`.
+
+`calibration/calib_dimm0.txt` and the `pool_layout_dimm0_*`,
+`fused_colmask_dimm0_*` files are the characterization record of a module
+that is no longer installed — a different part number. They are kept
+because they are data, and `python/dimm_population.py` refuses to serve
+them as a live default: pointing one die at another die's calibration does
+not fail loudly, it computes a fraction of cells wrong.
 
 ## What you are looking for
 
-Three charge-sharing operations are used by the BitNet PIM apps:
+Three charge-sharing operations are used by the PIM apps:
 
-| Operation | Primitive | Default timing on DIMM 0 |
+| Operation | Primitive | Timing on our parts |
 |---|---|---|
-| MAJ3 (the actual gate) | `doubleACT(t_12, t_23)` over 16 open rows | `t_12 = 0, t_23 = 0` |
-| Broadcast (Multi-Row-Init): copy `Rfirst` to all 16 open rows | `doubleACT(t_12, t_23)` (different rows) | `t_12 = 10, t_23 = 2` |
-| RowClone: charge-share 2-row copy | `doubleACT(t_12, t_23, src, dst)` | `t_12 = 30, t_23 = 1` |
+| MAJ3 (the gate itself) | `doubleACT(t_12, t_23)` over 16 open rows | `t_12 = 0, t_23 = 0` |
+| Broadcast (Multi-Row-Init): copy `Rfirst` into all 16 open rows | `doubleACT(t_12, t_23)`, different rows | `t_12 = 10, t_23 = 2` |
+| RowClone: charge-shared 2-row copy | `doubleACT(t_12, t_23, src, dst)` | `t_12 = 30, t_23 = 1` |
 
-A "calibrated tuple" for MAJ3 is a `(s_id, bank, Rfirst, Rsecond,
-[r0..r15])` configuration where `doubleACT(0,0,Rfirst,Rsecond)` over
-the 16 open rows produces the correct majority output for every
-input pattern your characterization tests, on every cell.
+A *calibrated tuple* for MAJ3 is an `(s_id, bank, Rfirst, Rsecond,
+[r0..r15])` configuration where `doubleACT(0,0,Rfirst,Rsecond)` over the 16
+open rows produces the correct majority for every input pattern you test,
+on every cell.
 
 ## Protocol
 
-### 1. Find candidate tuples (MAJ3 region)
+### 1. Find candidate tuples
 
-Run DRAM-Bender's `FindOpenRows` application against the DIMM. The
-exact invocation depends on your bitstream and the DIMM channel
-mapping:
+Run DRAM-Bender's `FindOpenRows` against the DIMM. The exact invocation
+depends on your bitstream and channel mapping:
 
 ```bash
 cd DRAM-Bender/sources/apps/DSN_AE_APPS/FindOpenRows
 ./find-open-rows-exe <bender_id> <selected_subarrays.txt> <temp> <output_dir>
 ```
 
-This sweeps `(t_12, t_23) ∈ {0..3}^2 × subarray × row-pair` and
-produces a CSV listing every combination that activates cleanly. At
-~1-2 hours per (subarray, timing) pair, expect 1-2 days per DIMM for
-3-4 subarrays.
+It sweeps `(t_12, t_23) ∈ {0..3}^2 × subarray × row-pair` and produces a CSV
+of every combination that activates cleanly. Budget 1–2 hours per
+(subarray, timing) pair.
 
 ### 2. Score MAJ3 stability across input patterns
 
-Run DRAM-Bender's `MajOperations` over the candidate tuples from
-step 1. This drives a wide set of input patterns through each
-candidate and counts:
+Run DRAM-Bender's `MajOperations` over the step-1 candidates. It drives a
+wide set of input patterns through each candidate and counts:
 
-- `full_stable_cells` (% of cells that always output the correct
-  majority on every tested pattern)
-- `full_coverage_cells` (% of cells that flipped at least once but
-  always within the same direction the majority computes)
+- `full_stable_cells` — cells that always output the correct majority on
+  every tested pattern;
+- `full_coverage_cells` — cells that flipped at least once, but always in
+  the direction the majority computes.
 
-For our reference DIMM we kept tuples with **`majX == 3, t_12 == 0,
-t_23 == 0, full_stable_cells == 100, full_coverage_cells == 100`**.
-That gave 312 perfect tuples across 4 banks of subarray 61.
+We keep tuples with `majX == 3, t_12 == 0, t_23 == 0,
+full_stable_cells == 100, full_coverage_cells == 100`.
 
 ### 3. Verify broadcast and RowClone independently
 
-The `app/` C++ smoke tests are designed to verify these
-independently of MAJ3:
+The `app/` smoke tests check these without going through MAJ3:
 
 ```bash
 # Per-bank RowClone reliability sweep:
@@ -64,78 +76,62 @@ for bk in 0 1 2 3; do
   rfirst=$(awk -v b=$bk '$1!~/^#/ && $2==b {print $3; exit}' calib_dimmN.txt)
   ./rowclone-smoke-exe <bender_id> $bk <some_backup_row> $rfirst
 done
-# Expect "match=8192/8192 (100%) PERFECT_CLONE" for every (bank, t_23) pair
-# at t_23 = 1.
+# Expect "match=8192/8192 (100%) PERFECT_CLONE" for every (bank, t_23) pair.
 
-# End-to-end persistent weights (uses RowClone + broadcast + MAJ3
-# in one combined program):
+# End-to-end persistent weights (RowClone + broadcast + MAJ3 in one program):
 ./persistent-smoke-exe <bender_id> calib_dimmN.txt <bank> <s_id> <backup_row>
-# Expect 8192/8192 byte-exact match between the persistent path
-# (per-col write to backup ONCE, then RowClone-refresh) and the
-# direct per-col write path.
+# Expect 8192/8192 byte-exact between the persistent path (per-column write
+# to backup once, then RowClone-refresh) and the direct per-column path.
 ```
 
-If the smoke tests pass with the same `(t_12, t_23)` defaults as
-DIMM 0, you can use those defaults in production. If not, **the
-defaults are not transferable** — sweep `t_23` in
-`rowclone-smoke-exe` (already sweeps {1, 2, 3, 4}) to find the
-working value, and adjust the `doubleACT(t_12, t_23, …)` calls in
-`test_bitnet_server.cpp::emit_bank_combined_body` accordingly.
+If the smoke tests pass at the same `(t_12, t_23)` defaults as ours, use
+them. If not, **the defaults are not transferable** — sweep `t_23` in
+`rowclone-smoke-exe` (it already sweeps {1, 2, 3, 4}) for the working value
+and adjust the `doubleACT(t_12, t_23, …)` calls in
+`test_bitnet_server.cpp::emit_bank_combined_body` to match.
 
 ### 4. Format the calib file
 
-See `calibration/README.md` for the exact format. The downstream C++
-apps read this file and pick one tuple per `(bank, …)` they're
-asked to use.
+See `calibration/README.md` for the format. The C++ apps read it and pick
+one tuple per `(bank, …)` they are asked to use.
+
+### 5. Record the population
+
+Put the new module and its trio in `calibration/DIMM_POPULATION.conf` and
+check it with `python3 python/dimm_population.py`. That file is the only
+place a fixture name belongs; the tools take it from there.
 
 ## What can go wrong
 
-- **0 % yield on a DIMM.** Some samples give us zero perfect
-  16-open tuples (notably some Crucial Ballistix). The chip may
-  still be usable for smaller configurations (8 open rows,
-  fewer-bit MAJ3, etc.) — but not for the full BitNet
-  configuration. Move to a different DIMM.
-- **Run-to-run drift on marginal tuples.** A tuple that scored
-  100 % last week may have ~5/22144 cells flip differently this
-  week on uncalibrated input bit-patterns. The scoring is robust
-  to this within the calibrated input set; outside it, expect
-  small per-run variance (~0.02 % of outputs). Ternary models
-  absorb it.
-- **Per-bank divergence.** Different banks use different physical
-  cells with different characteristics. Verify each bank you
-  intend to use independently.
+- **Zero yield.** Some samples give zero perfect 16-open tuples — we have
+  seen it on Crucial Ballistix. The chip may still be usable for smaller
+  configurations (8 open rows, fewer-input MAJ3) but not for the full
+  BitNet configuration. Yield is a property of the part: we have measured
+  anywhere from 0 % to ~38 % candidate rate.
+- **Run-to-run drift on marginal tuples.** A tuple that scored 100 % last
+  week may see a handful of cells out of ~22,000 flip differently this week
+  on *uncalibrated* input patterns. Scoring is robust to this inside the
+  calibrated input set; outside it, expect ~0.02 % per-run variance.
+  Ternary models absorb it. This is also why the numerics gate for a
+  calibration change is a correlation threshold and not bit-exactness —
+  raw per-operation output is not bit-stable across processes, while
+  correlation is, and it collapses immediately on a genuinely wrong
+  weight, mask or pool.
+- **Per-bank divergence.** Different banks are different physical cells.
+  Verify each bank you intend to use — but see
+  `docs/CALIBRATION_TRANSFER.md` first: on a characterized die that is a
+  margin re-screen, not a re-sweep.
+- **A clean screen is not a certified channel.** A channel can pass
+  RowClone, byte-lane and read/write screens and the numerics oracle, and
+  then latch a byte lane under sustained model traffic. Re-run the lane and
+  clone checks *after* traffic — `docs/HARDWARE.md` has the order.
 
 ## Time budget
 
-For our reference DIMM, the full pipeline (sweep → score →
-broadcast verify → RowClone verify) took roughly 30-40 hours of
-FPGA wall-time. The other three DIMMs have since finished (May
-2026): the timing constants generalized on the two full-PUD
-modules; two partial modules turned out MAJ3-limited entirely
-(zero separated-generator tuples — a part/binning outcome, not a
-calibration failure).
-
-## Calibration transfer (do NOT re-run the 30-40 h pipeline per bank)
-
-What we have measured about how characterization generalizes
-(the "replicated blocks" finding + the cross-die results):
-
-- **Across banks of one die**: the co-activation spread profile is
-  byte-identical on every bank measured, and the predecoder selection
-  law is a design constant. Per-bank differences are *margin* only
-  (which columns are strong). Transfer = copy the source bank's calib
-  (tuple rows, t_12/t_23, open-row set) verbatim, then re-run ONLY the
-  column margin screen on the target bank (minutes-to-hours), then the
-  standard RowClone/broadcast/MAJ3 smoke. Our production die runs three
-  banks on one calib this way.
-- **Across dies of the same part**: fault sets and calibration
-  transferred byte-identically between our two same-model modules —
-  same recipe as above, margin re-screen per die.
-- **Across different parts**: the spread lattice is chip-specific (our
-  two part types couple different XOR offsets — one includes ⊕256, one
-  does not). The *method* transfers; the lattice does not. Re-derive
-  the fault-sweep/lattice first — pool layouts depend on it — then
-  calibrate timings (those have been the stable part in our data).
-
-The 16-bank audit on the roadmap (`ROADMAP.md` §C) will turn this into
-a quantified transfer-success table.
+The first subarray of a new *part* is the expensive one: sweep → score →
+broadcast verify → RowClone verify was roughly 30–40 hours of FPGA
+wall-time for us. Nothing after that costs anything like it. Adopting
+another bank, or another die of the same part, is a copy plus a margin
+re-screen; adopting another subarray of a characterized die is minutes.
+`docs/CALIBRATION_TRANSFER.md` is the recipe, with the measurements behind
+each step.

@@ -24,7 +24,7 @@ DBROOT=path/to/DRAM-Bender
 DEST=$DBROOT/sources/apps/DSN_AE_APPS/BitNet
 mkdir -p $DEST
 cp *.cpp Makefile $DEST/
-cp ../calibration/calib_dimm0.txt $DEST/   # or your own
+cp ../calibration/*.txt $DEST/            # calibs, pools, colmasks
 
 # 4. Build.
 cd $DEST
