@@ -199,6 +199,21 @@ static void maint_event(int kind, bool with_read, bool with_flush) {
     }
 }
 
+// ---- c2h beat pairing (receiver model) -----------------------------------
+// Every 512b engine word leaves rdback_fifo as two 256b c2h beats. The IP
+// presents the most-significant half first and readback_engine pre-swaps the
+// halves on `din`, so the pair arrives LOW half first and the receiver reads
+// it straight — no de-swap. Build the FIFO with `+define+SIM_RBF_LSB_FIRST`
+// (legacy low-half-first model) and this receiver inverts with it, via a
+// matching `-CFLAGS -DSIM_RBF_LSB_FIRST`; the two must always agree.
+#ifdef SIM_RBF_LSB_FIRST
+static inline size_t beat_lo(size_t w) { return w * 2 + 1; }
+static inline size_t beat_hi(size_t w) { return w * 2 + 0; }
+#else
+static inline size_t beat_lo(size_t w) { return w * 2 + 0; }
+static inline size_t beat_hi(size_t w) { return w * 2 + 1; }
+#endif
+
 // ---- checks --------------------------------------------------------------
 static void check(const char* what, bool ok) {
     printf("  [%s] %-68s %s\n", variant, what, ok ? "PASS" : "FAIL");
@@ -206,8 +221,9 @@ static void check(const char* what, bool ok) {
 }
 
 static uint32_t chunk_total(const std::vector<Beat>& m, size_t chunk_idx) {
-    // accum chunk = 2 beats; beat0 = high half (zeros), beat1 w[0] = total
-    size_t b = chunk_idx * 2 + 1;
+    // accum chunk = 2 beats; the high half is zero, the low half carries the
+    // total in w[0].
+    size_t b = beat_lo(chunk_idx);
     if (b >= m.size()) return 0xDEADDEADu;
     return m[b].w[0];
 }
@@ -238,7 +254,7 @@ static void expect_trailer(const std::vector<Beat>& m,
 
 // Simple "message is chunk(total)+trailer" check.
 static bool msg_is_chunk_and_trailer(const std::vector<Beat>& m, uint32_t total) {
-    return m.size() == 3 && beat_is_zero(m[0]) && chunk_total(m, 0) == total &&
+    return m.size() == 3 && beat_is_zero(m[beat_hi(0)]) && chunk_total(m, 0) == total &&
            !m[0].tlast && !m[1].tlast && m[2].tlast && m[2].w[0] == MAGIC;
 }
 
@@ -257,7 +273,7 @@ static void scenario_a() {
         const std::vector<Beat>& m = msgs[0];
         check("message = 3 beats (2 chunk + 1 trailer)", m.size() == 3);
         if (m.size() == 3) {
-            check("chunk beat0 (high half) all zero", beat_is_zero(m[0]));
+            check("chunk high half all zero", beat_is_zero(m[beat_hi(0)]));
             check("chunk total == 24", chunk_total(m, 0) == 24);
             check("tlast only on trailer", !m[0].tlast && !m[1].tlast && m[2].tlast);
             expect_trailer(m, 0, 0, 0, 1, 0, 1, 1);
@@ -494,7 +510,7 @@ static uint32_t probe_program() {
     idle(60);
     if (msgs.size() != before + 1) return 0xEEEEEEEEu;
     const std::vector<Beat>& m = msgs.back();
-    if (m.size() == 3 && beat_is_zero(m[0])) return chunk_total(m, 0); // DIFF shape
+    if (m.size() == 3 && beat_is_zero(m[beat_hi(0)])) return chunk_total(m, 0); // DIFF shape
     if (m.size() == 9) return 0xFFFFFFFFu;                             // READ shape
     return 0xEEEEEEEEu;
 }
@@ -693,8 +709,8 @@ static void scenario_segpop() {
     // that here and assert byte g == popcount(segment g).
     std::vector<uint8_t> bytes;
     for (int w = 0; w * 2 + 1 < ndata; w++) {
-        const Beat& lo = m[w*2 + 1];   // de-swap: second 256b beat is low half
-        const Beat& hi = m[w*2 + 0];
+        const Beat& lo = m[beat_lo(w)];
+        const Beat& hi = m[beat_hi(w)];
         for (int i = 0; i < 8; i++) for (int k = 0; k < 4; k++)
             bytes.push_back((lo.w[i] >> (k*8)) & 0xFF);
         for (int i = 0; i < 8; i++) for (int k = 0; k < 4; k++)
@@ -827,8 +843,8 @@ static void scenario_accxbp_with(const char* hdr,
     // de-swap (beat1,beat0) per word, read lane l of word w as int32.
     int bad = 0, checked = 0;
     for (int w = 0; w * 2 + 1 < ndata && w < 128; w++) {
-        const Beat& lo = m[w*2 + 1];
-        const Beat& hi = m[w*2 + 0];
+        const Beat& lo = m[beat_lo(w)];
+        const Beat& hi = m[beat_hi(w)];
         int32_t lane[16];
         for (int i = 0; i < 8; i++) lane[i]   = (int32_t)lo.w[i];
         for (int i = 0; i < 8; i++) lane[8+i] = (int32_t)hi.w[i];
@@ -858,7 +874,7 @@ static void scenario_accxbp_with(const char* hdr,
         const std::vector<Beat>& m2 = msgs.back();
         int nd2 = (int)m2.size() - 1, bad2 = 0;
         for (int w = 0; w * 2 + 1 < nd2 && w < 128; w++) {
-            const Beat& lo = m2[w*2 + 1]; const Beat& hi = m2[w*2 + 0];
+            const Beat& lo = m2[beat_lo(w)]; const Beat& hi = m2[beat_hi(w)];
             int32_t lane[16];
             for (int i = 0; i < 8; i++) lane[i]   = (int32_t)lo.w[i];
             for (int i = 0; i < 8; i++) lane[8+i] = (int32_t)hi.w[i];
@@ -919,8 +935,8 @@ static void scenario_segpop_stale_wdata() {
     int ndata = (int)m.size() - 1;
     std::vector<uint8_t> bytes;
     for (int w = 0; w * 2 + 1 < ndata; w++) {
-        const Beat& lo = m[w*2 + 1];
-        const Beat& hi = m[w*2 + 0];
+        const Beat& lo = m[beat_lo(w)];
+        const Beat& hi = m[beat_hi(w)];
         for (int i = 0; i < 8; i++) for (int k = 0; k < 4; k++)
             bytes.push_back((lo.w[i] >> (k*8)) & 0xFF);
         for (int i = 0; i < 8; i++) for (int k = 0; k < 4; k++)

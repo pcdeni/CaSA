@@ -5,6 +5,11 @@
 // a few cycles after wr_en before `empty` deasserts and the word falls
 // through to `dout`. Modeling that latency reproduces the trailer-before-
 // chunk delivery offset seen on the tower (RESULT.md addendum 20e).
+//
+// Read order and depth follow `rdback_fifo_sim.v`: the IP presents the
+// MOST-SIGNIFICANT half of each 512b write first, and the active depth is the
+// IP's Output_Depth of 2048 read-side entries. `+define+SIM_RBF_LSB_FIRST` and
+// `+define+SIM_RBF_DEPTH4096` restore the legacy model in both files together.
 module rdback_fifo #(parameter FILL_LAT = 3) (
     input  wire         clk,
     input  wire         srst,
@@ -17,7 +22,12 @@ module rdback_fifo #(parameter FILL_LAT = 3) (
     output wire         valid,
     output wire         prog_full
 );
-    localparam DEPTH = 4096; // 256b entries (= 2048 x 512b writes)
+    localparam DEPTH = 4096;   // storage ceiling (12-bit mem indexing)
+`ifdef SIM_RBF_DEPTH4096
+    localparam ADEPTH = 4096;
+`else
+    localparam ADEPTH = 2048;  // IP Output_Depth: 2048 x 32 B = 65,536 B
+`endif
     reg [255:0] mem [0:DEPTH-1];
     reg [12:0]  wp;
     reg [12:0]  rp;
@@ -30,8 +40,8 @@ module rdback_fifo #(parameter FILL_LAT = 3) (
     wire [12:0] count_vis  = wp_vis[FILL_LAT-1] - rp; // for empty/valid (data)
 
     assign empty     = (count_vis == 13'd0);
-    assign full      = (count_true > DEPTH - 2);
-    assign prog_full = (count_true > DEPTH - 16);
+    assign full      = (count_true > ADEPTH - 2);
+    assign prog_full = (count_true > ADEPTH - 16);
     assign valid     = !empty;
     assign dout      = mem[rp[11:0]];
 
@@ -43,8 +53,13 @@ module rdback_fifo #(parameter FILL_LAT = 3) (
         end
         else begin
             if (wr_en && !full) begin
+`ifdef SIM_RBF_LSB_FIRST
                 mem[wp[11:0]]                    <= din[255:0];
                 mem[(wp[11:0] + 12'd1) & 12'hfff] <= din[511:256];
+`else
+                mem[wp[11:0]]                    <= din[511:256];
+                mem[(wp[11:0] + 12'd1) & 12'hfff] <= din[255:0];
+`endif
                 wp <= wp + 13'd2;
             end
             // shift the visibility pipeline: the current wp is seen by the

@@ -6,6 +6,7 @@
 // Widths fixed to parameters.vh: BG 2, BANK 2, COL 10, ROW 17.
 #include "svdpi.h"
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <unordered_map>
 #include <array>
@@ -89,10 +90,21 @@ extern "C" void dram_tick(int act_m, int rd_m, int wr_m, int pre_m,
       auto it = g_mem.find(key);
       std::array<uint32_t, 16> a =
           (it != g_mem.end()) ? it->second : seed_beat(key);
-      // MIG lane semantics: the beat's FIRST 32 bytes ride the UPPER
-      // 256 bits of rd_data (the engine's din half-swap undoes it).
+      // The beat is returned on rd_data in natural word order. There is
+      // exactly ONE half-swap on the readback path and it lives in the
+      // engine ("shuffle data because fifo outputs them on wrong order"),
+      // which cancels the rdback_fifo's most-significant-half-first read
+      // order. A second swap here would cancel for a host READ round trip
+      // and NOT cancel for SEG_POP, because the engine taps rd_data for the
+      // per-segment popcounts upstream of its own swap.
+      // SIM_RBF_LSB_FIRST selects the legacy low-half-first FIFO model, and
+      // that model needs this compensating swap back; the two are one knob.
       Ret r;
+#ifdef SIM_RBF_LSB_FIRST
       for (int i = 0; i < 8; i++) { r.d[i] = a[i + 8]; r.d[i + 8] = a[i]; }
+#else
+      for (int i = 0; i < 16; i++) r.d[i] = a[i];
+#endif
       uint64_t at = g_cycle + RL;
       if (at <= g_next_ret) at = g_next_ret + 1;
       r.at = at; g_next_ret = at;
